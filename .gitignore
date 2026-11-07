@@ -1,0 +1,17 @@
+# User-supplied game files, analysis output and generated code are never committed.
+/game/*
+!/game/README.md
+/analysis/
+/generated/
+/external/
+/build*/
+/out/
+/logs/
+/tools/bin/
+*.apk
+*.aab
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+__pycache__/
