@@ -53,6 +53,12 @@ public:
     gptr() = default;
     gptr(std::nullptr_t) {}
     gptr(T *p) : va_(va_of(p)) {}
+    // An address computed as an integer (0, get_absolute_value...): exact-match template so
+    // a literal 0 is not ambiguous with the pointer constructor.
+    template <typename I, typename = std::enable_if_t<std::is_integral_v<I>>>
+    gptr(I va) : va_(static_cast<uint32_t>(va)) {}
+    template <typename I, typename = std::enable_if_t<std::is_integral_v<I>>>
+    gptr &operator=(I va) { va_ = static_cast<uint32_t>(va); return *this; }
     static gptr from_va(uint32_t va) { gptr g; g.va_ = va; return g; }
 
     uint32_t va() const { return va_; }
@@ -110,22 +116,29 @@ template <typename A> inline void put_arg(uint32_t *&w, A a) {
     if constexpr (std::is_pointer_v<A>) { *w++ = a ? va_of(a) : 0; }
     else if constexpr (std::is_same_v<A, float>) { uint32_t u; std::memcpy(&u, &a, 4); *w++ = u; }
     else if constexpr (std::is_same_v<A, double>) { uint64_t u; std::memcpy(&u, &a, 8); *w++ = (uint32_t)u; *w++ = (uint32_t)(u >> 32); }
+    else if constexpr (std::is_class_v<A>) {               // by-value struct: its 32-bit image
+        uint32_t n = (sizeof(A) + 3u) / 4u; std::memset(w, 0, n * 4u); std::memcpy(w, &a, sizeof(A)); w += n;
+    }
     else if constexpr (sizeof(A) == 8) { uint64_t u = (uint64_t)a; *w++ = (uint32_t)u; *w++ = (uint32_t)(u >> 32); }
-    else if constexpr (std::is_class_v<A>) { static_assert(sizeof(A) == 4, "only 4-byte wrappers (gptr) pass by value"); uint32_t u; std::memcpy(&u, &a, 4); *w++ = u; }
     else { *w++ = (uint32_t)a; }
 }
+template <typename A> constexpr size_t arg_words() { return std::is_pointer_v<A> ? 1 : (sizeof(A) + 3u) / 4u; }
 
 template <typename R> inline R take_result(const result &r) {
     if constexpr (std::is_void_v<R>) return;
     else if constexpr (std::is_pointer_v<R>) return ptr_of<std::remove_pointer_t<R>>(r.eax);
     else if constexpr (std::is_floating_point_v<R>) return static_cast<R>(r.st0);
+    else if constexpr (std::is_class_v<R>) {
+        static_assert(sizeof(R) <= 8, "structs over 8 bytes return through a hidden pointer: not supported");
+        uint64_t u = ((uint64_t)r.edx << 32) | r.eax; R v; std::memcpy(&v, &u, sizeof(R)); return v;
+    }
     else if constexpr (sizeof(R) == 8) return (R)(((uint64_t)r.edx << 32) | r.eax);
     else return (R)r.eax;
 }
 
 template <typename R, typename... A>
 inline R gcall(uint32_t va, A... args) {
-    uint32_t words[2 * sizeof...(A) + 1];
+    uint32_t words[(arg_words<A>() + ... + 0) + 1];
     uint32_t *w = words;
     (put_arg(w, args), ...);
     return take_result<R>(call_va(va, static_cast<int>(w - words), words));
@@ -134,7 +147,7 @@ inline R gcall(uint32_t va, A... args) {
 // thiscall: `this` travels in ecx, the rest on the stack (callee pops them).
 template <typename R, typename T, typename... A>
 inline R gcall_this(uint32_t va, T self, A... args) {
-    uint32_t words[2 * sizeof...(A) + 1];
+    uint32_t words[(arg_words<A>() + ... + 0) + 1];
     uint32_t *w = words;
     (put_arg(w, args), ...);
     uint32_t this_word[1];
@@ -153,19 +166,27 @@ inline R gcall_this(uint32_t va, T self, A... args) {
 // cdecl: the shim reads arguments at [esp+4...] and returns with esp unchanged (the guest
 // caller pops). `Stdcall` exports pop their own arguments instead.
 
+// By-value structs (and gptr/gfn) are copied as their 32-bit image: x86 passes them on the
+// stack rounded up to 4 bytes, and MSVC returns 4/8-byte structs in eax / edx:eax.
 template <typename A> inline A get_arg(uint32_t &off) {
     auto word = [](uint32_t o) { return MEM32(g_esp + o); };
     if constexpr (std::is_pointer_v<A>) { A v = ptr_of<std::remove_pointer_t<A>>(word(off)); off += 4; return v; }
     else if constexpr (std::is_same_v<A, float>) { uint32_t u = word(off); off += 4; float f; std::memcpy(&f, &u, 4); return f; }
     else if constexpr (std::is_same_v<A, double>) { uint64_t u = word(off) | ((uint64_t)word(off + 4) << 32); off += 8; double d; std::memcpy(&d, &u, 8); return d; }
+    else if constexpr (std::is_class_v<A>) {
+        A a; std::memcpy(&a, ptr_of<void>(g_esp + off), sizeof(A)); off += (sizeof(A) + 3u) & ~3u; return a;
+    }
     else if constexpr (sizeof(A) == 8) { uint64_t u = word(off) | ((uint64_t)word(off + 4) << 32); off += 8; return (A)u; }
-    else if constexpr (std::is_class_v<A>) { uint32_t u = word(off); off += 4; A a; std::memcpy(&a, &u, 4); return a; }
     else { A v = (A)word(off); off += 4; return v; }
 }
 
 template <typename R> inline void set_result(R v) {
     if constexpr (std::is_pointer_v<R>) g_eax = v ? va_of(v) : 0;
     else if constexpr (std::is_floating_point_v<R>) { g_fp_top = (g_fp_top - 1) & 7; g_st[g_fp_top & 7] = (double)v; }
+    else if constexpr (std::is_class_v<R>) {
+        static_assert(sizeof(R) <= 8, "structs over 8 bytes return through a hidden pointer: not supported");
+        uint64_t u = 0; std::memcpy(&u, &v, sizeof(R)); g_eax = (uint32_t)u; g_edx = (uint32_t)(u >> 32);
+    }
     else if constexpr (sizeof(R) == 8) { g_eax = (uint32_t)(uint64_t)v; g_edx = (uint32_t)((uint64_t)v >> 32); }
     else g_eax = (uint32_t)v;
 }
@@ -236,8 +257,15 @@ public:
         return *this;
     }
     gfn_t &operator=(std::nullptr_t) { va_ = 0; return *this; }
+    // FFNx computes game addresses as integers (get_relative_call) and stores them here.
+    template <typename I, typename = std::enable_if_t<std::is_integral_v<I>>>
+    gfn_t(I va) : va_(static_cast<uint32_t>(va)) {}
+    template <typename I, typename = std::enable_if_t<std::is_integral_v<I>>>
+    gfn_t &operator=(I va) { va_ = static_cast<uint32_t>(va); return *this; }
     uint32_t va() const { return va_; }
     explicit operator bool() const { return va_ != 0; }
+    // ...and passes them back as addresses (get_relative_call, replace_function).
+    operator uint32_t() const { return va_; }
     // Comparisons FFNx does against raw addresses / other pointers.
     friend bool operator==(const gfn_t &a, const gfn_t &b) { return a.va_ == b.va_; }
     friend bool operator!=(const gfn_t &a, const gfn_t &b) { return a.va_ != b.va_; }
@@ -263,8 +291,13 @@ public:
         va_ = static_cast<uint32_t>(a);
         return *this;
     }
+    template <typename I, typename = std::enable_if_t<std::is_integral_v<I>>>
+    gfn_t(I va) : va_(static_cast<uint32_t>(va)) {}
+    template <typename I, typename = std::enable_if_t<std::is_integral_v<I>>>
+    gfn_t &operator=(I va) { va_ = static_cast<uint32_t>(va); return *this; }
     uint32_t va() const { return va_; }
     explicit operator bool() const { return va_ != 0; }
+    operator uint32_t() const { return va_; }
     template <typename... V> R operator()(V... v) const { return gcall<R>(va_, v...); }
 };
 

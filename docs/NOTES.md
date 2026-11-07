@@ -45,3 +45,16 @@
 - Game files for the app: /sdcard/Android/data/com.ff7recomp/files/game (adb push works there).
 - ART owns parts of the low 4 GB inside an app process (dalvik-main 0x12C00000-0x32C00000, boot image from ~0x6FF00000): first app run failed to reserve the arena. New layout: arena 0x33000000-0x5B000000, VirtualAlloc 0x5B000000-0x6B000000 (image stays at 0x400000). Headless runner works with it too.
 - **On device, in the APK:** lifted game boots in ~1 s, bgfx Vulkan comes up at 1920x1080 on the game thread, the driver table is handed over, and the screen shows "stopped at gfx::lock: not ported yet" (logs/app-run-2.png). Driver stubs now park the game thread with an on-screen status in the app, exit 93 headless.
+
+## 2026-11-07 (FFNx port, step 3: FFNx compiling for arm64)
+- tools/ffnx_port.py (run by setup after patches/ffnx/*):
+  - gptr: common_imports.h, common.h, ff7.h, ff8.h game structs -> gptr/gfn members (513 pointers, 478 fn pointers); host tables (externals) keep native data pointers, but T** become gptr<T>* (host pointer to a 4-byte guest cell), std::span<T*> -> std::span<gptr<T>>, LP* pointer typedefs handled.
+  - casts: ff7_data.h/ff8_data.cpp `(T **)get_absolute_value(...)` -> `(gptr<T> *)` (114 sites), skipping fn-pointer parameter lists.
+  - overrides: src/ffnx_port/override/patch.h replaces FFNx's (typed replace_* templates).
+- tools/ffnx_layout_check.py: pristine FFNx headers built for x86 -> src/ffnx_port/layout_asserts.cpp: 154 sizes + 338 offsets, all hold on arm64 (one bug found and fixed: members with `= nullptr` initialisers).
+- src/ffnx_port/patch_recomp.cpp: FFNx's patch API with recomp semantics -- hooks recorded (installed later as entry overrides / call-site slots), .text writes recorded for the re-lift manifest, data writes effective; ffnx_recomp_report / ffnx_recomp_write_manifest.
+- Shims in src/ffnx_port/include: windows.h (fixed widths, 32-bit handles, VK codes, WNDCLASSA 40 bytes), ddraw.h (DDSURFACEDESC 108, DDCAPS_DX5 364), dsound.h, dinput.h, mmsystem.h, DirectXTex.h (DDS mod textures fail loudly until bimg-based), empty Windows-only headers, sys/timeb.h, placeholder FFmpeg headers.
+- guest_abi.h grew: gfn from integers/native fns (thunk pool), implicit gfn->uint32_t address, by-value structs, thiscall/stdcall/variadic.
+- patches/ffnx/0001: renderer.cpp draws into ff7_platform_window() on Android and skips Windows HDR detection; C-style casts for guest pointers in gl.cpp/ff7_opengl.cpp.
+- Design note: FFNx stores its own ExternalMesh* in a game field (polygon_data.field_48, ff7/loaders.cpp `new ExternalMesh`). Pattern for such objects: allocate them in guest memory (placement new on guest_alloc) so the address fits. To do when ff7/loaders.cpp is ported.
+- **Compiles for arm64:** gl/texture, gl/gl, gl/deferred, gl/special_case, renderer, cfg, log, image/tim, saveload, ff7_opengl. Not yet: common.cpp (includes every module), image/image.cpp (libpng), utils.cpp (cryptopp), and the modules common.cpp links against.

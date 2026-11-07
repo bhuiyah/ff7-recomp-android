@@ -4,10 +4,15 @@
 #pragma once
 #include <windows.h>
 #include <mmsystem.h>
+#include "ffnx_guest.h"
 
 struct IDirectSound; struct IDirectSoundBuffer; struct IDirectSound3DBuffer; struct IDirectSound3DListener;
 typedef IDirectSound *LPDIRECTSOUND;
 typedef IDirectSoundBuffer *LPDIRECTSOUNDBUFFER;
+// The game's IDirectSound* lives in a 4-byte guest cell: a pointer to that cell is a
+// pointer to a guest pointer (tools/ffnx_port.py converts members declared with these).
+typedef gptr<IDirectSound> *LPLPDIRECTSOUND;
+typedef gptr<IDirectSoundBuffer> *LPLPDIRECTSOUNDBUFFER;
 typedef struct _DSBUFFERDESC { DWORD dwSize, dwFlags, dwBufferBytes, dwReserved; LPWAVEFORMATEX lpwfxFormat; GUID guid3DAlgorithm; } DSBUFFERDESC, *LPDSBUFFERDESC;
 #define DS_OK S_OK
 #define DSBCAPS_CTRLVOLUME 0x80u

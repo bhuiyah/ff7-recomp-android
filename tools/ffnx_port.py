@@ -61,11 +61,26 @@ TYPEDEF_PTRS = {
     'LPVOID': 'void', 'PVOID': 'void', 'LPSTR': 'char', 'LPCSTR': 'const char',
     'LPWAVEFORMATEX': 'WAVEFORMATEX', 'LPDIRECTDRAWSURFACE': 'IDirectDrawSurface',
     'LPDIRECTDRAW': 'IDirectDraw', 'LPDIRECTSOUNDBUFFER': 'IDirectSoundBuffer',
+    'LPDIRECTSOUND': 'IDirectSound',
 }
+# Pointer-to-pointer typedefs in host tables: a host pointer to a guest pointer cell.
+HOST_PTRPTR = {'LPLPDIRECTSOUND': 'IDirectSound', 'LPLPDIRECTDRAW': 'IDirectDraw'}
+HOST_PTRPTR_TYPEDEF = re.compile(r'^(?P<ind>\s*)(?P<t>' + '|'.join(HOST_PTRPTR) + r')\s+(?P<name>\w+)\s*;(?P<tail>.*)$')
 TYPEDEF_MEMBER = re.compile(r'^(?P<ind>\s*)(?P<t>' + '|'.join(TYPEDEF_PTRS) + r')\s+(?P<name>\w+)(?P<arr>(?:\s*\[[^\]]*\])*)\s*;(?P<tail>.*)$')
 
 
+SPAN_OF_PTRS = re.compile(r'std::span<\s*((?:struct\s+)?[\w:]+)\s*\*\s*>')
+
+
 def convert_line(line, host, fntypes, stats):
+    if host and SPAN_OF_PTRS.search(line):
+        # A span over guest memory holding pointers: its elements are 4-byte cells.
+        stats['ptr'] += 1
+        return SPAN_OF_PTRS.sub(lambda m: f'std::span<gptr<{m.group(1)}>>', line)
+    m = HOST_PTRPTR_TYPEDEF.match(line) if host else None
+    if m:
+        stats['ptr'] += 1
+        return f"{m.group('ind')}gptr<{HOST_PTRPTR[m.group('t')]}> *{m.group('name')};{m.group('tail')}"
     if not host:
         m = TYPEDEF_MEMBER.match(line)
         if m:
@@ -77,8 +92,6 @@ def convert_line(line, host, fntypes, stats):
         tmpl = {'__thiscall': 'gfn_thiscall', '__stdcall': 'gfn_stdcall'}.get(cc, 'gfn')
         stats['fn'] += 1
         return f"{m.group('ind')}{tmpl}<{m.group('ret').strip()}({m.group('args').strip()})> {m.group('name')};{m.group('tail')}"
-    if host:
-        return line
     m = PTR_MEMBER.match(line)
     if not m:
         return line
@@ -86,18 +99,35 @@ def convert_line(line, host, fntypes, stats):
     if base in ('return', 'typedef', 'using', 'delete', 'else', 'case', 'goto') or base.startswith(('typedef', 'friend', 'static')):
         return line
     out = []
+    changed = False
     for d in m.group('decls').split(','):
         dm = DECL.match(d)
         if not dm:
             return line                      # something unusual: leave it for the compiler to flag
         stars, name, arr = len(dm.group('stars')), dm.group('name'), dm.group('arr') or ''
         init = f" {dm.group('init').strip()}" if dm.group('init') else ''
+        if base in TYPEDEF_PTRS:             # LPDIRECTSOUND *x == IDirectSound **x
+            base, stars = TYPEDEF_PTRS[base], stars + 1
         if base in fntypes and stars == 1:
+            # A game function, wherever the pointer is stored.
             out.append(f'gfn<{base}> {name}{arr}{init};')
             stats['fntype'] += 1
+            changed = True
+        elif host:
+            # Host storage: the outer pointer stays native, but any further level points at
+            # a 4-byte guest pointer cell (T **p on Windows = host pointer to a guest slot).
+            if stars >= 2:
+                out.append(f'{nest(base, stars - 1)} *{name}{arr}{init};')
+                stats['ptr'] += 1
+                changed = True
+            else:
+                out.append(f'{base} *{name}{arr}{init};')
         else:
             out.append(f'{nest(base, stars)} {name}{arr}{init};')
             stats['ptr'] += 1
+            changed = True
+    if not changed:
+        return line
     return m.group('ind') + ' '.join(out) + m.group('tail')
 
 
@@ -172,8 +202,61 @@ def cmd_gptr(check):
           + (' (check only)' if check else ''))
 
 
+# Files that fill the host address tables: `(T **)get_absolute_value(...)` must become
+# `(gptr<T> *)...`, matching the members converted above (a host pointer to a 4-byte
+# guest pointer cell).
+CAST_FILES = ['ff7_data.h', 'ff8_data.cpp']
+CAST_MARKER = '// FF7Recomp: guest pointer-cell casts (tools/ffnx_port.py casts)'
+# Not preceded by "(*)": that would be a function-pointer parameter list, not a cast.
+PTRPTR_CAST = re.compile(r'(?<!\(\*\))\(\s*((?:const\s+)?(?:struct\s+)?[\w:]+(?:<[^()]*?>)?)\s*\*\s*\*\s*\)')
+# A local `T **x = (gptr<T> *)...` must hold the cell type too.
+PTRPTR_LOCAL = re.compile(r'\b((?:struct\s+)?[\w:]+)\s*\*\*\s*(\w+)\s*=\s*\(gptr<\1> \*\)')
+
+
+def cmd_casts():
+    for rel in CAST_FILES:
+        path = os.path.join(FFNX, rel)
+        if not os.path.exists(path):
+            continue
+        text = open(path, 'rb').read().decode('utf-8', errors='surrogateescape')
+        if CAST_MARKER in text:
+            print(f'  {rel}: already converted')
+            continue
+        new, n = PTRPTR_CAST.subn(lambda m: f'(gptr<{m.group(1)}> *)', text)
+        new = PTRPTR_LOCAL.sub(lambda m: f'gptr<{m.group(1)}> *{m.group(2)} = (gptr<{m.group(1)}> *)', new)
+        nl = '\r\n' if '\r\n' in new else '\n'
+        new = CAST_MARKER + nl + new
+        open(path, 'wb').write(new.encode('utf-8', errors='surrogateescape'))
+        print(f'  {rel}: {n} pointer-cell casts')
+
+
+OVERRIDES = os.path.join(ROOT, 'src', 'ffnx_port', 'override')
+
+
+def cmd_overrides():
+    """Copy src/ffnx_port/override/** over external/FFNx/src/** (same relative paths).
+    FFNx includes these with quotes from its own directory, so they have to be in-tree."""
+    n = 0
+    for dirpath, _, files in os.walk(OVERRIDES):
+        for name in files:
+            src = os.path.join(dirpath, name)
+            rel = os.path.relpath(src, OVERRIDES)
+            dst = os.path.join(FFNX, rel)
+            data = open(src, 'rb').read()
+            if not os.path.exists(dst) or open(dst, 'rb').read() != data:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                open(dst, 'wb').write(data)
+                print(f'  override {rel}')
+            n += 1
+    print(f'{n} override file(s) in place')
+
+
 if __name__ == '__main__':
     if len(sys.argv) >= 2 and sys.argv[1] == 'gptr':
         cmd_gptr('--check' in sys.argv)
+    elif len(sys.argv) >= 2 and sys.argv[1] == 'overrides':
+        cmd_overrides()
+    elif len(sys.argv) >= 2 and sys.argv[1] == 'casts':
+        cmd_casts()
     else:
         sys.exit(__doc__)

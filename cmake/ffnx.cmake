@@ -22,7 +22,9 @@ list(TRANSFORM FFNX_SOURCES PREPEND "${FFNX_SRC}/")
 
 add_library(ffnx STATIC ${FFNX_SOURCES}
   # 32-bit layout proof for every game struct (tools/ffnx_layout_check.py)
-  "${FF7_ROOT}/src/ffnx_port/layout_asserts.cpp")
+  "${FF7_ROOT}/src/ffnx_port/layout_asserts.cpp"
+  # FFNx's patch API with recomp semantics (replaces FFNx's patch.cpp)
+  "${FF7_ROOT}/src/ffnx_port/patch_recomp.cpp")
 target_include_directories(ffnx BEFORE PUBLIC
   "${FF7_ROOT}/src/ffnx_port/include"           # Win32/DirectX shims first
   "${FF7_ROOT}/src/ffnx_port/include_stub_ffmpeg"

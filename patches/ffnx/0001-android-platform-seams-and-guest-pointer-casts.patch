@@ -1,0 +1,90 @@
+diff --git a/src/ff7_opengl.cpp b/src/ff7_opengl.cpp
+index b8af8bfc..e25eb4ce 100644
+--- a/src/ff7_opengl.cpp
++++ b/src/ff7_opengl.cpp
+@@ -98,7 +98,7 @@ static ff7_polygon_set *ff7_swirl_update_60fps(ff7_game_obj *game_object, int up
+ static int ff7_swirl_draw_quad(const uint8_t *quad, ff7_graphics_object *graphics_object)
+ {
+ 	const int result = ff7_externals.swirl_draw_quad(quad, graphics_object);
+-	nvertex *vertices = reinterpret_cast<nvertex *>(graphics_object->vertex_transform);
++	nvertex *vertices = (nvertex *)(graphics_object->vertex_transform);
+ 
+ 	// PSX UV endpoints are inclusive; triangles need the outer texel boundaries.
+ 	vertices[1].u += graphics_object->u_offset;
+diff --git a/src/gl/gl.cpp b/src/gl/gl.cpp
+index 5e119380..25fb1b39 100644
+--- a/src/gl/gl.cpp
++++ b/src/gl/gl.cpp
+@@ -279,7 +279,7 @@ namespace
+ 	{
+ 		if (ff8 || !ff7::field::ff7_field_is_facial_primitive(polygon, ip)) return false;
+ 
+-		std::vector<nvertex> vertices(ip->vertices, ip->vertices + ip->vertexcount);
++		std::vector<nvertex> vertices((nvertex*)ip->vertices, (nvertex*)ip->vertices + ip->vertexcount);
+ 		std::vector<uint32_t> colors;
+ 		colors.reserve(vertices.size());
+ 		for (auto& vertex : vertices)
+@@ -306,7 +306,7 @@ void gl_draw_without_lighting(struct indexed_primitive* ip, struct polygon_data
+ 	KawaiDrawScope kawai_scope(polydata);
+ 	if (enable_external_mesh && polydata->field_48)
+ 	{
+-		auto externalMesh = reinterpret_cast<ExternalMesh*>(polydata->field_48);
++		auto externalMesh = (ExternalMesh*)(polydata->field_48);
+ 		gl_draw_external_mesh(externalMesh, lightdata);
+ 		return;
+ 	}
+@@ -332,7 +332,7 @@ void gl_draw_with_lighting(struct indexed_primitive *ip, struct polygon_data *po
+ 	KawaiDrawScope kawai_scope(polydata);
+ 	if (enable_external_mesh && polydata->field_48)
+ 	{
+-		auto externalMesh = reinterpret_cast<ExternalMesh*>(polydata->field_48);
++		auto externalMesh = (ExternalMesh*)(polydata->field_48);
+ 		gl_draw_external_mesh(externalMesh, lightdata);
+ 		return;
+ 	}
+diff --git a/src/renderer.cpp b/src/renderer.cpp
+index 82414655..ee987a72 100644
+--- a/src/renderer.cpp
++++ b/src/renderer.cpp
+@@ -40,6 +40,9 @@
+ #include "utils.h"
+ #include "renderer.h"
+ #include "video/ntscj.h"
++#ifdef FFNX_ANDROID
++#include "ff7_boot.h"   // FF7Recomp: ff7_platform_window()
++#endif
+ 
+ CMRC_DECLARE(FFNx);
+ 
+@@ -884,7 +887,12 @@ void Renderer::init()
+ 
+     // Init renderer
+     bgfxInit.type = getUserChosenRenderer();
++#ifdef FFNX_ANDROID
++    // FF7Recomp: the game's HWND is a win32hle handle; bgfx draws into the app's surface.
++    bgfxInit.swapChain.nwh = ff7_platform_window(nullptr, nullptr);
++#else
+     bgfxInit.swapChain.nwh = gameHwnd;
++#endif
+     bgfxInit.swapChain.width = window_size_x;
+     bgfxInit.swapChain.height = window_size_y;
+ 
+@@ -909,6 +917,10 @@ void Renderer::init()
+         bgfxInit.reset |= BGFX_RESET_HDR10;
+         bgfxInit.swapChain.formatColor = bgfx::TextureFormat::RGB10A2;
+ 
++#ifdef FFNX_ANDROID
++        // FF7Recomp: no DISPLAYCONFIG on Android; use FFNx's own fallback value.
++        if (hdr_max_nits <= 0) hdr_max_nits = 200.0;
++#else
+         if (hdr_max_nits <= 0) {
+             ffnx_info("Attempting to autodetect SDR white level for HDR...\n");
+             // The goal here is to autodetect "the brightness level that SDR 'white' is rendered at within an HDR monitor."
+@@ -1013,6 +1025,7 @@ void Renderer::init()
+                 hdr_max_nits = 200.0;
+             }
+         } // end if  (hdr_max_nits <= 0)
++#endif
+ 
+         bgfx::reset(bgfxInit.reset, &bgfxInit.swapChain);
+     } //end if HDR

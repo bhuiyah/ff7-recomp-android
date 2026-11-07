@@ -37,3 +37,8 @@ foreach ($p in $pins) {
 # FFNx's game-structure headers -> guest 32-bit layout (gptr/gfn members).
 py -I (Join-Path $root 'tools\ffnx_port.py') gptr
 if (-not $?) { throw 'tools/ffnx_port.py gptr failed' }
+py -I (Join-Path $root 'tools\ffnx_port.py') casts
+if (-not $?) { throw 'tools/ffnx_port.py casts failed' }
+# Our replacements for FFNx files that cannot work as-is (patch.h: typed hook API).
+py -I (Join-Path $root 'tools\ffnx_port.py') overrides
+if (-not $?) { throw 'tools/ffnx_port.py overrides failed' }
