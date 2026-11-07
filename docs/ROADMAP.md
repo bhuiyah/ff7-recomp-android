@@ -18,6 +18,38 @@ Each milestone ends with its exit test, a commit and a report. One milestone at 
 (M1–M3 changed order when the user chose the Thor as the test host: there is no
 Windows-host stage; everything runs on the device.)
 
+## M4: 7th Heaven mod compatibility
+7th Heaven mods target the PC exe. Most are data (textures, models, audio, lgp/kernel/scene
+edits) and carry over unchanged; the hard cases are hext patches that change x86 code
+(already compiled to ARM64 here) and Windows DLL plugins.
+
+How PC 7th Heaven applies mods, and what replaces each part here:
+- IRO archives + `mod.xml` (priority order, config options, conditional folders, runtime
+  variables): reimplemented in C. IROs read in place via mmap, never extracted (texture
+  packs exceed 10 GB).
+- 7thWrapper (hooks Win32 file reads to swap in IRO files): replaced by a union file system
+  in our own Win32 file layer (`CreateFileA` etc.), which we compile, so no hooking.
+- FFNx's override folders (`mod_path`, `direct_mode_path`, `hext_patching_path`,
+  `external/FFNx/src/cfg.cpp`): the union file system presents enabled IROs as these
+  folders.
+- `mod.xml` runtime variables read 32-bit game addresses: add the guest arena base.
+- hext patches into `.data`/`.rdata`: work as is (guest memory keeps those sections).
+- hext patches into `.text`: the patched bytes are never executed. Plan: functions whose
+  code a patch touches run through an x86 interpreter over guest memory (hooked via the
+  existing `RECOMP_ENTER` entry overrides); popular patches also get hand-written native
+  versions behind toggles. Re-lifting on device is out of scope.
+- DLL plugins (.NET or native x86): not supported; popular ones ported natively case by case.
+
+Order:
+1. Survey tool: scan a real 7th Heaven library (IROs, `mod.xml`, hext) and report the share
+   of data mods, hext data vs code writes, and DLL plugins. Sizes the hext-on-code work.
+2. IRO reader + `mod.xml` parser (priority, config options, conditions).
+3. Union file system feeding FFNx's override folders and the Win32 file layer. Covers the
+   M4 exit test (IFRIT + Ninostyle Chibi).
+4. hext: data writes, then the interpreter fallback for code writes.
+5. Launcher: import IROs through the Android file picker (scoped storage) into app storage,
+   later the Qhimm catalog; each mod shows a status: works / runs interpreted / unsupported.
+
 ## M7: Thor dual-screen companion
 The AYN Thor reports its top screen as the primary display and the 3.92" bottom touch
 screen as an external display. Dual-screen Thor projects use the bottom screen as a live
