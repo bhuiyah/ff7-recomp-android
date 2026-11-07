@@ -1,3 +1,102 @@
+diff --git a/src/common.cpp b/src/common.cpp
+index 8c87db11..a285907a 100644
+--- a/src/common.cpp
++++ b/src/common.cpp
+@@ -85,7 +85,11 @@
+ #include "ff8/remaster.h"
+ #include "ff8/fonts.h"
+ 
++#ifdef FFNX_ANDROID
++#include "ffnx_android.h"   // FF7Recomp: platform window, guest strings
++#else
+ #include "wine.h"
++#endif
+ 
+ bool proxyWndProc = false;
+ 
+@@ -738,6 +742,33 @@ int common_create_window(HINSTANCE hInstance, struct game_obj* game_object)
+ 			g_FF7SteamAchievements = std::make_unique<SteamAchievementsFF7>(steam_edition);
+ 	}
+ 
++#ifdef FFNX_ANDROID
++	// FF7Recomp: no monitors, display modes or Win32 window. The game draws into the app's
++	// surface at its size; the game's HWND is a win32hle window whose window procedure is
++	// FFNx's WindowProc (ffnx_android_create_window). The two blocks opened below stand in
++	// for "if (RegisterClassA(...))" and "if (hWnd)" so the rest is FFNx's own code.
++	game_width = VREF(game_object, window_width);
++	game_height = VREF(game_object, window_height);
++	VRASS(game_object, window_title, ffnx_android_guest_string(ff8 ? "Final Fantasy VIII" : "Final Fantasy VII"));
++	{
++		int w = 0, h = 0;
++		ff7_platform_window(&w, &h);
++		window_size_x = w ? w : game_width;
++		window_size_y = h ? h : game_height;
++	}
++	hWnd = ffnx_android_create_window(VREF(game_object, window_class), VREF(game_object, window_title), WindowProc, window_size_x, window_size_y);
++	VRASS(game_object, hwnd, hWnd);
++	gameHinstance = hInstance;
++	gameHwnd = hWnd;
++	ret = hWnd ? TRUE : FALSE;
++	VRASS(game_object, dc_horzres, window_size_x);
++	VRASS(game_object, dc_vertres, window_size_y);
++	VRASS(game_object, dc_bitspixel, 32);
++	if (!VREF(game_object, colordepth))
++		VRASS(game_object, colordepth, VREF(game_object, dc_bitspixel));
++	{
++		{
++#else
+ 	// Enumerate available monitors
+ 	EnumDisplayMonitors(nullptr, nullptr, MonitorEnumProc, reinterpret_cast<LPARAM>(&monitors));
+ 	if (display_index > monitors.size()) display_index = monitors.size();
+@@ -882,6 +913,7 @@ int common_create_window(HINSTANCE hInstance, struct game_obj* game_object)
+ 					VRASS(game_object, colordepth, VREF(game_object, dc_bitspixel));
+ 				ReleaseDC(hWnd, hdc);
+ 			}
++#endif
+ 
+ 			if (ret && VREF(game_object, engine_loop_obj.init))
+ 			{
+@@ -1390,7 +1422,8 @@ uint32_t common_prepare_polygon_set(struct polygon_set *polygon_set)
+ {
+ 	VOBJ(polygon_set, polygon_set, polygon_set);
+ 
+-	if(VPTR(polygon_set)) VRASS(polygon_set, indexed_primitives, (indexed_primitive**)external_calloc(VREF(polygon_set, numgroups), 4));
++	// FF7Recomp: an array of 4-byte guest pointers (gptr<T> cells), allocated by the game.
++	if(VPTR(polygon_set)) VRASS(polygon_set, indexed_primitives, (gptr<indexed_primitive>*)external_calloc(VREF(polygon_set, numgroups), 4));
+ 
+ 	return true;
+ }
+@@ -1585,7 +1618,7 @@ uint32_t load_external_texture(void* image_data, uint32_t dataSize, struct textu
+ 		{
+ 			if (enable_lighting)
+ 			{
+-				std::string path = VREF(tex_header, file.pc_name);
++				std::string path = (const char *)VREF(tex_header, file.pc_name);
+ 				std::string filename = path.substr(path.find_last_of("/") + 1);
+ 
+ 				if(lighting.isDisabledLightingTexture(filename))
+@@ -1893,7 +1926,7 @@ struct texture_set *common_load_texture(struct texture_set *_texture_set, struct
+ 				for (uint32_t idx = 0; idx < VREF(texture_set, ogl.gl_set->textures); idx++)
+ 				{
+ 					if (!TexturePacker::isPaletteDataChanged(
+-						reinterpret_cast<const uint32_t *>(VREF(tex_header, old_palette_data)),
++						(const uint32_t *)(VREF(tex_header, old_palette_data)),
+ 						tex_format->palette_data, tex_format->palette_size, entries, idx)) continue;
+ 					newRenderer.deleteTexture(TexturePacker::releasePaletteTexture(
+ 						VREF(texture_set, texturehandle), VREF(texture_set, ogl.gl_set->textures), idx));
+@@ -3618,7 +3651,12 @@ void ffnx_inject_driver(struct game_obj* game_object)
+ 	VOBJ(game_obj, game_object, game_object);
+ 
+ 	VRASS(game_object, current_gfx_driver, 2);
++#ifdef FFNX_ANDROID
++	// FF7Recomp: the game calls this pointer; give it the guest-callable thunk's address.
++	VRASS(game_object, create_gfx_driver, guest::gfn<void *(void *)>(new_dll_graphics_driver).va());
++#else
+ 	VRASS(game_object, create_gfx_driver, new_dll_graphics_driver);
++#endif
+ }
+ 
+ #if defined(__cplusplus)
 diff --git a/src/ff7_opengl.cpp b/src/ff7_opengl.cpp
 index b8af8bfc..e25eb4ce 100644
 --- a/src/ff7_opengl.cpp
@@ -42,6 +141,29 @@ index 5e119380..25fb1b39 100644
  		gl_draw_external_mesh(externalMesh, lightdata);
  		return;
  	}
+diff --git a/src/image/image.cpp b/src/image/image.cpp
+index caea671e..cf6da21d 100644
+--- a/src/image/image.cpp
++++ b/src/image/image.cpp
+@@ -80,6 +80,10 @@ private:
+ 
+ static HANDLE openPngWin32(const char *filename)
+ {
++#ifdef FFNX_ANDROID
++    // FF7Recomp: paths are UTF-8 already; no wide-character API.
++    return CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
++#else
+     int filenameLength = MultiByteToWideChar(CP_ACP, 0, filename, -1, nullptr, 0);
+     if (filenameLength == 0) {
+         return INVALID_HANDLE_VALUE;
+@@ -92,6 +96,7 @@ static HANDLE openPngWin32(const char *filename)
+ 
+     return CreateFileW(wideFilename.data(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
++#endif
+ }
+ 
+ bimg::ImageContainer *loadPng(bx::AllocatorI *allocator, const char *filename, bimg::TextureFormat::Enum targetFormat)
 diff --git a/src/renderer.cpp b/src/renderer.cpp
 index 82414655..ee987a72 100644
 --- a/src/renderer.cpp
@@ -88,3 +210,64 @@ index 82414655..ee987a72 100644
  
          bgfx::reset(bgfxInit.reset, &bgfxInit.swapChain);
      } //end if HDR
+diff --git a/src/utils.cpp b/src/utils.cpp
+index fe0878e9..f2646096 100644
+--- a/src/utils.cpp
++++ b/src/utils.cpp
+@@ -25,6 +25,9 @@
+ 
+ #include <sys/stat.h>
+ #include <filesystem>
++#ifdef FFNX_ANDROID
++#include "ffnx_hash.h"   // FF7Recomp: MD5/SHA-1 without Crypto++
++#else
+ #include <Softpub.h>
+ #include <wintrust.h>
+ #include <winternl.h>
+@@ -33,6 +36,7 @@
+ #include <cryptopp/sha.h>
+ #include <cryptopp/files.h>
+ #include <cryptopp/hex.h>
++#endif
+ 
+ bool fileExists(const char *filename)
+ {
+@@ -50,6 +54,15 @@ bool dirExists(const char *dirname)
+     return stat(dirname, &dummy) == 0;
+ }
+ 
++#ifdef FFNX_ANDROID
++// FF7Recomp: no Win32 version resources, Authenticode or Crypto++ on Android.
++std::string getCopyrightInfoFromExe(const std::string& filePath) { return "Copyright information not found."; }
++std::wstring GetErrorMessage(unsigned long errorCode) { return L"error " + std::to_wstring(errorCode); }
++bool isFileSigned(const char* dllPath) { return false; }
++std::string sha1_file(const char *filename) { return ffnx_sha1_file_hex(filename); }
++std::string md5_hash(const unsigned char* data, size_t length) { return ffnx_md5_hex(data, length); }
++bool isMacOSLauncher() { return false; }
++#else
+ std::string getCopyrightInfoFromExe(const std::string& filePath)
+ {
+     // Get the size of the version information
+@@ -172,13 +185,22 @@ bool isMacOSLauncher()
+     GetEnvironmentVariableA("__CFBundleIdentifier", value, sizeof(value));
+     return strcmp(value, "com.julianxhokaxhiu.SummonKit") == 0;
+ }
++#endif
+ 
+ uint32_t getProcessEntryPoint()
+ {
++#ifdef FFNX_ANDROID
++    // FF7Recomp: the "process" is the lifted ff7_en.exe mapped at 0x00400000; read its
++    // entry point from the PE headers the loader mapped with the image.
++    const uint8_t *base = (const uint8_t *)(uintptr_t)0x00400000u;
++    uint32_t e_lfanew = *(const uint32_t *)(base + 0x3C);
++    return 0x00400000u + *(const uint32_t *)(base + e_lfanew + 24 + 16);
++#else
+     HMODULE base = GetModuleHandleA(nullptr);
+ 
+     PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)base;
+     PIMAGE_NT_HEADERS nt  = (PIMAGE_NT_HEADERS)((BYTE*)base + dos->e_lfanew);
+ 
+     return (uint32_t)((BYTE*)base + nt->OptionalHeader.AddressOfEntryPoint);
++#endif
+ }

@@ -21,11 +21,17 @@ file(MAKE_DIRECTORY "${FFNX_GEN_INC}/libpng16" "${FFNX_GEN_INC}/libvgmstream")
 configure_file("${FFNX_DEPS}/libpng/png.h" "${FFNX_GEN_INC}/libpng16/png.h" COPYONLY)
 configure_file("${FFNX_DEPS}/libpng/pngconf.h" "${FFNX_GEN_INC}/libpng16/pngconf.h" COPYONLY)
 configure_file("${FFNX_DEPS}/libpng/scripts/pnglibconf.h.prebuilt" "${FFNX_GEN_INC}/libpng16/pnglibconf.h" COPYONLY)
+# FFNx's vgmstream port installs the *internal* src/vgmstream.h (VGMSTREAM, sample_t) as
+# <libvgmstream/vgmstream.h> (.vcpkg/ports/vgmstream/cmake.patch).
 file(WRITE "${FFNX_GEN_INC}/libvgmstream/vgmstream.h"
-  "#pragma once\n#include \"${FFNX_DEPS}/vgmstream/src/libvgmstream.h\"\n")
+  "#pragma once\n#include \"${FFNX_DEPS}/vgmstream/src/vgmstream.h\"\n")
 
 if(NOT DEFINED FFNX_SOURCES)
-  set(FFNX_SOURCES gl/texture.cpp)
+  # The renderer core (docs/FFNX_PORT.md phase A); grows module by module.
+  set(FFNX_SOURCES
+    common.cpp ff7_opengl.cpp renderer.cpp cfg.cpp log.cpp utils.cpp saveload.cpp
+    gl/gl.cpp gl/deferred.cpp gl/special_case.cpp gl/texture.cpp
+    image/image.cpp image/tim.cpp)
 endif()
 list(TRANSFORM FFNX_SOURCES PREPEND "${FFNX_SRC}/")
 
@@ -33,7 +39,11 @@ add_library(ffnx STATIC ${FFNX_SOURCES}
   # 32-bit layout proof for every game struct (tools/ffnx_layout_check.py)
   "${FF7_ROOT}/src/ffnx_port/layout_asserts.cpp"
   # FFNx's patch API with recomp semantics (replaces FFNx's patch.cpp)
-  "${FF7_ROOT}/src/ffnx_port/patch_recomp.cpp")
+  "${FF7_ROOT}/src/ffnx_port/patch_recomp.cpp"
+  # platform helpers for FFNx's Android branches; FFNx's own Win32 calls
+  "${FF7_ROOT}/src/ffnx_port/android_window.cpp"
+  "${FF7_ROOT}/src/ffnx_port/win32_compat.cpp"
+  "${FF7_ROOT}/src/ffnx_port/ffnx_hash.cpp")
 target_include_directories(ffnx BEFORE PUBLIC
   "${FF7_ROOT}/src/ffnx_port/include"           # Win32/DirectX shims first
   "${FF7_ROOT}/src/ffnx_port/include_stub_ffmpeg"

@@ -6,8 +6,15 @@
 #endif
 
 struct IDirectInputA; struct IDirectInput8A; struct IDirectInputDeviceA; struct IDirectInputDevice8A;
-typedef IDirectInputDevice8A *LPDIRECTINPUTDEVICE8A;
-typedef IDirectInput8A *LPDIRECTINPUT8A;
+typedef IDirectInputDevice8A *LPDIRECTINPUTDEVICE8A, *LPDIRECTINPUTDEVICE8;
+typedef IDirectInput8A *LPDIRECTINPUT8A, *LPDIRECTINPUT8;
+struct IDirectInputEffect;
+typedef IDirectInputEffect *LPDIRECTINPUTEFFECT;
+typedef struct DIDEVCAPS { DWORD dwSize, dwFlags, dwDevType, dwAxes, dwButtons, dwPOVs, dwFFSamplePeriod, dwFFMinTimeResolution, dwFirmwareRevision, dwHardwareRevision, dwFFDriverVersion; } DIDEVCAPS, *LPDIDEVCAPS;
+typedef struct DIDEVICEINSTANCEA { DWORD dwSize; GUID guidInstance, guidProduct; DWORD dwDevType; CHAR tszInstanceName[MAX_PATH], tszProductName[MAX_PATH]; GUID guidFFDriver; WORD wUsagePage, wUsage; } DIDEVICEINSTANCEA, DIDEVICEINSTANCE;
+typedef const DIDEVICEINSTANCEA *LPCDIDEVICEINSTANCEA, *LPCDIDEVICEINSTANCE;
+typedef struct DIDEVICEOBJECTINSTANCEA { DWORD dwSize; GUID guidType; DWORD dwOfs, dwType, dwFlags; CHAR tszName[MAX_PATH]; DWORD dwFFMaxForce, dwFFForceResolution; WORD wCollectionNumber, wDesignatorIndex, wUsagePage, wUsage; DWORD dwDimension; WORD wExponent, wReportId; } DIDEVICEOBJECTINSTANCEA, DIDEVICEOBJECTINSTANCE;
+typedef const DIDEVICEOBJECTINSTANCEA *LPCDIDEVICEOBJECTINSTANCEA, *LPCDIDEVICEOBJECTINSTANCE;
 
 typedef struct DIJOYSTATE2 {
     LONG lX, lY, lZ, lRx, lRy, lRz, rglSlider[2];

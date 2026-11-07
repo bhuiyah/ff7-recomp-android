@@ -11,6 +11,15 @@
 #define JOYERR_NOERROR 0
 #define JOYERR_UNPLUGGED 167
 typedef UINT MCIERROR;
+typedef UINT MCIDEVICEID;
+#define MCI_OPEN 0x0803
+#define MCI_CLOSE 0x0804
+#define MCI_PLAY 0x0806
+#define MCI_STOP 0x0808
+#define MCI_SET 0x080D
+#define MCI_STATUS 0x0814
+extern "C" MCIERROR mciSendCommandA(MCIDEVICEID id, UINT msg, DWORD_PTR flags, DWORD_PTR param);
+#define mciSendCommand mciSendCommandA
 extern "C" DWORD timeGetTime(void);
 extern "C" MMRESULT timeBeginPeriod(UINT p);
 extern "C" MMRESULT timeEndPeriod(UINT p);

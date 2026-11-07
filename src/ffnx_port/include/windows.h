@@ -52,8 +52,12 @@ typedef uint64_t ULONGLONG, DWORD64, UINT64, ULONG64;
 typedef float FLOAT;
 typedef char CHAR;
 typedef wchar_t WCHAR;
-typedef intptr_t INT_PTR, LONG_PTR, LPARAM, LRESULT;
-typedef uintptr_t UINT_PTR, ULONG_PTR, DWORD_PTR, WPARAM, SIZE_T;
+typedef intptr_t INT_PTR, LONG_PTR;
+typedef uintptr_t UINT_PTR, ULONG_PTR, DWORD_PTR, SIZE_T;
+// Window-message types cross into the guest (FFNx's WindowProc is called by the game's
+// message loop with 4-byte arguments), so they keep their 32-bit Windows width.
+typedef uint32_t WPARAM;
+typedef int32_t LPARAM, LRESULT;
 typedef intptr_t SSIZE_T;
 typedef DWORD *LPDWORD, *PDWORD;
 typedef WORD *LPWORD;
@@ -248,6 +252,180 @@ extern "C" HLOCAL LocalFree(HLOCAL h);
 #define VK_RCONTROL 0xA3
 #define VK_LMENU 0xA4
 #define VK_RMENU 0xA5
+
+// ---- window management (FFNx's WindowProc / fullscreen toggling). On Android the game
+// window is a win32hle window inside the app's surface: these succeed and change nothing.
+#define WM_DESTROY 0x0002
+#define WM_MOVE 0x0003
+#define WM_SIZE 0x0005
+#define WM_ACTIVATE 0x0006
+#define WM_SETFOCUS 0x0007
+#define WM_KILLFOCUS 0x0008
+#define WM_CLOSE 0x0010
+#define WM_QUIT 0x0012
+#define WM_ACTIVATEAPP 0x001C
+#define WM_KEYDOWN 0x0100
+#define WM_KEYUP 0x0101
+#define WM_CHAR 0x0102
+#define WM_SYSKEYDOWN 0x0104
+#define WM_SYSKEYUP 0x0105
+#define WM_SYSCOMMAND 0x0112
+#define WM_MENUCHAR 0x0120
+#define WM_MOUSEMOVE 0x0200
+#define WM_LBUTTONDOWN 0x0201
+#define WM_LBUTTONUP 0x0202
+#define WM_RBUTTONDOWN 0x0204
+#define WM_RBUTTONUP 0x0205
+#define WM_MOUSEWHEEL 0x020A
+#define WM_ENTERSIZEMOVE 0x0231
+#define WM_EXITSIZEMOVE 0x0232
+#define SIZE_RESTORED 0
+#define SIZE_MINIMIZED 1
+#define SIZE_MAXIMIZED 2
+#define MNC_CLOSE 1
+#define GWL_STYLE (-16)
+#define GWL_WNDPROC (-4)
+#define WS_OVERLAPPEDWINDOW 0x00CF0000L
+#define WS_POPUP 0x80000000L
+#define WS_VISIBLE 0x10000000L
+#define WS_CLIPSIBLINGS 0x04000000L
+#define WS_CLIPCHILDREN 0x02000000L
+#define WS_SYSMENU 0x00080000L
+#define CDS_FULLSCREEN 0x00000004
+#define DISP_CHANGE_SUCCESSFUL 0
+#define MONITORINFOF_PRIMARY 0x00000001
+#define CCHDEVICENAME 32
+typedef struct tagMONITORINFOEXA { DWORD cbSize; RECT rcMonitor, rcWork; DWORD dwFlags; CHAR szDevice[CCHDEVICENAME]; } MONITORINFOEXA, MONITORINFOEX;
+typedef struct _devicemodeA {
+    BYTE dmDeviceName[32]; WORD dmSpecVersion, dmDriverVersion, dmSize, dmDriverExtra; DWORD dmFields;
+    DWORD dmBitsPerPel, dmPelsWidth, dmPelsHeight, dmDisplayFlags, dmDisplayFrequency;
+} DEVMODEA, DEVMODE;
+#define DM_PELSWIDTH 0x00080000L
+#define DM_PELSHEIGHT 0x00100000L
+#define DM_DISPLAYFREQUENCY 0x00400000L
+#define ENUM_CURRENT_SETTINGS ((DWORD)-1)
+extern "C" {
+int ShowCursor(BOOL show);
+BOOL MoveWindow(HWND w, int x, int y, int cx, int cy, BOOL repaint);
+LONG SetWindowLongA(HWND w, int index, LONG v);
+LONG GetWindowLongA(HWND w, int index);
+BOOL SetWindowTextA(HWND w, LPCSTR s);
+SHORT GetKeyState(int vk);
+SHORT GetAsyncKeyState(int vk);
+BOOL SetRectEmpty(LPRECT r);
+BOOL PeekMessageA(LPMSG m, HWND w, UINT lo, UINT hi, UINT remove);
+BOOL TranslateMessage(const MSG *m);
+LRESULT DispatchMessageA(const MSG *m);
+LRESULT DefWindowProcA(HWND w, UINT msg, WPARAM wp, LPARAM lp);
+LRESULT CallWindowProcA(WNDPROC p, HWND w, UINT msg, WPARAM wp, LPARAM lp);
+BOOL SetProcessDPIAware(void);
+}
+extern "C" {
+BOOL GetMonitorInfoA(HMONITOR m, MONITORINFOEXA *mi);
+LONG ChangeDisplaySettingsExA(LPCSTR dev, DEVMODEA *dm, HWND w, DWORD flags, LPVOID param);
+BOOL AdjustWindowRect(LPRECT r, DWORD style, BOOL menu);
+}
+#define GetMonitorInfo GetMonitorInfoA
+#define SetWindowLongPtr SetWindowLongA
+#define SetWindowLongPtrA SetWindowLongA
+#define MAKELRESULT(l, h) ((LRESULT)(DWORD)MAKELONG(l, h))
+#define PASCAL
+#define SetWindowLong SetWindowLongA
+#define GetWindowLong GetWindowLongA
+#define SetWindowText SetWindowTextA
+#define PeekMessage PeekMessageA
+#define DispatchMessage DispatchMessageA
+#define DefWindowProc DefWindowProcA
+#define CallWindowProc CallWindowProcA
+#define PM_REMOVE 0x0001
+
+// ---- process, modules, exceptions
+#define DLL_PROCESS_DETACH 0
+#define DLL_PROCESS_ATTACH 1
+#define DLL_THREAD_ATTACH 2
+#define DLL_THREAD_DETACH 3
+#define ES_SYSTEM_REQUIRED 0x00000001
+#define ES_DISPLAY_REQUIRED 0x00000002
+#define ES_CONTINUOUS 0x80000000
+typedef intptr_t (*FARPROC)(void);
+typedef LONG (*PVECTORED_EXCEPTION_HANDLER)(PEXCEPTION_POINTERS);
+typedef LONG (*LPTOP_LEVEL_EXCEPTION_FILTER)(PEXCEPTION_POINTERS);
+struct IUnknown { virtual ~IUnknown() = default; };
+typedef int errno_t;
+extern "C" {
+HMODULE LoadLibraryA(LPCSTR name);
+FARPROC GetProcAddress(HMODULE m, LPCSTR name);
+BOOL FreeLibrary(HMODULE m);
+UINT GetSystemDirectoryA(LPSTR buf, UINT n);
+LPTOP_LEVEL_EXCEPTION_FILTER SetUnhandledExceptionFilter(LPTOP_LEVEL_EXCEPTION_FILTER f);
+PVOID AddVectoredExceptionHandler(ULONG first, PVECTORED_EXCEPTION_HANDLER h);
+DWORD SetThreadExecutionState(DWORD flags);
+int _setmaxstdio(int n);
+}
+#define LoadLibrary LoadLibraryA
+#define GetSystemDirectory GetSystemDirectoryA
+
+// ---- registry: there is none; every key is absent (ERROR_FILE_NOT_FOUND), as on a
+// Windows machine where the game was never installed through its own installer.
+#define HKEY_CURRENT_USER ((HKEY)0x80000001u)
+#define HKEY_LOCAL_MACHINE ((HKEY)0x80000002u)
+#define KEY_QUERY_VALUE 0x0001
+#define KEY_SET_VALUE 0x0002
+#define KEY_READ 0x20019
+#define KEY_WOW64_32KEY 0x0200
+#define KEY_WOW64_64KEY 0x0100
+#define REG_SZ 1
+#define REG_DWORD 4
+extern "C" {
+LSTATUS RegOpenKeyExA(HKEY k, LPCSTR sub, DWORD opt, REGSAM sam, PHKEY out);
+LSTATUS RegQueryValueExA(HKEY k, LPCSTR name, LPDWORD reserved, LPDWORD type, LPBYTE data, LPDWORD cb);
+LSTATUS RegCloseKey(HKEY k);
+}
+#define RegOpenKeyEx RegOpenKeyExA
+#define RegQueryValueEx RegQueryValueExA
+
+// ---- files (FFNx's own file checks; the game's go through win32hle)
+#define GENERIC_READ 0x80000000u
+#define GENERIC_WRITE 0x40000000u
+#define FILE_SHARE_READ 0x00000001
+#define FILE_SHARE_WRITE 0x00000002
+#define CREATE_NEW 1
+#define CREATE_ALWAYS 2
+#define OPEN_EXISTING 3
+#define OPEN_ALWAYS 4
+#define FILE_ATTRIBUTE_NORMAL 0x80
+#define FILE_BEGIN 0
+#define DRIVE_UNKNOWN 0
+#define DRIVE_NO_ROOT_DIR 1
+#define DRIVE_FIXED 3
+#define DRIVE_CDROM 5
+#define CP_ACP 0
+#define CP_UTF8 65001
+#define ERROR_INSUFFICIENT_BUFFER 122L
+#define HRESULT_CODE(hr) ((hr) & 0xFFFF)
+typedef struct _WIN32_FIND_DATAA {
+    DWORD dwFileAttributes; FILETIME ftCreationTime, ftLastAccessTime, ftLastWriteTime;
+    DWORD nFileSizeHigh, nFileSizeLow, dwReserved0, dwReserved1; CHAR cFileName[MAX_PATH]; CHAR cAlternateFileName[14];
+} WIN32_FIND_DATAA, WIN32_FIND_DATA, *LPWIN32_FIND_DATAA;
+extern "C" {
+HANDLE CreateFileA(LPCSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES sa, DWORD disp, DWORD flags, HANDLE tmpl);
+BOOL ReadFile(HANDLE h, LPVOID buf, DWORD n, LPDWORD got, void *ovl);
+BOOL WriteFile(HANDLE h, LPCVOID buf, DWORD n, LPDWORD put, void *ovl);
+DWORD GetFileSize(HANDLE h, LPDWORD high);
+BOOL CloseHandle(HANDLE h);
+BOOL DeleteFileA(LPCSTR name);
+UINT GetDriveTypeA(LPCSTR root);
+HANDLE FindFirstFileA(LPCSTR spec, LPWIN32_FIND_DATAA data);
+BOOL FindNextFileA(HANDLE h, LPWIN32_FIND_DATAA data);
+BOOL FindClose(HANDLE h);
+int MultiByteToWideChar(UINT cp, DWORD flags, LPCSTR s, int n, LPWSTR w, int wn);
+int WideCharToMultiByte(UINT cp, DWORD flags, LPCWSTR w, int wn, LPSTR s, int n, LPCSTR def, LPBOOL used);
+}
+#define CreateFile CreateFileA
+#define DeleteFile DeleteFileA
+#define GetDriveType GetDriveTypeA
+#define FindFirstFile FindFirstFileA
+#define FindNextFile FindNextFileA
 
 // ---- MSVC CRT names
 #define _stricmp strcasecmp

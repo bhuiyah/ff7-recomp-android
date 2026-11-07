@@ -72,3 +72,14 @@
 - User asked for Thor dual-screen support like other Thor projects (Cemu/melonDS forks, Fallout 2 CE, RTS ports, EmuLnk dashboards). Planned as M7 in docs/ROADMAP.md (companion panels: party, map, battle, touch command deck, inventory).
 - The Thor exposes the bottom screen as display 4 "Screen-2": 1240x1080 landscape, 120 Hz, own touch (EXTERNAL), FLAG_PRESENTATION. Top is display 0 (1920x1080). Screenshots per display: `adb shell screencap -d <id>` with ids 4630946441858561667 (top) / 4630946482288158084 (bottom).
 - GameActivity shows a Presentation on the presentation display with its own SurfaceView -> nativeSetCompanionSurface -> ff7_platform_companion_window(). The bring-up display renders it as a second bgfx frame buffer (FFNx's fork: createFrameBuffer(SwapChain)) in view 1. Verified on device: logs/dual-top.png + logs/dual-bottom.png (bottom cleared green from the game thread).
+
+## 2026-11-07 (FFNx port, step 6: the whole renderer core compiles)
+- common.cpp compiles for arm64. Its Android branch of common_create_window: no monitors/display modes/Win32 window; size from the app surface; the game's HWND is a win32hle window (RegisterClassA/CreateWindowExA shims) whose WndProc is FFNx's WindowProc through a guest thunk (src/ffnx_port/android_window.cpp); the rest (hooks, renderer init, field/world/music/sfx/voice init, the game's own init + enter_main) is FFNx's code unchanged.
+- ffnx_inject_driver stores the guest thunk of FFNx's new_dll_graphics_driver into game_obj.create_gfx_driver (the bridge mechanism, now from FFNx's own code).
+- WPARAM/LPARAM/LRESULT are 32-bit in the shim (FFNx's WindowProc is called by the game).
+- src/ffnx_port/win32_compat.cpp: FFNx's own Win32 calls on Android (POSIX files, find, paths, time, critical sections; registry/DLLs/extra monitors absent; window calls inert; FFmpeg log no-op until FFmpeg is built).
+- src/ffnx_port/ffnx_hash.cpp: MD5/SHA-1 replacing Crypto++ (md5_hash is used by FFNx's save metadata).
+- utils.cpp/image.cpp Android branches (no Authenticode, no version resources, UTF-8 file opens, entry point from the mapped PE headers).
+- vgmstream: FFNx expects vgmstream's *internal* src/vgmstream.h at <libvgmstream/vgmstream.h> (its port's cmake.patch).
+- **All 13 renderer-core files + 6 port files compile for arm64** (cmake/ffnx.cmake default list). Not yet linked: next is resolving the link (modules common.cpp calls: music, sfx, voice, movies, field, world, lighting, ...; libpng; bimg decode), compiling FFNx's shaders to SPIR-V, and calling FFNx's DllMain(DLL_PROCESS_ATTACH) from the host before the game starts.
+- Dual screen (M7) bottom-screen swap chain already works from the bring-up display.
