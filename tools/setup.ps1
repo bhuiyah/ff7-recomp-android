@@ -8,7 +8,11 @@ New-Item -ItemType Directory -Force $ext | Out-Null
 $pins = @(
     @{ name = 'pcrecomp';         url = 'https://github.com/sp00nznet/pcrecomp.git';        rev = '35548b8d0fd8aa853da67edcf7cd6134f6b9cdc7'; patches = 'patches/pcrecomp' },
     @{ name = 'FFNx';             url = 'https://github.com/julianxhokaxhiu/FFNx.git';      rev = '0adf0b32';                                 patches = 'patches/ffnx' },
-    @{ name = 'nfsu2-recompiled'; url = 'https://github.com/codepdbh/nfsu2-recompiled.git'; rev = 'main';                                     patches = $null }
+    @{ name = 'nfsu2-recompiled'; url = 'https://github.com/codepdbh/nfsu2-recompiled.git'; rev = 'main';                                     patches = $null },
+    # bgfx and its libraries: FFNx's forks at the commits FFNx pins (.vcpkg/ports/bgfx)
+    @{ name = 'bx';               url = 'https://github.com/julianxhokaxhiu/bx.git';        rev = 'c99974204c15405b69647d5097af1102e6210c91'; patches = $null },
+    @{ name = 'bimg';             url = 'https://github.com/julianxhokaxhiu/bimg.git';      rev = '671fe06dd7012a1ab85aa931019ed16112909756'; patches = $null },
+    @{ name = 'bgfx';             url = 'https://github.com/julianxhokaxhiu/bgfx.git';      rev = '1f93b90898dcc492587b617b397e2d2285dcd0ec'; patches = $null }
 )
 
 foreach ($p in $pins) {

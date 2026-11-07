@@ -37,3 +37,11 @@
 - src/ffnx_bridge/guest_abi.h: gptr<T> (4-byte guest pointer), gcall/gfn (guest calls capturing eax/edx/st0, registers restored), guest_export<F> (native function as a cdecl/stdcall guest-callable shim).
 - Device selftest (FF7_BRIDGE_SELFTEST=1) 10/10 PASS: native C++ called the game's lifted malloc/free via game_obj->externals (block 0x60000D30, in the CRT small-block heap inside our VirtualAlloc region), gptr round trip, int/float/pointer exports, stack balanced.
 - new_dll_graphics_driver is now the bridge's export; it returns a 240-byte guest driver table of named stubs. The game's first driver call is gfx::lock (0x00660540): without FFNx's create_window hook, init has not been called yet -- on Windows FFNx's DllMain replaces create_window, which is where the driver init runs.
+
+## 2026-11-07 (FFNx port, step 2: app shell + bgfx on the Thor)
+- bgfx/bx/bimg: FFNx's forks at its pinned commits (julianxhokaxhiu/{bx c999742, bimg 671fe06, bgfx 1f93b90}), built from the amalgamated sources by cmake/bgfx.cmake (Vulkan on, FFNx's BGFX_CONFIG sizes; bimg needs the vendored astc-encoder). tests/bgfx_smoke on the Thor: "renderers compiled in: Noop Vulkan", init PASS.
+- The fork differs from upstream: resolution lives in Init::swapChain, there is no bgfx/platform.h.
+- android/: minimal app com.ff7recomp (Java GameActivity + SurfaceView, landscape fullscreen), libff7.so = cmake/ff7core.cmake (lift + win32hle + HLE + bridge) + bgfx + src/android/ff7_android_main.cpp (JNI, stdout/stderr -> logcat tag FF7Recomp + files/ff7.log, game on a 64 MB-stack thread). Gradle 8.9 / AGP 8.7.3 / NDK 28.2; local.properties needs forward slashes.
+- Game files for the app: /sdcard/Android/data/com.ff7recomp/files/game (adb push works there).
+- ART owns parts of the low 4 GB inside an app process (dalvik-main 0x12C00000-0x32C00000, boot image from ~0x6FF00000): first app run failed to reserve the arena. New layout: arena 0x33000000-0x5B000000, VirtualAlloc 0x5B000000-0x6B000000 (image stays at 0x400000). Headless runner works with it too.
+- **On device, in the APK:** lifted game boots in ~1 s, bgfx Vulkan comes up at 1920x1080 on the game thread, the driver table is handed over, and the screen shows "stopped at gfx::lock: not ported yet" (logs/app-run-2.png). Driver stubs now park the game thread with an on-screen status in the app, exit 93 headless.

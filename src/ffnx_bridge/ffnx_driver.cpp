@@ -10,11 +10,15 @@
 // game: the game's own allocator through game_obj->externals (guest call, cdecl, pointer
 // result), a host string rejected as a guest pointer, and native exports called back
 // through the guest (int and float results).
+#include <unistd.h>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
 #include "guest_abi.h"
+#include "ffnx_display.h"
 
 using namespace guest;
 
@@ -85,19 +89,45 @@ void selftest(uint32_t game_obj) {
     if (fails) std::exit(95);
 }
 
-// The driver the game receives: callbacks are named stubs until the renderer exists.
+// ---- callbacks not ported yet: one named stub each ----
+// Headless: stop the run (exit 93) naming the callback. App: show the name on screen and
+// park the game thread, so the device displays exactly where the port has got to.
+
+struct cb_info { const char *name; uint32_t off; };
+constexpr cb_info k_callbacks[] = {
+#define DRIVER_CB(name, type, off) { "gfx::" #name, off },
+#include "driver_table.inc"
+#undef DRIVER_CB
+};
+constexpr size_t k_ncallbacks = sizeof k_callbacks / sizeof k_callbacks[0];
+
+[[noreturn]] void driver_stop(const char *name) {
+    std::fprintf(stderr, "[ffnx] STOP: game called %s (from 0x%08X) -- not ported yet\n", name, g_cur_func);
+    if (!ffnx_display_status(name)) std::exit(93);
+    for (;;) pause();
+}
+
+template <size_t I> void cb_stub() { driver_stop(k_callbacks[I].name); }
+template <size_t... I>
+constexpr std::array<recomp_func_t, sizeof...(I)> make_stubs(std::index_sequence<I...>) { return { &cb_stub<I>... }; }
+const auto k_stubs = make_stubs(std::make_index_sequence<k_ncallbacks>{});
+
+// The driver the game receives.
 void *new_dll_graphics_driver(void *game_object) {
     uint32_t game_obj = va_of(game_object);
     std::fprintf(stderr, "[ffnx] new_dll_graphics_driver(game_obj 0x%08X)\n", game_obj);
     if (std::getenv("FF7_BRIDGE_SELFTEST")) selftest(game_obj);
+    ffnx_display_init();
 
-    uint8_t *drv = static_cast<uint8_t *>(guest_calloc(1, 240));
-#define DRIVER_CB(name, type, off) \
-    *reinterpret_cast<uint32_t *>(drv + (off)) = hle_resolve_or_stub("gfx::" #name);
-#include "driver_table.inc"
-#undef DRIVER_CB
     static_assert(FF7_GFX_DRIVER_SIZE == 240u, "ff7_gfx_driver layout changed");
-    std::fprintf(stderr, "[ffnx] driver table at 0x%08X (callbacks are stubs until the renderer is ported)\n", va_of(drv));
+    uint8_t *drv = static_cast<uint8_t *>(guest_calloc(1, FF7_GFX_DRIVER_SIZE));
+    for (size_t i = 0; i < k_ncallbacks; i++) {
+        win32hle_shim one[2] = { { k_callbacks[i].name, k_stubs[i] }, { nullptr, nullptr } };
+        uint32_t va = hle_resolve(k_callbacks[i].name);
+        if (!va) { win32hle_register(one); va = hle_resolve(k_callbacks[i].name); }
+        *reinterpret_cast<uint32_t *>(drv + k_callbacks[i].off) = va;
+    }
+    std::fprintf(stderr, "[ffnx] driver table at 0x%08X (%zu callbacks, not ported yet)\n", va_of(drv), k_ncallbacks);
     return drv;
 }
 

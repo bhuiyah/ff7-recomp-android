@@ -1,0 +1,102 @@
+// ff7_android_main.cpp - JNI glue for com.ff7recomp.GameActivity.
+//
+// The activity hands over its Surface (as an ANativeWindow, for bgfx/Vulkan) and the game
+// folder; the lifted game then runs on its own thread via ff7_boot_and_run. stdout/stderr
+// are copied to logcat (tag FF7Recomp) and to <files>/ff7.log so a run can be read back
+// with adb even after the process is gone.
+#include <android/log.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
+#include <jni.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <cstdio>
+#include <cstring>
+#include <mutex>
+#include <string>
+#include "ff7_boot.h"
+
+namespace {
+
+std::mutex g_win_lock;
+ANativeWindow *g_window;
+int g_width, g_height;
+
+std::string g_game_dir;
+FILE *g_logfile;
+
+// stdout+stderr -> pipe -> logcat + file, one line at a time.
+void *log_pump(void *arg) {
+    int fd = static_cast<int>(reinterpret_cast<intptr_t>(arg));
+    char buf[4096];
+    std::string line;
+    ssize_t n;
+    while ((n = read(fd, buf, sizeof buf)) > 0) {
+        for (ssize_t i = 0; i < n; i++) {
+            if (buf[i] == '\n') {
+                __android_log_write(ANDROID_LOG_INFO, "FF7Recomp", line.c_str());
+                if (g_logfile) { std::fputs(line.c_str(), g_logfile); std::fputc('\n', g_logfile); std::fflush(g_logfile); }
+                line.clear();
+            } else {
+                line.push_back(buf[i]);
+            }
+        }
+    }
+    return nullptr;
+}
+
+void redirect_output(const std::string &log_dir) {
+    g_logfile = std::fopen((log_dir + "/ff7.log").c_str(), "w");
+    int fds[2];
+    if (pipe(fds) != 0) return;
+    dup2(fds[1], STDOUT_FILENO);
+    dup2(fds[1], STDERR_FILENO);
+    setvbuf(stdout, nullptr, _IOLBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+    pthread_t t;
+    pthread_create(&t, nullptr, log_pump, reinterpret_cast<void *>(static_cast<intptr_t>(fds[0])));
+    pthread_detach(t);
+}
+
+void *game_thread(void *) {
+    int rc = ff7_boot_and_run(g_game_dir.c_str());
+    std::fprintf(stderr, "[ff7] game thread finished with %d\n", rc);
+    return nullptr;
+}
+
+}  // namespace
+
+extern "C" void *ff7_platform_window(int *width, int *height) {
+    std::lock_guard<std::mutex> lk(g_win_lock);
+    if (width) *width = g_width;
+    if (height) *height = g_height;
+    return g_window;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ff7recomp_GameActivity_nativeSetSurface(JNIEnv *env, jclass, jobject surface, jint w, jint h) {
+    std::lock_guard<std::mutex> lk(g_win_lock);
+    if (g_window) { ANativeWindow_release(g_window); g_window = nullptr; }
+    if (surface) g_window = ANativeWindow_fromSurface(env, surface);
+    g_width = w;
+    g_height = h;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ff7recomp_GameActivity_nativeStart(JNIEnv *env, jclass, jstring game_dir, jstring log_dir) {
+    const char *g = env->GetStringUTFChars(game_dir, nullptr);
+    const char *l = env->GetStringUTFChars(log_dir, nullptr);
+    g_game_dir = g;
+    redirect_output(l);
+    env->ReleaseStringUTFChars(game_dir, g);
+    env->ReleaseStringUTFChars(log_dir, l);
+
+    // The lifted game wants a deep stack (its own guest stack is separate, but the
+    // native recursion of lifted calls is not): 64 MB.
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 64u << 20);
+    pthread_t t;
+    pthread_create(&t, &attr, game_thread, nullptr);
+    pthread_detach(t);
+}
