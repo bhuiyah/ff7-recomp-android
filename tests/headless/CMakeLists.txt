@@ -6,7 +6,7 @@
 #     -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake \
 #     -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29
 cmake_minimum_required(VERSION 3.20)
-project(FF7Headless C)
+project(FF7Headless C CXX)
 
 get_filename_component(FF7_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(RT  "${FF7_ROOT}/external/pcrecomp/runtime")
@@ -60,9 +60,11 @@ add_executable(ff7_headless
   "${FF7HLE}/ff7_winmm.c"
   "${FF7HLE}/ff7_com.c"
   "${FF7HLE}/ff7_ddraw.c"
+  "${FF7_ROOT}/src/ffnx_bridge/ffnx_driver.cpp"
   ${HLE_SOURCES}
   $<TARGET_OBJECTS:ff7_guest>)
-target_include_directories(ff7_headless PRIVATE "${RT}/recomp32" "${RT}/win32hle" "${GEN}" "${FF7HLE}")
+target_include_directories(ff7_headless PRIVATE "${RT}/recomp32" "${RT}/win32hle" "${GEN}" "${FF7HLE}" "${FF7_ROOT}/src/ffnx_bridge")
+set_source_files_properties("${FF7_ROOT}/src/ffnx_bridge/ffnx_driver.cpp" PROPERTIES COMPILE_OPTIONS "-std=c++17")
 target_compile_definitions(ff7_headless PRIVATE ${GUEST_DEFS})
 target_compile_options(ff7_headless PRIVATE -O1 -g -Wall -Wno-unused-function -Wno-unused-but-set-variable)
 target_link_libraries(ff7_headless PRIVATE m)

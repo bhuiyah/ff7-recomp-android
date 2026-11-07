@@ -75,10 +75,8 @@ static void d_RegQueryValueExA(void) {
     RET(ret, 6);
 }
 
-static void d_new_dll_graphics_driver(void) {
-    fprintf(stderr, "[ff7] STOP: new_dll_graphics_driver -- the renderer (FFNx) is not linked yet\n");
-    exit(93);
-}
+/* new_dll_graphics_driver is the renderer itself: src/ffnx_bridge/ffnx_driver.cpp exports
+ * it (registered by ff7_hle_register before this table). */
 
 const win32hle_shim ff7_af3dn[] = {
     { "dotemuRegOpenKeyExA", d_RegOpenKeyExA },
@@ -87,6 +85,5 @@ const win32hle_shim ff7_af3dn[] = {
     { "dotemuRegDeleteValueA", d_RegDeleteValueA },
     { "dotemuRegSetValueExA", d_RegSetValueExA },
     { "dotemuRegQueryValueExA", d_RegQueryValueExA },
-    { "new_dll_graphics_driver", d_new_dll_graphics_driver },
     { NULL, NULL }
 };

@@ -29,3 +29,11 @@
 - With the driver found, FF7 skips the DirectDraw path entirely (that was its fallback) and calls new_dll_graphics_driver right after configuration. **Pre-renderer boot complete on device: the run ends at the renderer boundary (exit 93, the deliberate STOP).** Next M1 step: FFNx as the driver.
 - Entry-trace build: `bash tools/build_headless.sh --trace` + `bash tools/run_device.sh --trace` (src/host/ff7_trace.c ring, printed on crash/STOP).
 - Heredoc gotcha hit again (bash turned backslash-n escapes into real newlines in a py heredoc): all edits now via Edit/Write tools.
+
+## 2026-11-07 (FFNx port, step 1: the bridge)
+- Design written: docs/FFNX_PORT.md (gptr/gfn/guest_export, entry overrides, call-site slots, code-patch manifest, staged A/B/C).
+- FFNx boundary measured: 785 replace_function/call, 640 code/data patches, 1029 code-walking reads, 958+101 externals, 717 FFNx->game calls, ~590 game-struct pointer members, 53 driver callbacks (240-byte table).
+- 32-bit layouts measured with clang-cl -m32 on FFNx's own ff7.h (tools/ffnx_layout.cpp, tools/ffnx_driver_offsets.py -> src/ffnx_bridge/driver_table.inc): game_obj.externals +0xA8C, externals.assert_malloc +4.
+- src/ffnx_bridge/guest_abi.h: gptr<T> (4-byte guest pointer), gcall/gfn (guest calls capturing eax/edx/st0, registers restored), guest_export<F> (native function as a cdecl/stdcall guest-callable shim).
+- Device selftest (FF7_BRIDGE_SELFTEST=1) 10/10 PASS: native C++ called the game's lifted malloc/free via game_obj->externals (block 0x60000D30, in the CRT small-block heap inside our VirtualAlloc region), gptr round trip, int/float/pointer exports, stack balanced.
+- new_dll_graphics_driver is now the bridge's export; it returns a 240-byte guest driver table of named stubs. The game's first driver call is gfx::lock (0x00660540): without FFNx's create_window hook, init has not been called yet -- on Windows FFNx's DllMain replaces create_window, which is where the driver init runs.
