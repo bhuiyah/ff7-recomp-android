@@ -5,6 +5,7 @@ once (or already be applied).
 usage: py -I tools/ffnx_edit_android.py
 """
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -153,6 +154,23 @@ EDITS = [
      '// called by the game to retrieve blend mode parameters\n'),
     ('common.cpp', '\tffnx_unexpected("invalid blendmode: %u\\n", blend_mode);\n\n\treturn 0;\n}\n',
      '\tffnx_unexpected("invalid blendmode: %u\\n", blend_mode);\n\n\treturn 0;\n}\n#ifdef FFNX_ANDROID\n#undef blend_modes\n#endif\n'),
+    # FFNx's "driver" heap shares the game's 32-bit address space on Windows, and FFNx hands
+    # its blocks to game code (field files to lzss_decode, ...): the guest heap here.
+    ('common.h', '#ifndef HEAP_DEBUG\n#define driver_malloc(x) malloc(x)\n#define driver_calloc(x, y) calloc(x, y)\n'
+                 '#define driver_free(x) free(x)\n#define driver_realloc(x, y) realloc(x, y)\n',
+     '#if defined(FFNX_ANDROID) && !defined(HEAP_DEBUG)\n'
+     '#define driver_malloc(x) guest_malloc(x)\n#define driver_calloc(x, y) guest_calloc(x, y)\n'
+     '#define driver_free(x) guest_free(x)\n#define driver_realloc(x, y) guest_realloc(x, y)\n'
+     '#elif !defined(HEAP_DEBUG)\n#define driver_malloc(x) malloc(x)\n#define driver_calloc(x, y) calloc(x, y)\n'
+     '#define driver_free(x) free(x)\n#define driver_realloc(x, y) realloc(x, y)\n'),
+    # Facial textures draw a recoloured copy of a game primitive: its vertices go behind the
+    # copy's gptr member, so they live in a guest scratch buffer.
+    ('gl/gl.cpp', '\t\tfacial.vertices = vertices.data();',
+     '#ifdef FFNX_ANDROID\n'
+     '\t\tfacial.vertices = ffnx_guest_scratch<nvertex, __LINE__>(vertices.data(), vertices.size());\n'
+     '#else\n'
+     '\t\tfacial.vertices = vertices.data();\n'
+     '#endif'),
     # Button prompts (universal_buttons.cpp) clone a game texture_set and its handle array
     # and hand them to the game's renderer: allocate both in guest memory.
     ('ff7.h', 'struct ff7_texture_set\n{\n',
@@ -194,6 +212,79 @@ EDITS = [
 ]
 
 
+# patch_code_dword/uint(addr, (DWORD)&fn) with a native function or object: the value the
+# game reads must be a guest address (ffnx_guest_va, src/ffnx_port/include/ffnx_guest.h).
+PATCH_VA_RE = re.compile(r'(patch_code_(?:dword|uint)\((?:[^;]*?)),\s*\((?:DWORD|uint32_t)\)\s*(&?)([A-Za-z_][A-Za-z_0-9:]*)\)\s*;')
+
+
+def rewrite_patch_values():
+    n = 0
+    for dirpath, _, files in os.walk(SRC):
+        rel_dir = os.path.relpath(dirpath, SRC).replace(os.sep, '/')
+        if rel_dir.startswith('ff8'):
+            continue
+        for f in files:
+            if not f.endswith('.cpp') or f.startswith('ff8'):
+                continue
+            path = os.path.join(dirpath, f)
+            raw = open(path, 'rb').read().decode('utf-8', errors='surrogateescape')
+            new, k = PATCH_VA_RE.subn(lambda m: f'{m.group(1)}, ffnx_guest_va({m.group(2)}{m.group(3)}));', raw)
+            if k:
+                open(path, 'wb').write(new.encode('utf-8', errors='surrogateescape'))
+                n += k
+    return n
+
+
+# Game functions FFNx keeps in native function-pointer variables:
+#   int (*opcode_old_pc)();  ...  opcode_old_pc = (int (*)())ff7_externals.opcode_pc;
+# Calling such a pointer would jump to x86 code. The variable becomes a guest::gfn<Sig>
+# (a call into the lifted game) and the assignment a from_va of the address.
+FNPTR_ASSIGN_RE = re.compile(
+    r'(?P<lead>(?:^|[;{}]|\n)\s*)(?P<decl>[A-Za-z_][\w:]*\s*\*?\s*\(\s*\*\s*)?(?P<name>[A-Za-z_]\w*)(?(decl)\s*\)\s*\((?P<dargs>[^)]*)\))\s*=\s*'
+    r'\(\s*(?P<ret>[A-Za-z_][\w:\s]*?\**)\s*\(\s*\*\s*\)\s*\((?P<args>[^)]*)\)\s*\)\s*(?P<expr>[^;]+);')
+FNPTR_SKIP_DIRS = ('ff8', 'audio/vgmstream')
+
+
+def fnptr_decl_re(name):
+    return re.compile(r'(?P<lead>^[ \t]*(?:static\s+|extern\s+)?)(?P<ret>[A-Za-z_][\w:]*(?:\s*\*)*)\s*\(\s*\*\s*'
+                      + re.escape(name) + r'\s*\)\s*\((?P<args>[^)]*)\)\s*(?P<init>=\s*[^;]*)?;', re.M)
+
+
+def rewrite_fnptr_globals():
+    files = []
+    for dirpath, _, names in os.walk(SRC):
+        rel_dir = os.path.relpath(dirpath, SRC).replace(os.sep, '/')
+        if rel_dir.startswith(FNPTR_SKIP_DIRS):
+            continue
+        files += [os.path.join(dirpath, f) for f in names if f.endswith(('.cpp', '.h')) and not f.startswith('ff8')]
+    text = {p: open(p, 'rb').read().decode('utf-8', errors='surrogateescape') for p in files}
+    names, n = set(), 0
+    for p, raw in text.items():
+        def assign(m):
+            nonlocal n
+            n += 1
+            sig = f'{m.group("ret").strip()}({m.group("args").strip()})'
+            value = f'guest::gfn<{sig}>::from_va((uint32_t)({m.group("expr").strip()}))'
+            if m.group('decl'):                       # local declaration with initialiser
+                return f'{m.group("lead")}auto {m.group("name")} = {value};'
+            names.add(m.group('name'))
+            return f'{m.group("lead")}{m.group("name")} = {value};'
+        text[p] = FNPTR_ASSIGN_RE.sub(assign, raw)
+    for name in names:
+        dre = fnptr_decl_re(name)
+        for p, raw in text.items():
+            def decl(m):
+                nonlocal n
+                n += 1
+                init = ' = 0' if m.group('init') else ''
+                return f'{m.group("lead")}guest::gfn<{m.group("ret").strip()}({m.group("args").strip()})> {name}{init};'
+            text[p] = dre.sub(decl, raw)
+    for p, raw in text.items():
+        if raw != open(p, 'rb').read().decode('utf-8', errors='surrogateescape'):
+            open(p, 'wb').write(raw.encode('utf-8', errors='surrogateescape'))
+    return n
+
+
 def main():
     changed = 0
     for edit in EDITS:
@@ -211,7 +302,8 @@ def main():
                 break
         else:
             sys.exit(f'{rel}: edit did not match exactly once:\n{old[:120]}')
-    print(f'{changed} edits applied ({len(EDITS)} total)')
+    print(f'{changed} edits applied ({len(EDITS)} total); {rewrite_patch_values()} patch values made guest addresses; '
+          f'{rewrite_fnptr_globals()} game-function pointer variables made guest calls')
 
 
 if __name__ == '__main__':

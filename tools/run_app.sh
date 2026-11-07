@@ -18,7 +18,7 @@ fi
 "$ADB" logcat -c
 "$ADB" shell am start -n com.ff7recomp/.GameActivity > /dev/null
 sleep "$SECS"
-n=$(ls -d "$ROOT"/logs/app-[0-9]* 2>/dev/null | sed 's/.*app-//' | sort -n | tail -1); out="$ROOT/logs/app-$((${n:-0} + 1))"
+n=$(ls -d "$ROOT"/logs/app-[0-9]*/ 2>/dev/null | sed 's|/$||; s/.*app-//' | sort -n | tail -1); out="$ROOT/logs/app-$((${n:-0} + 1))"
 mkdir -p "$out"
 "$ADB" exec-out screencap -p > "$out/screen.png"
 "$ADB" pull "$FILES/ff7.log" "$(cygpath -w "$out/ff7.log")" > /dev/null 2>&1

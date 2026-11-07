@@ -5,7 +5,9 @@
  * safe, which is acceptable for a process that is about to exit.
  */
 #define _GNU_SOURCE
+#include <dlfcn.h>
 #include <signal.h>
+#include <ucontext.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -15,8 +17,26 @@
 extern const char *g_cur_import;
 void ff7_trace_dump(int last);
 
+/* A host code address as "<library>+0x<offset>" (symbolize with llvm-symbolizer). */
+static void host_where(const char *what, uintptr_t a) {
+    Dl_info di;
+    if (a && dladdr((void *)a, &di) && di.dli_fbase) {
+        const char *lib = di.dli_fname ? strrchr(di.dli_fname, '/') : NULL;
+        fprintf(stderr, "  %s %s+0x%lx%s%s\n", what, lib ? lib + 1 : "?", (unsigned long)(a - (uintptr_t)di.dli_fbase),
+                di.dli_sname ? " " : "", di.dli_sname ? di.dli_sname : "");
+    } else {
+        fprintf(stderr, "  %s 0x%lx\n", what, (unsigned long)a);
+    }
+}
+
 static void on_fault(int sig, siginfo_t *si, void *uc) {
+#if defined(__aarch64__)
+    ucontext_t *u = (ucontext_t *)uc;
+    host_where("host pc", (uintptr_t)u->uc_mcontext.pc);
+    host_where("host lr", (uintptr_t)u->uc_mcontext.regs[30]);
+#else
     (void)uc;
+#endif
     fprintf(stderr, "[ff7] FAULT: signal %d (%s) at host address %p",
             sig, strsignal(sig), si->si_addr);
     uintptr_t a = (uintptr_t)si->si_addr;
@@ -31,6 +51,8 @@ static void on_fault(int sig, siginfo_t *si, void *uc) {
         fprintf(stderr, "    0x%08X <- 0x%08X%s%s\n", g_icall_trace[k], g_icall_from[k], nm ? "  " : "", nm ? nm : "");
     }
     ff7_trace_dump(64);
+    fflush(stderr);
+    usleep(400000);   /* the app pumps stderr to its log from another thread: let it drain */
     _exit(128 + sig);
 }
 
