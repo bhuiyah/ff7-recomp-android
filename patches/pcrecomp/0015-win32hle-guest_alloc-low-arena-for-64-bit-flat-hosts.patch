@@ -1,0 +1,368 @@
+diff --git a/runtime/win32hle/gdi32.c b/runtime/win32hle/gdi32.c
+index 6dc0f98..31f481f 100644
+--- a/runtime/win32hle/gdi32.c
++++ b/runtime/win32hle/gdi32.c
+@@ -13,6 +13,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include "guest_alloc.h"
+ #include "win32hle.h"
+ 
+ /* The destination the game's blits land on: a host-owned ARGB8888 framebuffer.
+@@ -48,7 +49,7 @@ static void g_CreateDIBSection(void) {
+     int w = bi_w(bmi), h = bi_h(bmi), bpp = bi_bpp(bmi);
+     if (bpp != 32) hle_fatal("CreateDIBSection: only 32bpp supported for now, got %d", bpp);
+     int hab = h < 0 ? -h : h;
+-    uint32_t *bits = (uint32_t *)calloc((size_t)w * hab, 4);
++    uint32_t *bits = (uint32_t *)guest_calloc((size_t)w * hab, 4);
+     if (g_dib_n < MAX_DIBS) {
+         g_dibs[g_dib_n].h = g_next_handle;
+         g_dibs[g_dib_n].bits = bits; g_dibs[g_dib_n].w = w;
+@@ -98,7 +99,7 @@ static void g_CreateCompatibleDC(void){ RET(0x0DC00002u, 1); }
+ static void g_DeleteDC(void)          { RET(1, 1); }
+ static void g_DeleteObject(void) {
+     uint32_t h = A32(0);
+-    for (int i = 0; i < g_dib_n; i++) if (g_dibs[i].h == h) { free(g_dibs[i].bits); g_dibs[i].bits = NULL; }
++    for (int i = 0; i < g_dib_n; i++) if (g_dibs[i].h == h) { guest_free(g_dibs[i].bits); g_dibs[i].bits = NULL; }
+     RET(1, 1);
+ }
+ static void g_SelectObject(void)      { RET(A32(1), 2); }   /* return "previous"; stateless for now */
+diff --git a/runtime/win32hle/guest_alloc.c b/runtime/win32hle/guest_alloc.c
+new file mode 100644
+index 0000000..2bd7d4c
+--- /dev/null
++++ b/runtime/win32hle/guest_alloc.c
+@@ -0,0 +1,199 @@
++/*
++ * guest_alloc.c - memory the guest can address, on any host. See guest_alloc.h.
++ *
++ * Under RECOMP_FLAT_MEMORY a guest address is a host address truncated to 32 bits. On a
++ * 32-bit host malloc already satisfies that. On a 64-bit host (Linux/Android arm64,
++ * x86-64) malloc returns addresses above 4 GB, so every block the guest is handed an
++ * address of -- heap blocks, the TIB, guest stacks, DIB bits -- comes from one arena
++ * reserved at a fixed low range instead.
++ *
++ * The allocator is first-fit over an address-ordered free list with neighbour
++ * coalescing. Each block carries a 16-byte header (size + magic) so free/realloc need
++ * no lookup and catch foreign pointers. One mutex; guest calls are also serialised by
++ * the machine lock, but host threads (audio, the present layer) may allocate too.
++ */
++#define _GNU_SOURCE
++#include <errno.h>
++#include <pthread.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include "guest_alloc.h"
++
++#if UINTPTR_MAX > 0xffffffffu
++#include <sys/mman.h>
++#ifndef MAP_FIXED_NOREPLACE
++#define MAP_FIXED_NOREPLACE 0x100000
++#endif
++#define GA_ARENA 1
++#endif
++
++#define GA_MAGIC  0x47414C43u   /* 'GALC' */
++#define GA_ALIGN  16u
++#define GA_HDR    16u
++
++typedef struct ga_hdr { uint32_t size; uint32_t magic; uint32_t pad[2]; } ga_hdr; /* size includes header */
++typedef struct ga_free { uint32_t addr, size; } ga_free;
++
++static pthread_mutex_t g_ga_lock = PTHREAD_MUTEX_INITIALIZER;
++static ga_free *g_free;           /* address-ordered free ranges (host memory, not guest) */
++static int      g_free_n, g_free_cap;
++static uint32_t g_arena_lo, g_arena_hi;
++static uint64_t g_live;
++
++static void ga_die(const char *what, uint32_t va) {
++    fprintf(stderr, "[guest_alloc] FATAL: %s (0x%08X)\n", what, va);
++    abort();
++}
++
++int guest_alloc_init(uint32_t lo, uint32_t hi) {
++    if (g_arena_hi) return 0;
++#ifdef GA_ARENA
++    void *p = mmap((void *)(uintptr_t)lo, (size_t)(hi - lo), PROT_READ | PROT_WRITE,
++                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
++    if (p == MAP_FAILED || (uintptr_t)p != lo) {
++        fprintf(stderr, "[guest_alloc] cannot reserve [0x%08X,0x%08X): %s\n", lo, hi, strerror(errno));
++        if (p != MAP_FAILED) munmap(p, (size_t)(hi - lo));
++        return -1;
++    }
++#endif
++    g_arena_lo = lo;
++    g_arena_hi = hi;
++    g_free_cap = 256;
++    g_free = (ga_free *)malloc(sizeof *g_free * (size_t)g_free_cap);
++    g_free[0].addr = lo;
++    g_free[0].size = hi - lo;
++    g_free_n = 1;
++    return 0;
++}
++
++static void ga_insert_free(uint32_t addr, uint32_t size) {
++    int i = 0;
++    while (i < g_free_n && g_free[i].addr < addr) i++;
++    /* merge with previous / next neighbour where they touch */
++    int merged_prev = (i > 0 && g_free[i - 1].addr + g_free[i - 1].size == addr);
++    int merged_next = (i < g_free_n && addr + size == g_free[i].addr);
++    if (merged_prev && merged_next) {
++        g_free[i - 1].size += size + g_free[i].size;
++        memmove(&g_free[i], &g_free[i + 1], sizeof *g_free * (size_t)(g_free_n - i - 1));
++        g_free_n--;
++    } else if (merged_prev) {
++        g_free[i - 1].size += size;
++    } else if (merged_next) {
++        g_free[i].addr = addr;
++        g_free[i].size += size;
++    } else {
++        if (g_free_n == g_free_cap) {
++            g_free_cap *= 2;
++            g_free = (ga_free *)realloc(g_free, sizeof *g_free * (size_t)g_free_cap);
++        }
++        memmove(&g_free[i + 1], &g_free[i], sizeof *g_free * (size_t)(g_free_n - i));
++        g_free[i].addr = addr;
++        g_free[i].size = size;
++        g_free_n++;
++    }
++}
++
++static uint32_t ga_take(uint32_t need) {
++    for (int i = 0; i < g_free_n; i++) {
++        if (g_free[i].size >= need) {
++            uint32_t a = g_free[i].addr;
++            g_free[i].addr += need;
++            g_free[i].size -= need;
++            if (!g_free[i].size) {
++                memmove(&g_free[i], &g_free[i + 1], sizeof *g_free * (size_t)(g_free_n - i - 1));
++                g_free_n--;
++            }
++            return a;
++        }
++    }
++    return 0;
++}
++
++static void *ga_alloc_locked(size_t n, int zero) {
++    if (!g_arena_hi) {
++        /* 32-bit host or no arena: malloc already gives guest-addressable memory. */
++        void *p = zero ? calloc(1, n ? n : 1) : malloc(n ? n : 1);
++#if UINTPTR_MAX > 0xffffffffu
++        if (p && (uintptr_t)p > 0xffffffffu) ga_die("guest_alloc_init was not called on a 64-bit host", 0);
++#endif
++        return p;
++    }
++    if (n > 0x7fffffffu) return NULL;
++    uint32_t need = (uint32_t)((n + GA_HDR + GA_ALIGN - 1) & ~(size_t)(GA_ALIGN - 1));
++    uint32_t a = ga_take(need);
++    if (!a) return NULL;
++    ga_hdr *h = (ga_hdr *)(uintptr_t)a;
++    h->size = need;
++    h->magic = GA_MAGIC;
++    g_live += need;
++    void *p = (uint8_t *)h + GA_HDR;
++    if (zero) memset(p, 0, need - GA_HDR);
++    return p;
++}
++
++static ga_hdr *ga_header(void *p) {
++    uintptr_t a = (uintptr_t)p;
++    if (a < (uintptr_t)g_arena_lo + GA_HDR || a >= g_arena_hi) ga_die("free of a pointer outside the guest arena", (uint32_t)a);
++    ga_hdr *h = (ga_hdr *)(a - GA_HDR);
++    if (h->magic != GA_MAGIC) ga_die("free of a corrupt or foreign guest block", (uint32_t)a);
++    return h;
++}
++
++void *guest_malloc(size_t n) {
++    pthread_mutex_lock(&g_ga_lock);
++    void *p = ga_alloc_locked(n, 0);
++    pthread_mutex_unlock(&g_ga_lock);
++    return p;
++}
++
++void *guest_calloc(size_t count, size_t n) {
++    if (n && count > SIZE_MAX / n) return NULL;
++    pthread_mutex_lock(&g_ga_lock);
++    void *p = ga_alloc_locked(count * n, 1);
++    pthread_mutex_unlock(&g_ga_lock);
++    return p;
++}
++
++void guest_free(void *p) {
++    if (!p) return;
++    pthread_mutex_lock(&g_ga_lock);
++    if (!g_arena_hi) { free(p); pthread_mutex_unlock(&g_ga_lock); return; }
++    ga_hdr *h = ga_header(p);
++    uint32_t a = (uint32_t)(uintptr_t)h, size = h->size;
++    h->magic = 0;
++    g_live -= size;
++    ga_insert_free(a, size);
++    pthread_mutex_unlock(&g_ga_lock);
++}
++
++size_t guest_msize(void *p) {
++    if (!p) return 0;
++    if (!g_arena_hi) return 0;   /* unknown for libc blocks; callers only use it on arena hosts */
++    pthread_mutex_lock(&g_ga_lock);
++    size_t n = ga_header(p)->size - GA_HDR;
++    pthread_mutex_unlock(&g_ga_lock);
++    return n;
++}
++
++void *guest_realloc(void *p, size_t n) {
++    if (!p) return guest_malloc(n);
++    if (!n) { guest_free(p); return NULL; }
++    pthread_mutex_lock(&g_ga_lock);
++    if (!g_arena_hi) { void *q = realloc(p, n); pthread_mutex_unlock(&g_ga_lock); return q; }
++    size_t old = ga_header(p)->size - GA_HDR;
++    pthread_mutex_unlock(&g_ga_lock);
++    if (n <= old) return p;
++    void *q = guest_malloc(n);
++    if (!q) return NULL;
++    memcpy(q, p, old);
++    guest_free(p);
++    return q;
++}
++
++uint64_t guest_alloc_live_bytes(void) { return g_live; }
++int guest_alloc_is_guest(const void *p) {
++    uintptr_t a = (uintptr_t)p;
++    return g_arena_hi ? (a >= g_arena_lo && a < g_arena_hi) : (a <= 0xffffffffu);
++}
+diff --git a/runtime/win32hle/guest_alloc.h b/runtime/win32hle/guest_alloc.h
+new file mode 100644
+index 0000000..7c358aa
+--- /dev/null
++++ b/runtime/win32hle/guest_alloc.h
+@@ -0,0 +1,30 @@
++/*
++ * guest_alloc.h - allocations the guest can hold a 32-bit address of.
++ *
++ * Every block whose address is handed to lifted code (heap blocks, TIBs, guest stacks,
++ * DIB bits, COM objects) must lie below 4 GB under RECOMP_FLAT_MEMORY. On a 32-bit host
++ * these fall through to libc. On a 64-bit host the host first reserves a low arena with
++ * guest_alloc_init(lo, hi) -- e.g. [0x10000000, 0x70000000) -- and they are served from it.
++ */
++#ifndef GUEST_ALLOC_H
++#define GUEST_ALLOC_H
++#include <stddef.h>
++#include <stdint.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* Reserve [lo, hi) for guest allocations (64-bit hosts). 0 on success. Idempotent. */
++int    guest_alloc_init(uint32_t lo, uint32_t hi);
++void  *guest_malloc(size_t n);
++void  *guest_calloc(size_t count, size_t n);
++void  *guest_realloc(void *p, size_t n);
++void   guest_free(void *p);
++size_t guest_msize(void *p);                 /* usable size of a block; 0 on 32-bit hosts */
++uint64_t guest_alloc_live_bytes(void);
++int    guest_alloc_is_guest(const void *p);  /* 1 if p is guest-addressable */
++
++#ifdef __cplusplus
++}
++#endif
++#endif
+diff --git a/runtime/win32hle/host_lite.c b/runtime/win32hle/host_lite.c
+index 81ee36c..56dfc4f 100644
+--- a/runtime/win32hle/host_lite.c
++++ b/runtime/win32hle/host_lite.c
+@@ -19,6 +19,7 @@
+ #include <stdarg.h>
+ #include <string.h>
+ #include <pthread.h>
++#include "guest_alloc.h"
+ #include "win32hle.h"
+ 
+ /* ------------------------------------------------------------ register file
+@@ -83,7 +84,7 @@ static void regs_load(const regs_t *r) {
+ #define GUEST_STACK (4u << 20)
+ 
+ static uint32_t make_tib(uint32_t lo, uint32_t hi) {
+-    uint32_t *t = (uint32_t *)calloc(1, 0x1000);
++    uint32_t *t = (uint32_t *)guest_calloc(1, 0x1000);
+     t[0]        = 0xFFFFFFFFu;                 /* ExceptionList: end of chain */
+     t[1]        = hi;                          /* StackBase                   */
+     t[2]        = lo;                          /* StackLimit                  */
+@@ -97,7 +98,7 @@ static __thread mstate g_ms;
+ void mach_enter(void) {
+     pthread_mutex_lock(&g_mach);
+     if (!g_ms.inited) {
+-        uint32_t lo = (uint32_t)(uintptr_t)calloc(1, GUEST_STACK);
++        uint32_t lo = (uint32_t)(uintptr_t)guest_calloc(1, GUEST_STACK);
+         g_ms.r.esp    = lo + GUEST_STACK - 64;
+         g_ms.r.fs     = make_tib(lo, lo + GUEST_STACK);
+         g_ms.r.fpu_cw = 0x027F;
+diff --git a/runtime/win32hle/kernel32.c b/runtime/win32hle/kernel32.c
+index 9494bbc..25c8949 100644
+--- a/runtime/win32hle/kernel32.c
++++ b/runtime/win32hle/kernel32.c
+@@ -12,6 +12,7 @@
+ #include <time.h>
+ #include <unistd.h>
+ #include <pthread.h>
++#include "guest_alloc.h"
+ #include "win32hle.h"
+ 
+ #define HEAP_ZERO_MEMORY 0x00000008u
+@@ -33,21 +34,21 @@ static void k_GetVersion(void)        { RET(5u | (0u<<8) | (2195u<<16), 0); }
+ /* --- heap --- */
+ static void k_HeapAlloc(void) {                                         /* (hHeap, flags, size) */
+     uint32_t flags = A32(1), size = A32(2);
+-    void *p = (flags & HEAP_ZERO_MEMORY) ? calloc(1, size) : malloc(size);
++    void *p = (flags & HEAP_ZERO_MEMORY) ? guest_calloc(1, size) : guest_malloc(size);
+     RETP(p, 3);
+ }
+-static void k_HeapFree(void)   { free(APTR(2)); RET(1, 3); }            /* (hHeap, flags, ptr) */
+-static void k_HeapReAlloc(void){ RETP(realloc(APTR(2), A32(3)), 4); }   /* (hHeap, flags, ptr, size) */
++static void k_HeapFree(void)   { guest_free(APTR(2)); RET(1, 3); }            /* (hHeap, flags, ptr) */
++static void k_HeapReAlloc(void){ RETP(guest_realloc(APTR(2), A32(3)), 4); }   /* (hHeap, flags, ptr, size) */
+ static void k_HeapSize(void)   { RET(0xFFFFFFFFu, 3); }                 /* unknown; callers rarely trust it */
+-static void k_LocalAlloc(void) { uint32_t flags=A32(0), n=A32(1); RETP(flags&0x40?calloc(1,n):malloc(n), 2); }
+-static void k_LocalFree(void)  { free(APTR(0)); RET(0, 1); }
++static void k_LocalAlloc(void) { uint32_t flags=A32(0), n=A32(1); RETP(flags&0x40?guest_calloc(1,n):guest_malloc(n), 2); }
++static void k_LocalFree(void)  { guest_free(APTR(0)); RET(0, 1); }
+ 
+ /* VirtualAlloc(addr, size, type, protect): MEM_RESERVE/COMMIT -> a plain
+  * allocation. If the guest asked for a fixed address we honour it (it is a
+  * host pointer on a 32-bit host); otherwise hand back fresh memory. */
+ static void k_VirtualAlloc(void) {
+     uint32_t addr = A32(0), size = A32(1);
+-    RETP(addr ? (void *)(uintptr_t)addr : calloc(1, size), 4);
++    RETP(addr ? (void *)(uintptr_t)addr : guest_calloc(1, size), 4);
+ }
+ static void k_VirtualFree(void) { RET(1, 3); }
+ 
+diff --git a/runtime/win32hle/kernel32_ext.c b/runtime/win32hle/kernel32_ext.c
+index 22827be..8b27fc6 100644
+--- a/runtime/win32hle/kernel32_ext.c
++++ b/runtime/win32hle/kernel32_ext.c
+@@ -13,6 +13,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include "guest_alloc.h"
+ #include "win32hle.h"
+ 
+ #define INVALID_HANDLE  0xFFFFFFFFu
+@@ -86,11 +87,11 @@ static void k_CloseHandle(void) { file_close(A32(0)); RET(1, 1); }
+ 
+ /* ---- Global* (we use GMEM_FIXED semantics: HGLOBAL == the pointer) ---- */
+ #define GMEM_ZEROINIT 0x0040u
+-static void k_GlobalAlloc(void) { uint32_t fl = A32(0), n = A32(1); RETP(fl & GMEM_ZEROINIT ? calloc(1, n) : malloc(n), 2); }
+-static void k_GlobalFree(void)  { free(APTR(0)); RET(0, 1); }
++static void k_GlobalAlloc(void) { uint32_t fl = A32(0), n = A32(1); RETP(fl & GMEM_ZEROINIT ? guest_calloc(1, n) : guest_malloc(n), 2); }
++static void k_GlobalFree(void)  { guest_free(APTR(0)); RET(0, 1); }
+ static void k_GlobalLock(void)  { RETP(APTR(0), 1); }          /* already a pointer */
+ static void k_GlobalUnlock(void){ RET(1, 1); }
+-static void k_GlobalReAlloc(void){ RETP(realloc(APTR(0), A32(1)), 3); }
++static void k_GlobalReAlloc(void){ RETP(guest_realloc(APTR(0), A32(1)), 3); }
+ static void k_GlobalSize(void)  { RET(0, 1); }                 /* unknown; callers rarely trust it */
+ 
+ /* ---- .ini profile: a minimal reader/writer over a flat key=value file ----
