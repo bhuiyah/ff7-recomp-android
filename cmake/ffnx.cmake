@@ -15,6 +15,15 @@ cmrc_add_resource_library(ffnx-resources ALIAS ffnx::rc NAMESPACE FFNx WHENCE "$
   "${FFNX_DIR}/.logo/logo_nobg.png")
 set_target_properties(ffnx-resources PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# Header layout FFNx expects from vcpkg: <libpng16/png.h>, <libvgmstream/vgmstream.h>.
+set(FFNX_GEN_INC "${CMAKE_BINARY_DIR}/ffnx_include")
+file(MAKE_DIRECTORY "${FFNX_GEN_INC}/libpng16" "${FFNX_GEN_INC}/libvgmstream")
+configure_file("${FFNX_DEPS}/libpng/png.h" "${FFNX_GEN_INC}/libpng16/png.h" COPYONLY)
+configure_file("${FFNX_DEPS}/libpng/pngconf.h" "${FFNX_GEN_INC}/libpng16/pngconf.h" COPYONLY)
+configure_file("${FFNX_DEPS}/libpng/scripts/pnglibconf.h.prebuilt" "${FFNX_GEN_INC}/libpng16/pnglibconf.h" COPYONLY)
+file(WRITE "${FFNX_GEN_INC}/libvgmstream/vgmstream.h"
+  "#pragma once\n#include \"${FFNX_DEPS}/vgmstream/src/libvgmstream.h\"\n")
+
 if(NOT DEFINED FFNX_SOURCES)
   set(FFNX_SOURCES gl/texture.cpp)
 endif()
@@ -32,7 +41,11 @@ target_include_directories(ffnx BEFORE PUBLIC
   "${FFNX_SRC}"
   "${FFNX_DEPS}/tomlplusplus/include"
   "${FFNX_DEPS}/imgui"
-  "${FFNX_DEPS}/xxhash")
+  "${FFNX_DEPS}/xxhash"
+  "${FFNX_GEN_INC}"
+  "${FFNX_DEPS}/SDL3/include"
+  "${FFNX_DEPS}/pugixml/src"
+  "${FFNX_DEPS}/soloud/include")
 target_compile_definitions(ffnx PUBLIC
   VERSION="1.25.2-ff7recomp"
   DIRECTINPUT_VERSION=0x0800
