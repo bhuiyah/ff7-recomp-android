@@ -7,4 +7,5 @@
 - 2026 data layout: per-language kernel/battle/movies under `data/lang-xx/`; music in `music/` and `music_ogg/`.
 - Toolchain: JDK 17 (`C:\Program Files\Microsoft\jdk-17.0.21.21-hotspot`), Android SDK at `%LOCALAPPDATA%\Android\Sdk` with NDK 28.2.13676358 (clang 19), CMake 3.30.5, build-tools 35, platform 35, adb 1.0.41. Python: pefile, unicorn, capstone installed.
 - pcrecomp + 14 NFSU2 patches apply cleanly on 35548b8.
-- Open: toolkit self-test (`tools/lift/difftest.py` with RECOMP_CC=clang under `source tools/vsenv.sh x64`) was blocked by the auto-mode classifier for running cloned code; needs the user's OK.
+- Toolkit self-test (user approved running cloned code): `source tools/vsenv.sh x64; RECOMP_CC=clang py tools/lift/difftest.py` in `external/pcrecomp` → **246/246 match Unicorn, 0 failures**. Two cases (`sbb.idiom`, `span.carry.default`) report FIXED: the NFSU2 patches corrected divergences upstream still marks `known=`. Compiler: LLVM clang + VS 2022 Build Tools 14.44 link.
+- **M0 exit met.** Next: M1 (catalog + lift `ff7_en`, Windows x64 host, FFNx linked as AF3DN.P).

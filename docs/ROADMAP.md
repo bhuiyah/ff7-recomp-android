@@ -6,7 +6,7 @@ Each milestone ends with its exit test, a commit and a report. One milestone at 
 
 | # | Milestone | Exit test |
 |---|---|---|
-| M0 | Inputs and toolchain | `tools/check_inputs.py` passes; pinned pcrecomp builds |
+| M0 ✅ | Inputs and toolchain | `tools/check_inputs.py` passes; pinned pcrecomp difftest 246/246 |
 | M1 | Lift and boot on Windows x64 host | Title screen through statically linked FFNx |
 | M2 | Playable on Windows | New game to Sector 7, no divergence from original exe + FFNx |
 | M3 | Android port | Same run on the Thor, steady frame rate |
