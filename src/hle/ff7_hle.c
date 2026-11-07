@@ -10,9 +10,11 @@ void hle_yield_machine(void) {
     mach_enter();
 }
 
-void ffnx_bridge_register(void);   /* src/ffnx_bridge/ffnx_driver.cpp */
+void ffnx_bridge_register(void);   /* src/ffnx_bridge/ffnx_driver.cpp (or ffnx_boot.cpp) */
+void ff7_paths_link(void);         /* src/hle/ff7_paths.c */
 
 void ff7_hle_register(void) {
+    ff7_paths_link();
     ffnx_bridge_register();
     win32hle_register(ff7_kernel32);
     win32hle_register(ff7_virtual);

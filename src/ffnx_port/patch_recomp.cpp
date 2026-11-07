@@ -156,7 +156,7 @@ extern "C" void ffnx_recomp_report(void) {
 
 extern "C" int ffnx_recomp_write_manifest(const char *path) {
     std::lock_guard<std::mutex> lk(g_lock);
-    FILE *f = std::fopen(path, "w");
+    FILE *f = fopen(path, "w");
     if (!f) return -1;
     std::fprintf(f, "{\n \"hooks\": [\n");
     for (size_t i = 0; i < g_hooks.size(); i++)

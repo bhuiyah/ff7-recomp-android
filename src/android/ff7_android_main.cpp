@@ -139,6 +139,20 @@ Java_com_ff7recomp_GameActivity_nativeStart(JNIEnv *env, jclass, jstring game_di
     const char *l = env->GetStringUTFChars(log_dir, nullptr);
     g_game_dir = g;
     redirect_output(l);
+    // Debug switches for the runtime (FF7_PATH_TRACE=1, FF7_TRACE_IMPORTS=1, ...): one
+    // KEY=VALUE per line in files/env.txt (pushed with adb; absent normally).
+    if (FILE *env = std::fopen((std::string(l) + "/env.txt").c_str(), "r")) {
+        char line[256];
+        while (std::fgets(line, sizeof line, env)) {
+            line[std::strcspn(line, "\r\n")] = 0;
+            char *eq = std::strchr(line, '=');
+            if (!eq || line[0] == '#') continue;
+            *eq = 0;
+            setenv(line, eq + 1, 1);
+            std::fprintf(stderr, "[ff7] env %s=%s\n", line, eq + 1);
+        }
+        std::fclose(env);
+    }
     env->ReleaseStringUTFChars(game_dir, g);
     env->ReleaseStringUTFChars(log_dir, l);
 

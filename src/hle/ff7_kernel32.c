@@ -449,6 +449,17 @@ static void k_GetLocaleInfoW(void) {
     RET(need, 4);
 }
 
+/* ---- ole32: FF7 creates a DirectMusic performance for MIDI music. FFNx plays the music
+ * itself (OGG), so COM is "initialised" and every class reports not registered: the game
+ * then runs without DirectMusic, as on a machine without it. */
+static void k_CoInitialize(void) { RET(0, 1); }                       /* S_OK */
+static void k_CoUninitialize(void) { RETV(0); }
+static void k_CoCreateInstance(void) {   /* (rclsid, outer, ctx, riid, ppv) */
+    uint32_t ppv = A32(4);
+    if (ppv) *(uint32_t *)(uintptr_t)ppv = 0;
+    RET(0x80040154u, 5);                                               /* REGDB_E_CLASSNOTREG */
+}
+
 const win32hle_shim ff7_kernel32[] = {
     { "HeapCreate", k_HeapCreate },
     { "HeapDestroy", k_HeapDestroy },
@@ -498,5 +509,8 @@ const win32hle_shim ff7_kernel32[] = {
     { "LCMapStringW", k_LCMapStringW },
     { "GetLocaleInfoA", k_GetLocaleInfoA },
     { "GetLocaleInfoW", k_GetLocaleInfoW },
+    { "CoInitialize", k_CoInitialize },
+    { "CoUninitialize", k_CoUninitialize },
+    { "CoCreateInstance", k_CoCreateInstance },
     { NULL, NULL }
 };

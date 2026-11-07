@@ -141,6 +141,34 @@ EDITS = [
     # The exe is the 2026 rerelease's ff7_en (data/lang-*, music_ogg, ...). FFNx recognises
     # that edition by its install folder name ("workingdir"); on Android the game folder is the
     # app's files/game, so the edition is a given.
+    # The game keeps the blend_mode pointer the driver returns: hand it a guest copy of the
+    # table (read-only for both sides).
+    ('common.cpp', '// called by the game to retrieve blend mode parameters\n',
+     '#ifdef FFNX_ANDROID\n'
+     'static struct blend_mode *ffnx_guest_blend_modes()\n{\n'
+     '\tstatic struct blend_mode *copy = [] { auto *p = (struct blend_mode *)guest_calloc(1, sizeof(blend_modes)); memcpy(p, blend_modes, sizeof(blend_modes)); return p; }();\n'
+     '\treturn copy;\n}\n'
+     '#define blend_modes ffnx_guest_blend_modes()\n'
+     '#endif\n'
+     '// called by the game to retrieve blend mode parameters\n'),
+    ('common.cpp', '\tffnx_unexpected("invalid blendmode: %u\\n", blend_mode);\n\n\treturn 0;\n}\n',
+     '\tffnx_unexpected("invalid blendmode: %u\\n", blend_mode);\n\n\treturn 0;\n}\n#ifdef FFNX_ANDROID\n#undef blend_modes\n#endif\n'),
+    # FFNx's get_keyboard_state replacement hands the game its key array: keep it in guest
+    # memory (allocated on first use; the guest heap exists only once the game boots).
+    ('input.cpp', 'byte keys[256];\n',
+     '#ifdef FFNX_ANDROID\n'
+     'static byte *ffnx_guest_keys() { static byte *k = (byte *)guest_calloc(1, 256); return k; }\n'
+     '#define keys ffnx_guest_keys()\n'
+     '#else\n'
+     'byte keys[256];\n'
+     '#endif\n'),
+    # FFmpeg opens movie files itself: give it the host path of the game's movie name.
+    ('video/movies.cpp', '\tif(avformat_open_input(&format_ctx, name, NULL, NULL))',
+     '#ifdef FFNX_ANDROID\n'
+     '\tchar ffnx_host_name[1024];\n'
+     '\tname = hle_host_path(name, ffnx_host_name, sizeof(ffnx_host_name));\n'
+     '#endif\n'
+     '\tif(avformat_open_input(&format_ctx, name, NULL, NULL))'),
     ('common.cpp', '\t\t\t\tif (strstr(basedir, "workingdir") != NULL)',
      '\t\t\t\tif (FFNX_ANDROID || strstr(basedir, "workingdir") != NULL)   // FF7Recomp: 2026 rerelease exe'),
 ]

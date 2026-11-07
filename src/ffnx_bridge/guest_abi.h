@@ -18,6 +18,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <array>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
 #include <type_traits>
 #include <tuple>
 #include <utility>
@@ -42,7 +46,43 @@ inline uint32_t va_of(const void *p) {
     if (a > 0xFFFFFFFFu) fatal("host pointer given to the guest (not guest memory)", a);
     return static_cast<uint32_t>(a);
 }
-template <typename T> inline T *ptr_of(uint32_t va) { return reinterpret_cast<T *>(static_cast<uintptr_t>(va)); }
+template <typename T> inline T *ptr_of_raw(uint32_t va) { return reinterpret_cast<T *>(static_cast<uintptr_t>(va)); }
+
+// ---- host handles: opaque host objects the game only stores and hands back ----------
+// FFNx's open_lgp_file returns a FILE* that the game keeps in its LGP tables and FFNx's
+// own LGP functions read back. Such pointers cross as handles in a range with no guest
+// memory, [0xF0000000, 0xF0010000), and turn back into the host pointer on the way in.
+template <typename T> struct is_host_handle : std::false_type {};
+template <> struct is_host_handle<FILE> : std::true_type {};
+constexpr uint32_t k_handle_base = 0xF0000000u, k_handle_max = 0x10000u;
+inline std::mutex &handle_lock() { static std::mutex m; return m; }
+inline std::vector<void *> &handle_table() { static std::vector<void *> t; return t; }
+inline uint32_t host_handle_of(void *p) {
+    if (!p) return 0;
+    std::lock_guard<std::mutex> lk(handle_lock());
+    auto &t = handle_table();
+    for (size_t i = 0; i < t.size(); i++) if (t[i] == p) return k_handle_base + (uint32_t)i;
+    if (t.size() >= k_handle_max) fatal("host handle table full", t.size());
+    t.push_back(p);
+    return k_handle_base + (uint32_t)(t.size() - 1);
+}
+inline void *host_handle_get(uint32_t h) {
+    if (!h) return nullptr;
+    std::lock_guard<std::mutex> lk(handle_lock());
+    uint32_t i = h - k_handle_base;
+    if (h < k_handle_base || i >= handle_table().size()) fatal("not a host handle", h);
+    return handle_table()[i];
+}
+
+// Any pointer type to its 32-bit guest form and back (host handles included).
+template <typename T> inline uint32_t to_va(T *p) {
+    if constexpr (is_host_handle<std::remove_cv_t<T>>::value) return host_handle_of(const_cast<std::remove_cv_t<T> *>(p));
+    else return p ? va_of(p) : 0;
+}
+template <typename T> inline T *ptr_of(uint32_t va) {
+    if constexpr (is_host_handle<std::remove_cv_t<T>>::value) return static_cast<T *>(host_handle_get(va));
+    else return ptr_of_raw<T>(va);
+}
 
 // ---- gptr<T>: a guest pointer member --------------------------------------------------
 
@@ -52,7 +92,7 @@ class gptr {
 public:
     gptr() = default;
     gptr(std::nullptr_t) {}
-    gptr(T *p) : va_(va_of(p)) {}
+    gptr(T *p) : va_(to_va(p)) {}
     // An address computed as an integer (0, get_absolute_value...): exact-match template so
     // a literal 0 is not ambiguous with the pointer constructor.
     template <typename I, typename = std::enable_if_t<std::is_integral_v<I>>>
@@ -75,7 +115,7 @@ public:
     U &operator*() const { return *get(); }
     template <typename U = T, typename = std::enable_if_t<!std::is_void_v<U>>>
     U &operator[](std::ptrdiff_t i) const { return get()[i]; }
-    gptr &operator=(T *p) { va_ = p ? va_of(p) : 0; return *this; }
+    gptr &operator=(T *p) { va_ = to_va(p); return *this; }
     gptr &operator=(std::nullptr_t) { va_ = 0; return *this; }
     explicit operator bool() const { return va_ != 0; }
     gptr &operator++() { va_ += sizeof(T); return *this; }
@@ -126,6 +166,22 @@ template <typename R, typename... A> struct guest_safe_sig<R(A...)> {
     static constexpr bool value = !is_raw_ptr_ptr<R>::value && !(is_raw_ptr_ptr<A>::value || ...);
 };
 
+// A guest copy of a host string, one per distinct text, kept for the run.
+inline uint32_t guest_string(const char *s) {
+    static std::mutex lock;
+    static std::unordered_map<std::string, uint32_t> copies;
+    std::lock_guard<std::mutex> lk(lock);
+    auto it = copies.find(s);
+    if (it != copies.end()) return it->second;
+    size_t n = std::strlen(s) + 1;
+    char *g = static_cast<char *>(guest_malloc(n));
+    if (!g) fatal("guest_string: guest heap exhausted", n);
+    std::memcpy(g, s, n);
+    uint32_t va = va_of(g);
+    copies.emplace(s, va);
+    return va;
+}
+
 // Argument -> guest stack words.
 template <typename A> inline void put_arg(uint32_t *&w, A a) {
     if constexpr (std::is_pointer_v<A> && std::is_function_v<std::remove_pointer_t<A>>) {
@@ -134,7 +190,13 @@ template <typename A> inline void put_arg(uint32_t *&w, A a) {
         *w++ = !a ? 0 : p <= 0xFFFFFFFFu ? static_cast<uint32_t>(p)
                                            : host_pool<std::remove_pointer_t<A>>::va_for(a);
     }
-    else if constexpr (std::is_pointer_v<A>) { *w++ = a ? va_of(a) : 0; }
+    else if constexpr (std::is_same_v<A, const char *>) {
+        // Read-only strings may be host literals (FFNx passes __FILE__ to the game's debug
+        // allocator): a host one goes over as a guest copy, made once per distinct text.
+        uintptr_t p = reinterpret_cast<uintptr_t>(a);
+        *w++ = !a ? 0 : p <= 0xFFFFFFFFu ? static_cast<uint32_t>(p) : guest_string(a);
+    }
+    else if constexpr (std::is_pointer_v<A>) { *w++ = to_va(a); }
     else if constexpr (std::is_same_v<A, float>) { uint32_t u; std::memcpy(&u, &a, 4); *w++ = u; }
     else if constexpr (std::is_same_v<A, double>) { uint64_t u; std::memcpy(&u, &a, 8); *w++ = (uint32_t)u; *w++ = (uint32_t)(u >> 32); }
     else if constexpr (std::is_class_v<A>) {               // by-value struct: its 32-bit image
@@ -202,7 +264,7 @@ template <typename A> inline A get_arg(uint32_t &off) {
 }
 
 template <typename R> inline void set_result(R v) {
-    if constexpr (std::is_pointer_v<R>) g_eax = v ? va_of(v) : 0;
+    if constexpr (std::is_pointer_v<R>) g_eax = to_va(v);
     else if constexpr (std::is_floating_point_v<R>) { g_fp_top = (g_fp_top - 1) & 7; g_st[g_fp_top & 7] = (double)v; }
     else if constexpr (std::is_class_v<R>) {
         static_assert(sizeof(R) <= 8, "structs over 8 bytes return through a hidden pointer: not supported");

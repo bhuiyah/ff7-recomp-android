@@ -196,7 +196,14 @@ LSTATUS RegOpenKeyExA(HKEY, LPCSTR, DWORD, REGSAM, PHKEY out) { if (out) *out = 
 LSTATUS RegQueryValueExA(HKEY, LPCSTR, LPDWORD, LPDWORD, LPBYTE, LPDWORD) { return ERROR_FILE_NOT_FOUND; }
 LSTATUS RegCloseKey(HKEY) { return ERROR_SUCCESS; }
 
-// ---- files
+// ---- files: FFNx's paths through the game's mapping (ffnx_prelude.h redirects the calls;
+// parenthesised names below reach libc itself).
+
+static const char *host_path(const char *p, char *buf, unsigned n) { return p ? hle_host_path(p, buf, n) : p; }
+FILE *ffnx_fopen(const char *path, const char *mode) { char b[1024]; return (fopen)(host_path(path, b, sizeof b), mode); }
+int ffnx_stat(const char *path, struct stat *st) { char b[1024]; return (stat)(host_path(path, b, sizeof b), st); }
+int ffnx_access(const char *path, int mode) { char b[1024]; return (access)(host_path(path, b, sizeof b), mode); }
+
 HANDLE CreateFileA(LPCSTR name, DWORD access, DWORD, LPSECURITY_ATTRIBUTES, DWORD disp, DWORD, HANDLE) {
     const char *mode = (disp == CREATE_ALWAYS || disp == CREATE_NEW) ? "wb+" : (access & GENERIC_WRITE) ? "rb+" : "rb";
     FILE *f = name ? fopen(name, mode) : nullptr;
@@ -223,9 +230,9 @@ BOOL CloseHandle(HANDLE h) {
     if (h >= FH_BASE && i < FH_MAX && g_fh[i]) { fclose(g_fh[i]); g_fh[i] = nullptr; return TRUE; }
     return FALSE;
 }
-BOOL DeleteFileA(LPCSTR name) { return unlink(name) == 0; }
+BOOL DeleteFileA(LPCSTR name) { char b[1024]; return unlink(host_path(name, b, sizeof b)) == 0; }
 DWORD GetFileAttributesA(LPCSTR path) { struct stat st; if (stat(path, &st)) return INVALID_FILE_ATTRIBUTES; return S_ISDIR(st.st_mode) ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL; }
-BOOL CreateDirectoryA(LPCSTR path, LPSECURITY_ATTRIBUTES) { return mkdir(path, 0775) == 0; }
+BOOL CreateDirectoryA(LPCSTR path, LPSECURITY_ATTRIBUTES) { char b[1024]; return mkdir(host_path(path, b, sizeof b), 0775) == 0; }
 UINT GetDriveTypeA(LPCSTR) { return DRIVE_FIXED; }   // no CD drives: the game data is on storage
 // Directory searches: their own handle range and table.
 static constexpr uint32_t FIND_BASE = 0x00FE0000u;
@@ -244,7 +251,8 @@ static BOOL find_next(find_state *fs, LPWIN32_FIND_DATAA data) {
 }
 HANDLE FindFirstFileA(LPCSTR spec, LPWIN32_FIND_DATAA data) {
     find_state *fs = new find_state();
-    snprintf(fs->dir, sizeof fs->dir, "%s", spec);
+    char mapped[1024];
+    snprintf(fs->dir, sizeof fs->dir, "%s", host_path(spec, mapped, sizeof mapped));
     char *slash = strrchr(fs->dir, '/'); char *bs = strrchr(fs->dir, '\\'); if (bs > slash) slash = bs;
     if (slash) { snprintf(fs->pat, sizeof fs->pat, "%s", slash + 1); *slash = 0; }
     else { snprintf(fs->pat, sizeof fs->pat, "%s", fs->dir); snprintf(fs->dir, sizeof fs->dir, "."); }

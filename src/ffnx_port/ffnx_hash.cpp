@@ -101,7 +101,7 @@ struct sha1 {
 std::string ffnx_md5_hex(const unsigned char *data, size_t length) { md5 m; m.update(data, length); return m.finish(); }
 
 std::string ffnx_sha1_file_hex(const char *filename) {
-    FILE *f = std::fopen(filename, "rb");
+    FILE *f = fopen(filename, "rb");
     if (!f) return "";
     sha1 s;
     std::vector<uint8_t> buf(1 << 16);

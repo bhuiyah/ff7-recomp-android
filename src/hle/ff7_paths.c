@@ -55,6 +55,15 @@ static int match_component(const char *dir, const char *name, char *out, size_t 
 const char *hle_host_path(const char *guest, char *buf, unsigned n) {
     if (path_trace < 0) path_trace = getenv("FF7_PATH_TRACE") != NULL;
     if (!guest || !n) return guest;
+    /* A host absolute path (FFNx builds some from its base directory): already real. The
+     * game's own rooted paths use backslashes or a drive letter. */
+    if (guest[0] == '/') {
+        /* FFNx appends Windows-style parts to its base directory ("<base>/data\lang-en"). */
+        snprintf(buf, n, "%s", guest);
+        for (char *p = buf; *p; p++) if (*p == '\\') *p = '/';
+        if (path_trace) fprintf(stderr, "[path] %s -> %s (host)\n", guest, buf);
+        return buf;
+    }
 
     char tmp[1024];
     snprintf(tmp, sizeof tmp, "%s", guest);
@@ -69,7 +78,8 @@ const char *hle_host_path(const char *guest, char *buf, unsigned n) {
     /* Split into components. */
     char *parts[128];
     int np = 0;
-    for (char *tok = strtok(s, "/"); tok && np < 128; tok = strtok(NULL, "/")) {
+    char *save = NULL;   /* strtok_r: FFNx opens files from several threads */
+    for (char *tok = strtok_r(s, "/", &save); tok && np < 128; tok = strtok_r(NULL, "/", &save)) {
         if (!strcmp(tok, ".")) continue;
         parts[np++] = tok;
     }
@@ -101,3 +111,7 @@ const char *hle_host_path(const char *guest, char *buf, unsigned n) {
     if (path_trace) fprintf(stderr, "[path] %s -> %s%s\n", guest, buf, missing ? " (new)" : "");
     return buf;
 }
+
+/* Referenced from ff7_hle_register so the linker takes this object out of the archive:
+ * otherwise win32hle's weak hle_host_path (slashes only) is the one linked. */
+void ff7_paths_link(void) {}
