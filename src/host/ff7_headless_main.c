@@ -16,11 +16,7 @@
 #include "guest_alloc.h"
 #include "host.h"
 #include "win32hle.h"
-
-/* Guest heap arena. Above the image (0x00400000-0x00B6F000) and below win32hle's
- * synthetic shim VAs at 0x7F000000. */
-#define FF7_ARENA_LO 0x10000000u
-#define FF7_ARENA_HI 0x70000000u
+#include "ff7_hle.h"
 
 int main(int argc, char **argv) {
     if (argc < 2) {
@@ -34,8 +30,10 @@ int main(int argc, char **argv) {
         return 66;
     }
     if (guest_alloc_init(FF7_ARENA_LO, FF7_ARENA_HI) != 0) return 70;
+    if (ff7_virtual_init() != 0) return 70;
     fprintf(stderr, "[ff7] guest arena [0x%08X,0x%08X)\n", FF7_ARENA_LO, FF7_ARENA_HI);
 
+    ff7_hle_register();          /* FF7 shims first: a name here wins over win32hle */
     recomp_host_init();
     if (getenv("FF7_TRACE_IMPORTS")) win32hle_trace = 1;
     if (recomp_host_boot_permissive("ff7_en.exe") != 0) {

@@ -1,0 +1,45 @@
+diff --git a/runtime/win32hle/kernel32_ext.c b/runtime/win32hle/kernel32_ext.c
+index 8b27fc6..32cf72d 100644
+--- a/runtime/win32hle/kernel32_ext.c
++++ b/runtime/win32hle/kernel32_ext.c
+@@ -18,6 +18,10 @@
+ 
+ #define INVALID_HANDLE  0xFFFFFFFFu
+ 
++__attribute__((weak)) const char *hle_host_path(const char *guest, char *buf, unsigned n) {
++    (void)buf; (void)n; return guest;
++}
++
+ /* ---- file handles: a small table mapping a HANDLE to a FILE* ---- */
+ #define MAXF 64
+ static FILE *g_files[MAXF];
+@@ -50,8 +54,10 @@ static void k_CreateFileA(void) {
+         case 4:         mode = wr ? "rb+" : "rb"; break; /* open-always (fallback below) */
+         default:        mode = wr ? "rb+" : "rb"; break; /* open-existing */
+     }
+-    FILE *f = name ? fopen(name, mode) : NULL;
+-    if (!f && disp == 4 && name) f = fopen(name, "wb+");  /* open-always: make it */
++    char hp[1024];
++    const char *host = name ? hle_host_path(name, hp, sizeof hp) : NULL;
++    FILE *f = host ? fopen(host, mode) : NULL;
++    if (!f && disp == 4 && host) f = fopen(host, "wb+");  /* open-always: make it */
+     RET(f ? file_open(f) : INVALID_HANDLE, 7);
+ }
+ 
+diff --git a/runtime/win32hle/win32hle.h b/runtime/win32hle/win32hle.h
+index 140beb4..c88701e 100644
+--- a/runtime/win32hle/win32hle.h
++++ b/runtime/win32hle/win32hle.h
+@@ -72,6 +72,12 @@ uint32_t hle_resolve_or_stub(const char *name);
+ /* Human name for a synthetic shim VA (for traces/faults), or NULL. */
+ const char *hle_name(uint32_t va);
+ 
++/* ---- host paths ----
++ * The path a file shim should open for a guest Win32 path. The weak default in
++ * kernel32_ext.c returns `guest` unchanged; a title may define it to map drive
++ * letters, backslashes and case. `buf` (n bytes) is scratch the result may use. */
++const char *hle_host_path(const char *guest, char *buf, unsigned n);
++
+ /* ---- native -> guest ----
+  * Run a lifted function (window proc, dialog proc, thread start, timer) from
+  * HLE C, pushing `nargs` stdcall args. Returns the guest's eax. Takes the

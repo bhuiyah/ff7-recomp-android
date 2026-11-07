@@ -12,6 +12,7 @@ get_filename_component(FF7_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(RT  "${FF7_ROOT}/external/pcrecomp/runtime")
 set(GEN "${FF7_ROOT}/generated/recomp")
 set(HOST "${FF7_ROOT}/src/host")
+set(FF7HLE "${FF7_ROOT}/src/hle")
 
 if(NOT EXISTS "${GEN}/recomp_dispatch.c")
   message(FATAL_ERROR "generated/recomp is empty: run tools/run_lift.py lift first")
@@ -42,9 +43,18 @@ set(HLE_SOURCES
 add_executable(ff7_headless
   "${HOST}/ff7_headless_main.c"
   "${HOST}/ff7_runtime_hooks.c"
+  "${FF7HLE}/ff7_hle.c"
+  "${FF7HLE}/ff7_kernel32.c"
+  "${FF7HLE}/ff7_paths.c"
+  "${FF7HLE}/ff7_virtual.c"
+  "${FF7HLE}/ff7_af3dn.c"
+  "${FF7HLE}/ff7_user32.c"
+  "${FF7HLE}/ff7_winmm.c"
+  "${FF7HLE}/ff7_com.c"
+  "${FF7HLE}/ff7_ddraw.c"
   ${HLE_SOURCES}
   $<TARGET_OBJECTS:ff7_guest>)
-target_include_directories(ff7_headless PRIVATE "${RT}/recomp32" "${RT}/win32hle" "${GEN}")
+target_include_directories(ff7_headless PRIVATE "${RT}/recomp32" "${RT}/win32hle" "${GEN}" "${FF7HLE}")
 target_compile_definitions(ff7_headless PRIVATE ${GUEST_DEFS})
 target_compile_options(ff7_headless PRIVATE -O1 -g -Wall -Wno-unused-function -Wno-unused-but-set-variable)
 target_link_libraries(ff7_headless PRIVATE m)
