@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <array>
 #include <type_traits>
 #include <tuple>
 #include <utility>
@@ -57,6 +58,12 @@ public:
     uint32_t va() const { return va_; }
     T *get() const { return ptr_of<T>(va_); }
     operator T *() const { return get(); }
+    // C-style casts FFNx writes on game pointers: to another struct view of the same
+    // memory ((ff7_tex_header *)tex_header) and to a 32-bit address ((uint32_t)p).
+    template <typename U, typename = std::enable_if_t<!std::is_same_v<U, T>>>
+    explicit operator U *() const { return reinterpret_cast<U *>(get()); }
+    template <typename I, typename = std::enable_if_t<std::is_integral_v<I>>>
+    explicit operator I() const { return static_cast<I>(va_); }
     T *operator->() const { return get(); }
     template <typename U = T, typename = std::enable_if_t<!std::is_void_v<U>>>
     U &operator*() const { return *get(); }
@@ -124,21 +131,23 @@ inline R gcall(uint32_t va, A... args) {
     return take_result<R>(call_va(va, static_cast<int>(w - words), words));
 }
 
-// ---- gfn<Sig>: a guest function pointer -----------------------------------------------
-
-template <typename Sig> class gfn;
-template <typename R, typename... A>
-class gfn<R(A...)> {
-    uint32_t va_ = 0;
-public:
-    gfn() = default;
-    gfn(std::nullptr_t) {}
-    static gfn from_va(uint32_t va) { gfn f; f.va_ = va; return f; }
-    uint32_t va() const { return va_; }
-    explicit operator bool() const { return va_ != 0; }
-    R operator()(A... a) const { return gcall<R>(va_, a...); }
-};
-static_assert(sizeof(gfn<void()>) == 4, "gfn must stay 4 bytes");
+// thiscall: `this` travels in ecx, the rest on the stack (callee pops them).
+template <typename R, typename T, typename... A>
+inline R gcall_this(uint32_t va, T self, A... args) {
+    uint32_t words[2 * sizeof...(A) + 1];
+    uint32_t *w = words;
+    (put_arg(w, args), ...);
+    uint32_t this_word[1];
+    uint32_t *tw = this_word;
+    put_arg(tw, self);
+    mach_enter();
+    uint32_t saved_ecx = g_ecx;
+    g_ecx = this_word[0];
+    result r = call_va(va, static_cast<int>(w - words), words);
+    g_ecx = saved_ecx;
+    mach_leave();
+    return take_result<R>(r);
+}
 
 // ---- guest_export<F>: native function callable from the guest --------------------------
 // cdecl: the shim reads arguments at [esp+4...] and returns with esp unchanged (the guest
@@ -153,7 +162,6 @@ template <typename A> inline A get_arg(uint32_t &off) {
     else if constexpr (std::is_class_v<A>) { uint32_t u = word(off); off += 4; A a; std::memcpy(&a, &u, 4); return a; }
     else { A v = (A)word(off); off += 4; return v; }
 }
-template <typename A> constexpr uint32_t arg_bytes() { return (sizeof(A) + 3u) & ~3u; }
 
 template <typename R> inline void set_result(R v) {
     if constexpr (std::is_pointer_v<R>) g_eax = v ? va_of(v) : 0;
@@ -162,16 +170,114 @@ template <typename R> inline void set_result(R v) {
     else g_eax = (uint32_t)v;
 }
 
+// Run native `fn` with arguments read from the guest stack (cdecl or stdcall).
+template <typename R, typename... A, typename Fn>
+inline void run_export(Fn fn, bool stdcall_pop) {
+    uint32_t off = 4;                                     // [esp] is the return address
+    std::tuple<A...> args{ get_arg<A>(off)... };          // braced: evaluated left to right
+    if constexpr (std::is_void_v<R>) std::apply(fn, args);
+    else set_result<R>(std::apply(fn, args));
+    g_esp += 4u + (stdcall_pop ? (off - 4u) : 0u);        // pop return address (+ args if stdcall)
+}
+
+// ---- host function pointers handed to the guest ----------------------------------------
+// FFNx stores its own functions into game memory (the driver table, callbacks in game
+// structs). A native function address does not fit in 32 bits, so each distinct pointer
+// gets a guest-callable thunk from a fixed pool per signature; the pool slot remembers
+// the native pointer. 256 slots per signature is far more than FFNx uses for any one.
+template <typename Sig> struct host_pool;
+template <typename R, typename... A>
+struct host_pool<R(A...)> {
+    using fp = R (*)(A...);
+    static constexpr int N = 256;
+    static inline fp fns[N];
+    static inline uint32_t vas[N];
+    static inline int used;
+    template <int I> static void thunk() { run_export<R, A...>(fns[I], false); }
+    template <int... I>
+    static constexpr std::array<recomp_func_t, N> make(std::integer_sequence<int, I...>) { return { &thunk<I>... }; }
+    static uint32_t va_for(fp f) {
+        static const std::array<recomp_func_t, N> thunks = make(std::make_integer_sequence<int, N>{});
+        for (int i = 0; i < used; i++) if (fns[i] == f) return vas[i];
+        if (used == N) fatal("host_pool exhausted for a signature", (uintptr_t)f);
+        int i = used++;
+        fns[i] = f;
+        char *name = static_cast<char *>(std::malloc(40));
+        std::snprintf(name, 40, "host:%p", reinterpret_cast<void *>(f));
+        win32hle_shim one[2] = { { name, thunks[i] }, { nullptr, nullptr } };
+        win32hle_register(one);
+        vas[i] = hle_resolve(name);
+        return vas[i];
+    }
+};
+
+// ---- gfn<Sig>: a 4-byte function pointer in game memory --------------------------------
+// From a value below 4 GB it is a guest address (a game function, or a cast integer as
+// in FFNx's externals tables); from a native function it is a pooled thunk.
+
+enum class cc { cdecl_, stdcall_, thiscall_ };
+
+template <typename Sig, cc C = cc::cdecl_> class gfn_t;
+template <typename R, typename... A, cc C>
+class gfn_t<R(A...), C> {
+    uint32_t va_ = 0;
+public:
+    using fp = R (*)(A...);
+    gfn_t() = default;
+    gfn_t(std::nullptr_t) {}
+    gfn_t(fp f) { *this = f; }
+    static gfn_t from_va(uint32_t va) { gfn_t g; g.va_ = va; return g; }
+    gfn_t &operator=(fp f) {
+        uintptr_t a = reinterpret_cast<uintptr_t>(f);
+        if (!f) va_ = 0;
+        else if (a <= 0xFFFFFFFFu) va_ = static_cast<uint32_t>(a);            // guest address
+        else if constexpr (C == cc::cdecl_) va_ = host_pool<R(A...)>::va_for(f);
+        else fatal("native function stored as a stdcall/thiscall guest pointer", a);
+        return *this;
+    }
+    gfn_t &operator=(std::nullptr_t) { va_ = 0; return *this; }
+    uint32_t va() const { return va_; }
+    explicit operator bool() const { return va_ != 0; }
+    // Comparisons FFNx does against raw addresses / other pointers.
+    friend bool operator==(const gfn_t &a, const gfn_t &b) { return a.va_ == b.va_; }
+    friend bool operator!=(const gfn_t &a, const gfn_t &b) { return a.va_ != b.va_; }
+    R operator()(A... a) const {
+        if constexpr (C == cc::thiscall_) return gcall_this<R>(va_, a...);
+        else return gcall<R>(va_, a...);
+    }
+};
+
+// Variadic game functions (printf-style): stored as a guest address only; calls pass
+// whatever arguments the call site supplies (cdecl, caller cleans up).
+template <typename R, typename... A, cc C>
+class gfn_t<R(A..., ...), C> {
+    uint32_t va_ = 0;
+public:
+    using fp = R (*)(A..., ...);
+    gfn_t() = default;
+    gfn_t(std::nullptr_t) {}
+    gfn_t(fp f) { *this = f; }
+    gfn_t &operator=(fp f) {
+        uintptr_t a = reinterpret_cast<uintptr_t>(f);
+        if (a > 0xFFFFFFFFu) fatal("native variadic function stored as a guest pointer", a);
+        va_ = static_cast<uint32_t>(a);
+        return *this;
+    }
+    uint32_t va() const { return va_; }
+    explicit operator bool() const { return va_ != 0; }
+    template <typename... V> R operator()(V... v) const { return gcall<R>(va_, v...); }
+};
+
+template <typename Sig> using gfn = gfn_t<Sig, cc::cdecl_>;
+template <typename Sig> using gfn_stdcall = gfn_t<Sig, cc::stdcall_>;
+template <typename Sig> using gfn_thiscall = gfn_t<Sig, cc::thiscall_>;
+static_assert(sizeof(gfn<void()>) == 4, "gfn must stay 4 bytes");
+
+// ---- guest_export<F>: a named native function callable from the guest -------------------
 template <auto F, bool Stdcall = false> struct export_of;
 template <typename R, typename... A, R (*F)(A...), bool Stdcall>
 struct export_of<F, Stdcall> {
-    static void thunk() {
-        uint32_t off = 4;                                 // [esp] is the return address
-        std::tuple<A...> args{ get_arg<A>(off)... };      // braced: evaluated left to right
-        if constexpr (std::is_void_v<R>) std::apply(F, args);
-        else set_result<R>(std::apply(F, args));
-        g_esp += 4u + (Stdcall ? (off - 4u) : 0u);        // pop return address (+ args if stdcall)
-    }
+    static void thunk() { run_export<R, A...>(F, Stdcall); }
 };
 
 // Register F under `name` and return its guest VA (idempotent per name).

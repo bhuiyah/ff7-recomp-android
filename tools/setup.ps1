@@ -33,3 +33,7 @@ foreach ($p in $pins) {
     }
     Write-Host "$($p.name) @ $(git -C $dir rev-parse --short HEAD)"
 }
+
+# FFNx's game-structure headers -> guest 32-bit layout (gptr/gfn members).
+py -I (Join-Path $root 'tools\ffnx_port.py') gptr
+if (-not $?) { throw 'tools/ffnx_port.py gptr failed' }
