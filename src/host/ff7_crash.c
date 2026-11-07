@@ -47,3 +47,51 @@ void ff7_install_crash_handler(void) {
     sigaction(SIGILL, &sa, NULL);
     sigaction(SIGFPE, &sa, NULL);
 }
+
+/* ---- watchdog (FF7_WATCHDOG=<seconds>): a sampling profile of the lifted program.
+ * Every period it samples g_cur_func (the last lifted function entered) for one second
+ * and prints the hottest functions and the last import, to see where a hung or slow
+ * game is spending its time without a debugger. */
+#include <pthread.h>
+#include <stdlib.h>
+#include <time.h>
+
+static void *watchdog(void *arg) {
+    int period = (int)(intptr_t)arg;
+    enum { NS = 1000, TOP = 8 };
+    uint32_t va[NS];
+    for (;;) {
+        sleep((unsigned)period);
+        for (int i = 0; i < NS; i++) {
+            va[i] = g_cur_func;
+            struct timespec t = { 0, 1000000 };
+            nanosleep(&t, NULL);
+        }
+        /* count distinct values (small n: quadratic is fine) */
+        uint32_t uv[NS]; int cnt[NS]; int nu = 0;
+        for (int i = 0; i < NS; i++) {
+            int j = 0;
+            while (j < nu && uv[j] != va[i]) j++;
+            if (j == nu) { uv[nu] = va[i]; cnt[nu] = 0; nu++; }
+            cnt[j]++;
+        }
+        fprintf(stderr, "[watchdog] %d distinct funcs in 1s; last import %s; top:", nu, g_cur_import ? g_cur_import : "-");
+        for (int k = 0; k < TOP && k < nu; k++) {
+            int best = 0;
+            for (int j = 1; j < nu; j++) if (cnt[j] > cnt[best]) best = j;
+            fprintf(stderr, " %08X:%d", uv[best], cnt[best]);
+            cnt[best] = -1;
+        }
+        fprintf(stderr, "\n");
+    }
+    return NULL;
+}
+
+void ff7_start_watchdog(void) {
+    const char *e = getenv("FF7_WATCHDOG");
+    int period = e ? atoi(e) : 0;
+    if (period <= 0) return;
+    pthread_t t;
+    pthread_create(&t, NULL, watchdog, (void *)(intptr_t)period);
+    pthread_detach(t);
+}

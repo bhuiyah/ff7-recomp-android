@@ -18,6 +18,7 @@
 #include "ff7_boot.h"
 
 void ff7_install_crash_handler(void);
+void ff7_start_watchdog(void);   /* ff7_crash.c, FF7_WATCHDOG=<s> */
 int ff7_ffnx_attach(void);   /* src/ffnx_port/ffnx_boot.cpp (FF7_WITH_FFNX) */
 
 int ff7_boot_and_run(const char *game_dir) {
@@ -26,6 +27,7 @@ int ff7_boot_and_run(const char *game_dir) {
         return 66;
     }
     ff7_install_crash_handler();
+    ff7_start_watchdog();
     if (guest_alloc_init(FF7_ARENA_LO, FF7_ARENA_HI) != 0) return 70;
     if (ff7_virtual_init() != 0) return 70;
     fprintf(stderr, "[ff7] guest arena [0x%08X,0x%08X), game dir %s\n", FF7_ARENA_LO, FF7_ARENA_HI, game_dir);

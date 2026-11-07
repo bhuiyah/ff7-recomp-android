@@ -153,6 +153,26 @@ EDITS = [
      '// called by the game to retrieve blend mode parameters\n'),
     ('common.cpp', '\tffnx_unexpected("invalid blendmode: %u\\n", blend_mode);\n\n\treturn 0;\n}\n',
      '\tffnx_unexpected("invalid blendmode: %u\\n", blend_mode);\n\n\treturn 0;\n}\n#ifdef FFNX_ANDROID\n#undef blend_modes\n#endif\n'),
+    # Button prompts (universal_buttons.cpp) clone a game texture_set and its handle array
+    # and hand them to the game's renderer: allocate both in guest memory.
+    ('ff7.h', 'struct ff7_texture_set\n{\n',
+     'struct ff7_texture_set\n{\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\tstatic void *operator new(size_t n) { void *p = guest_calloc(1, n); if (!p) throw std::bad_alloc(); return p; }\n'
+     '\tstatic void operator delete(void *p) { guest_free(p); }\n'
+     '#endif\n'),
+    ('ff7/universal_buttons.cpp', '  private_texture_set->texturehandle = new uint32_t[texture_count];',
+     '#ifdef FFNX_ANDROID\n'
+     '  private_texture_set->texturehandle = (uint32_t *)guest_calloc(texture_count, sizeof(uint32_t));\n'
+     '#else\n'
+     '  private_texture_set->texturehandle = new uint32_t[texture_count];\n'
+     '#endif'),
+    ('ff7/universal_buttons.cpp', '      delete[] private_texture_set->texturehandle;',
+     '#ifdef FFNX_ANDROID\n'
+     '      guest_free(private_texture_set->texturehandle);\n'
+     '#else\n'
+     '      delete[] private_texture_set->texturehandle;\n'
+     '#endif'),
     # FFNx's get_keyboard_state replacement hands the game its key array: keep it in guest
     # memory (allocated on first use; the guest heap exists only once the game boots).
     ('input.cpp', 'byte keys[256];\n',

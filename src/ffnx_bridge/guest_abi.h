@@ -182,6 +182,34 @@ inline uint32_t guest_string(const char *s) {
     return va;
 }
 
+// ---- bounce buffers: host structs passed to the game by pointer -----------------------
+// FFNx's decompiled game code passes pointers to its own locals (a struc_3 on the native
+// stack) to game functions. For the length of the call such a struct gets a guest copy,
+// copied back afterwards (not for const pointees). Only class types: their size is known.
+template <typename T, typename = void> struct is_complete : std::false_type {};
+template <typename T> struct is_complete<T, std::void_t<decltype(sizeof(T))>> : std::true_type {};
+struct bounce_entry { void *host; void *guest; size_t n; bool back; };
+inline std::vector<bounce_entry> &bounces() { thread_local std::vector<bounce_entry> v; return v; }
+template <typename T> inline uint32_t bounce_in(T *p) {
+    using U = std::remove_cv_t<T>;
+    void *g = guest_malloc(sizeof(U));
+    if (!g) fatal("bounce: guest heap exhausted", sizeof(U));
+    std::memcpy(g, (const void *)p, sizeof(U));
+    bounces().push_back({ (void *)p, g, sizeof(U), !std::is_const_v<T> });
+    return va_of(g);
+}
+struct bounce_scope {
+    size_t mark = bounces().size();
+    ~bounce_scope() {
+        auto &v = bounces();
+        while (v.size() > mark) {
+            bounce_entry b = v.back(); v.pop_back();
+            if (b.back) std::memcpy(b.host, b.guest, b.n);
+            guest_free(b.guest);
+        }
+    }
+};
+
 // Argument -> guest stack words.
 template <typename A> inline void put_arg(uint32_t *&w, A a) {
     if constexpr (std::is_pointer_v<A> && std::is_function_v<std::remove_pointer_t<A>>) {
@@ -196,7 +224,13 @@ template <typename A> inline void put_arg(uint32_t *&w, A a) {
         uintptr_t p = reinterpret_cast<uintptr_t>(a);
         *w++ = !a ? 0 : p <= 0xFFFFFFFFu ? static_cast<uint32_t>(p) : guest_string(a);
     }
-    else if constexpr (std::is_pointer_v<A>) { *w++ = to_va(a); }
+    else if constexpr (std::is_pointer_v<A>) {
+        using T = std::remove_pointer_t<A>;
+        if constexpr (std::is_class_v<T> && is_complete<T>::value && !is_host_handle<std::remove_cv_t<T>>::value) {
+            if (reinterpret_cast<uintptr_t>(a) > 0xFFFFFFFFu) { *w++ = bounce_in(a); return; }
+        }
+        *w++ = to_va(a);
+    }
     else if constexpr (std::is_same_v<A, float>) { uint32_t u; std::memcpy(&u, &a, 4); *w++ = u; }
     else if constexpr (std::is_same_v<A, double>) { uint64_t u; std::memcpy(&u, &a, 8); *w++ = (uint32_t)u; *w++ = (uint32_t)(u >> 32); }
     else if constexpr (std::is_class_v<A>) {               // by-value struct: its 32-bit image
@@ -221,15 +255,18 @@ template <typename R> inline R take_result(const result &r) {
 
 template <typename R, typename... A>
 inline R gcall(uint32_t va, A... args) {
+    bounce_scope bs;
     uint32_t words[(arg_words<A>() + ... + 0) + 1];
     uint32_t *w = words;
     (put_arg(w, args), ...);
-    return take_result<R>(call_va(va, static_cast<int>(w - words), words));
+    result r = call_va(va, static_cast<int>(w - words), words);
+    return take_result<R>(r);
 }
 
 // thiscall: `this` travels in ecx, the rest on the stack (callee pops them).
 template <typename R, typename T, typename... A>
 inline R gcall_this(uint32_t va, T self, A... args) {
+    bounce_scope bs;
     uint32_t words[(arg_words<A>() + ... + 0) + 1];
     uint32_t *w = words;
     (put_arg(w, args), ...);
