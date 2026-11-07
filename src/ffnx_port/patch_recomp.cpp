@@ -12,6 +12,7 @@
 // get_relative_call / get_absolute_value / check_is_call are FFNx's (GPL-3.0), unchanged.
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <vector>
@@ -22,7 +23,7 @@ namespace {
 
 constexpr uint32_t TEXT_LO = 0x00401000u, TEXT_HI = 0x007B6000u;   // ff7_en .text
 
-struct hook_rec { const char *what; uint32_t site, target; };
+struct hook_rec { const char *what; uint32_t site, target; int installed; };
 struct write_rec { const char *what; uint32_t offset, size; };
 
 std::mutex g_lock;
@@ -32,24 +33,42 @@ uint32_t g_data_writes;
 
 bool in_text(uint32_t a) { return a >= TEXT_LO && a < TEXT_HI; }
 
-uint32_t record_hook(const char *what, uint32_t site, uint32_t target) {
+uint32_t record_hook(const char *what, uint32_t site, uint32_t target, int installed) {
     std::lock_guard<std::mutex> lk(g_lock);
-    g_hooks.push_back({ what, site, target });
+    g_hooks.push_back({ what, site, target, installed });
     return static_cast<uint32_t>(g_hooks.size() - 1);
+}
+
+// A/B toggle: FF7_FFNX_HOOKS=0 records hooks without installing any.
+bool hooks_enabled() {
+    static int on = -1;
+    if (on < 0) { const char *e = std::getenv("FF7_FFNX_HOOKS"); on = !(e && e[0] == '0'); }
+    return on;
 }
 
 }  // namespace
 
+extern "C" int ff7_override_install(uint32_t va, uint32_t target);
+extern "C" void ff7_override_remove(uint32_t va);
+
 namespace ffnx_recomp {
 
 uint32_t replace_function_va(uint32_t offset, uint32_t host_va, const char *what) {
-    return record_hook(what, offset, host_va);
+    int installed = 0;
+    if (hooks_enabled()) {
+        int rc = ff7_override_install(offset, host_va);
+        installed = rc == 0;
+        if (rc == -1) ffnx_warning("replace_function: 0x%08X is not a lifted function entry; hook recorded only\n", offset);
+        if (rc == -2) ffnx_error("replace_function: override table full at 0x%08X\n", offset);
+    }
+    return record_hook(what, offset, host_va, installed);
 }
+// Call-site replacements need lift-time slots (docs/FFNX_PORT.md section 6): recorded.
 void replace_call_va(uint32_t offset, uint32_t host_va, const char *what) {
-    record_hook(what, offset, host_va);
+    record_hook(what, offset, host_va, 0);
 }
 uint32_t replace_call_function_va(uint32_t offset, uint32_t host_va, const char *what) {
-    return record_hook(what, offset, host_va);
+    return record_hook(what, offset, host_va, 0);
 }
 
 void note_code_write(uint32_t offset, uint32_t size, const char *what) {
@@ -62,11 +81,19 @@ void note_code_write(uint32_t offset, uint32_t size, const char *what) {
 
 using ffnx_recomp::note_code_write;
 
-// FFNx can undo/redo a replacement by index (battle/field toggles). The hook table keeps
-// the record; installing and removing are the runtime's job.
-void unreplace_function(uint32_t func) { (void)func; }
-void rereplace_function(uint32_t func) { (void)func; }
-void unreplace_functions() {}
+// FFNx undoes/redoes a replacement by the index replace_function returned.
+void unreplace_function(uint32_t func) {
+    std::lock_guard<std::mutex> lk(g_lock);
+    if (func < g_hooks.size() && g_hooks[func].installed) ff7_override_remove(g_hooks[func].site);
+}
+void rereplace_function(uint32_t func) {
+    std::lock_guard<std::mutex> lk(g_lock);
+    if (func < g_hooks.size() && g_hooks[func].installed) ff7_override_install(g_hooks[func].site, g_hooks[func].target);
+}
+void unreplace_functions() {
+    std::lock_guard<std::mutex> lk(g_lock);
+    for (const hook_rec &h : g_hooks) if (h.installed) ff7_override_remove(h.site);
+}
 
 static uint8_t check_is_call(const char *name, uint32_t base, uint32_t offset, uint16_t instruction) {
     if ((instruction & 0xFF) != 0xE8 && (instruction & 0xFF) != 0xE9 && instruction != 0x15FF) {
@@ -119,9 +146,12 @@ void *member_func_to_ptr(char i, ...) {
 
 extern "C" void ffnx_recomp_report(void) {
     std::lock_guard<std::mutex> lk(g_lock);
-    std::fprintf(stderr, "[ffnx-patch] %zu hooks requested (not installed: entry overrides/call-site slots pending), "
+    size_t installed = 0;
+    for (const hook_rec &h : g_hooks) installed += h.installed;
+    std::fprintf(stderr, "[ffnx-patch] %zu hooks requested, %zu installed as entry overrides "
+                         "(the rest need call-site slots or are mid-function), "
                          "%zu code writes into .text (need a re-lift), %u data writes applied\n",
-                 g_hooks.size(), g_code_writes.size(), g_data_writes);
+                 g_hooks.size(), installed, g_code_writes.size(), g_data_writes);
 }
 
 extern "C" int ffnx_recomp_write_manifest(const char *path) {

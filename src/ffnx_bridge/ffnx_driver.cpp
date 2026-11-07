@@ -22,6 +22,9 @@
 
 using namespace guest;
 
+extern "C" int ff7_override_install(uint32_t va, uint32_t target);
+extern "C" void ff7_override_remove(uint32_t va);
+
 namespace {
 
 // 32-bit layout facts measured by tools/ffnx_layout.cpp (FFNx ff7.h, x86):
@@ -84,6 +87,24 @@ void selftest(uint32_t game_obj) {
     uint32_t esp_before = g_esp;
     gcall<int>(va_add, 1, 2, 3);
     check(g_esp == esp_before, "guest stack balanced after export call");
+
+    // Entry override: replace the game's own malloc with a native function, call the game
+    // function through the lifted path, then remove the override and call it again.
+    {
+        static int hits;
+        struct ovr { static void *fake_malloc(uint32_t n, const char *, uint32_t) { hits++; return guest_calloc(1, n); } };
+        uint32_t thunk = gfn<void *(uint32_t, const char *, uint32_t)>(&ovr::fake_malloc).va();
+        check(ff7_override_install(game_malloc, thunk) == 0, "override installs on a lifted function entry");
+        uint32_t esp0 = g_esp;
+        void *q = gcall<void *>(game_malloc, 32u, file, 0u);
+        check(hits == 1 && q && guest_alloc_is_guest(q), "lifted call reaches the native override");
+        check(g_esp == esp0, "stack balanced after overridden call");
+        ff7_override_remove(game_malloc);
+        void *q2 = gcall<void *>(game_malloc, 32u, file, 0u);
+        // The original serves small blocks from the CRT heap (VirtualAlloc region), not our arena.
+        check(hits == 1 && q2 && !guest_alloc_is_guest(q2), "removed override runs the original again");
+        check(ff7_override_install(game_malloc + 1, thunk) == -1, "mid-function sites are refused");
+    }
 
     std::fprintf(stderr, "[bridge] selftest %s (%d failure%s)\n", fails ? "FAILED" : "passed", fails, fails == 1 ? "" : "s");
     if (fails) std::exit(95);

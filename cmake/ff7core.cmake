@@ -43,6 +43,7 @@ add_library(ff7_core STATIC
   "${HOST}/ff7_runtime_hooks.c"
   "${HOST}/ff7_crash.c"
   "${HOST}/ff7_trace.c"
+  "${HOST}/ff7_overrides.c"
   "${FF7HLE}/ff7_hle.c"
   "${FF7HLE}/ff7_kernel32.c"
   "${FF7HLE}/ff7_paths.c"
