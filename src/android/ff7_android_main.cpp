@@ -21,6 +21,8 @@ namespace {
 std::mutex g_win_lock;
 ANativeWindow *g_window;
 int g_width, g_height;
+ANativeWindow *g_companion;         // the Thor's bottom screen, if any
+int g_cwidth, g_cheight;
 
 std::string g_game_dir;
 FILE *g_logfile;
@@ -71,6 +73,22 @@ extern "C" void *ff7_platform_window(int *width, int *height) {
     if (width) *width = g_width;
     if (height) *height = g_height;
     return g_window;
+}
+
+extern "C" void *ff7_platform_companion_window(int *width, int *height) {
+    std::lock_guard<std::mutex> lk(g_win_lock);
+    if (width) *width = g_cwidth;
+    if (height) *height = g_cheight;
+    return g_companion;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ff7recomp_GameActivity_nativeSetCompanionSurface(JNIEnv *env, jclass, jobject surface, jint w, jint h) {
+    std::lock_guard<std::mutex> lk(g_win_lock);
+    if (g_companion) { ANativeWindow_release(g_companion); g_companion = nullptr; }
+    if (surface) g_companion = ANativeWindow_fromSurface(env, surface);
+    g_cwidth = w;
+    g_cheight = h;
 }
 
 extern "C" JNIEXPORT void JNICALL

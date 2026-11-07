@@ -13,6 +13,12 @@ void *ff7_platform_window(int *width, int *height) {
     return NULL;
 }
 
+void *ff7_platform_companion_window(int *width, int *height) {
+    if (width) *width = 0;
+    if (height) *height = 0;
+    return NULL;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: %s <game dir>\n", argv[0]);

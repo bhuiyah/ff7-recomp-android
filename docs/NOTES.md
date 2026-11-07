@@ -67,3 +67,8 @@
 - FFNx replacement functions are effectively cdecl readers: __thiscall appears only on 3 game-function pointers (gfn_thiscall), never on replacements; callee-pop correctness comes from the binary (ret N), not from FFNx annotations.
 - Device selftest 15/15: native override of the game's malloc reached via the lifted path, stack balanced, removal restores the original, mid-function sites refused.
 - Next: compile common.cpp (Android branch for common_create_window: no Win32 window, size from the platform window), image.cpp (libpng build, Win32 file API -> stdio), utils.cpp (portable SHA-1/MD5), joystick/DirectInput types, FFmpeg log hook; then link FFNx into the APK and let FFNx's own new_dll_graphics_driver/create_window take over from the stub driver.
+
+## 2026-11-07 (dual screen: bottom screen live)
+- User asked for Thor dual-screen support like other Thor projects (Cemu/melonDS forks, Fallout 2 CE, RTS ports, EmuLnk dashboards). Planned as M7 in docs/ROADMAP.md (companion panels: party, map, battle, touch command deck, inventory).
+- The Thor exposes the bottom screen as display 4 "Screen-2": 1240x1080 landscape, 120 Hz, own touch (EXTERNAL), FLAG_PRESENTATION. Top is display 0 (1920x1080). Screenshots per display: `adb shell screencap -d <id>` with ids 4630946441858561667 (top) / 4630946482288158084 (bottom).
+- GameActivity shows a Presentation on the presentation display with its own SurfaceView -> nativeSetCompanionSurface -> ff7_platform_companion_window(). The bring-up display renders it as a second bgfx frame buffer (FFNx's fork: createFrameBuffer(SwapChain)) in view 1. Verified on device: logs/dual-top.png + logs/dual-bottom.png (bottom cleared green from the game thread).
