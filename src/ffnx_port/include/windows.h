@@ -427,6 +427,101 @@ int WideCharToMultiByte(UINT cp, DWORD flags, LPCWSTR w, int wn, LPSTR s, int n,
 #define FindFirstFile FindFirstFileA
 #define FindNextFile FindNextFileA
 
+// ---- mouse / cursor (FFNx's overlay and mouse input; touch arrives through SDL3/Android)
+#define WM_LBUTTONDBLCLK 0x0203
+#define WM_RBUTTONDBLCLK 0x0206
+#define WM_MBUTTONDOWN 0x0207
+#define WM_MBUTTONUP 0x0208
+#define WM_MBUTTONDBLCLK 0x0209
+#define WM_XBUTTONDOWN 0x020B
+#define WM_XBUTTONUP 0x020C
+#define WM_XBUTTONDBLCLK 0x020D
+#define WM_DEVICECHANGE 0x0219
+#define WHEEL_DELTA 120
+#define XBUTTON1 0x0001
+#define XBUTTON2 0x0002
+#define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
+#define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
+#define GET_WHEEL_DELTA_WPARAM(wp) ((short)HIWORD(wp))
+#define GET_XBUTTON_WPARAM(wp) (HIWORD(wp))
+#define MAKEINTRESOURCEA(i) ((LPSTR)((ULONG_PTR)((WORD)(i))))
+#define MAKEINTRESOURCE MAKEINTRESOURCEA
+#define IDC_ARROW MAKEINTRESOURCE(32512)
+#define IDC_IBEAM MAKEINTRESOURCE(32513)
+#define IDC_SIZENWSE MAKEINTRESOURCE(32642)
+#define IDC_SIZENESW MAKEINTRESOURCE(32643)
+#define IDC_SIZEWE MAKEINTRESOURCE(32644)
+#define IDC_SIZENS MAKEINTRESOURCE(32645)
+#define IDC_SIZEALL MAKEINTRESOURCE(32646)
+#define IDC_NO MAKEINTRESOURCE(32648)
+#define IDC_HAND MAKEINTRESOURCE(32649)
+extern "C" {
+HCURSOR LoadCursorA(HINSTANCE h, LPCSTR name);
+HCURSOR SetCursor(HCURSOR c);
+BOOL GetCursorPos(LPPOINT p);
+BOOL SetCursorPos(int x, int y);
+BOOL ScreenToClient(HWND w, LPPOINT p);
+BOOL GetClientRect(HWND w, LPRECT r);
+HWND GetCapture(void);
+HWND SetCapture(HWND w);
+BOOL ReleaseCapture(void);
+HWND GetForegroundWindow(void);
+HWND GetActiveWindow(void);
+BOOL IsChild(HWND parent, HWND w);
+BOOL WaitMessage(void);
+LSTATUS RegSetValueExA(HKEY k, LPCSTR name, DWORD reserved, DWORD type, const BYTE *data, DWORD cb);
+LSTATUS RegFlushKey(HKEY k);
+BOOL MoveFileExA(LPCSTR from, LPCSTR to, DWORD flags);
+}
+#define LoadCursor LoadCursorA
+#define RegSetValueEx RegSetValueExA
+#define MoveFileEx MoveFileExA
+#define MOVEFILE_REPLACE_EXISTING 0x1
+#define MOVEFILE_WRITE_THROUGH 0x8
+#define ERROR_PATH_NOT_FOUND 3L
+#define MAXBYTE 0xff
+
+// ---- MSVC CRT names (more)
+#define _strcmpi strcasecmp
+#define _MAX_DRIVE 3
+#define _MAX_DIR 256
+#define _MAX_FNAME 256
+#define _MAX_EXT 256
+#define _lseeki64 lseek64
+#define _fileno fileno
+#define _S_IREAD S_IRUSR
+#define _S_IWRITE S_IWUSR
+#define _SH_DENYNO 0x40
+#define _O_CREAT O_CREAT
+#define _O_TRUNC O_TRUNC
+#define _O_WRONLY O_WRONLY
+#define _O_RDWR O_RDWR
+#include <cstdio>
+#ifndef FFNX_HAVE_FOPEN_S
+#define FFNX_HAVE_FOPEN_S
+inline int fopen_s(FILE **f, const char *name, const char *mode) { *f = fopen(name, mode); return *f ? 0 : errno; }
+#endif
+// _splitpath: drive is always empty; dir keeps its trailing separator; ext includes the dot.
+inline void _splitpath(const char *path, char *drive, char *dir, char *fname, char *ext) {
+    const char *s = strrchr(path, '/'), *b = strrchr(path, '\\'); if (b > s) s = b;
+    const char *name = s ? s + 1 : path;
+    const char *dot = strrchr(name, '.');
+    if (drive) drive[0] = 0;
+    if (dir) { size_t n = (size_t)(name - path); memcpy(dir, path, n); dir[n] = 0; }
+    if (fname) { size_t n = dot ? (size_t)(dot - name) : strlen(name); memcpy(fname, name, n); fname[n] = 0; }
+    if (ext) strcpy(ext, dot ? dot : "");
+}
+#include <cerrno>
+extern "C" char *StrStrIA(const char *hay, const char *needle);
+#define _byteswap_ulong(x) __builtin_bswap32(x)
+#define _byteswap_ushort(x) __builtin_bswap16(x)
+#define _byteswap_uint64(x) __builtin_bswap64(x)
+inline errno_t _splitpath_s(const char *path, char *drive, size_t, char *dir, size_t, char *fname, size_t, char *ext, size_t) {
+    _splitpath(path, drive, dir, fname, ext);
+    return 0;
+}
+extern "C" BOOL ClientToScreen(HWND w, LPPOINT p);
+
 // ---- MSVC CRT names
 #define _stricmp strcasecmp
 #define _strnicmp strncasecmp

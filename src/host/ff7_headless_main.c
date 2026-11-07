@@ -19,6 +19,11 @@ void *ff7_platform_companion_window(int *width, int *height) {
     return NULL;
 }
 
+int ff7_platform_keyboard_state(unsigned char keys[256]) {
+    for (int i = 0; i < 256; i++) keys[i] = 0;
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: %s <game dir>\n", argv[0]);

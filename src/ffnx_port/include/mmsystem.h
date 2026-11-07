@@ -20,6 +20,10 @@ typedef UINT MCIDEVICEID;
 #define MCI_STATUS 0x0814
 extern "C" MCIERROR mciSendCommandA(MCIDEVICEID id, UINT msg, DWORD_PTR flags, DWORD_PTR param);
 #define mciSendCommand mciSendCommandA
+#define WAVE_FORMAT_ADPCM 0x0002
+typedef void (*LPTIMECALLBACK)(UINT id, UINT msg, DWORD_PTR user, DWORD_PTR dw1, DWORD_PTR dw2);
+extern "C" MMRESULT timeSetEvent(UINT delay, UINT resolution, LPTIMECALLBACK cb, DWORD_PTR user, UINT flags);
+extern "C" MMRESULT timeKillEvent(UINT id);
 extern "C" DWORD timeGetTime(void);
 extern "C" MMRESULT timeBeginPeriod(UINT p);
 extern "C" MMRESULT timeEndPeriod(UINT p);

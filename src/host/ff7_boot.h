@@ -17,6 +17,10 @@ void *ff7_platform_window(int *width, int *height);
  * has none, or before its surface exists. */
 void *ff7_platform_companion_window(int *width, int *height);
 
+/* The 256-byte DirectInput keyboard state (DIK_* scan codes, 0x80 = down) built from the
+ * device's controls. Returns 0 on success, as IDirectInputDevice::GetDeviceState does. */
+int ff7_platform_keyboard_state(unsigned char keys[256]);
+
 #ifdef __cplusplus
 }
 #endif

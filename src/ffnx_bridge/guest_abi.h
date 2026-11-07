@@ -111,9 +111,30 @@ inline result call_va(uint32_t va, int n, const uint32_t *words) {
     return r;
 }
 
+template <typename Sig> struct host_pool;
+
+// A function signature that native code may expose to the guest: no parameter or return
+// may be a pointer to a raw pointer (T **). In game memory such a cell is 4 bytes; native
+// code would read or write 8. Use gptr<T> * instead (tools/ffnx_port.py does this for
+// FFNx's game-function signatures; replacement functions are fixed in patches/ffnx).
+template <typename T> struct is_raw_ptr_ptr : std::false_type {};
+template <typename T> struct is_raw_ptr_ptr<T **> : std::true_type {};
+template <typename T> struct is_raw_ptr_ptr<T *const *> : std::true_type {};
+template <typename T> struct is_raw_ptr_ptr<const T **> : std::true_type {};
+template <typename Sig> struct guest_safe_sig;
+template <typename R, typename... A> struct guest_safe_sig<R(A...)> {
+    static constexpr bool value = !is_raw_ptr_ptr<R>::value && !(is_raw_ptr_ptr<A>::value || ...);
+};
+
 // Argument -> guest stack words.
 template <typename A> inline void put_arg(uint32_t *&w, A a) {
-    if constexpr (std::is_pointer_v<A>) { *w++ = a ? va_of(a) : 0; }
+    if constexpr (std::is_pointer_v<A> && std::is_function_v<std::remove_pointer_t<A>>) {
+        // A native callback handed to the game: give it a guest-callable thunk.
+        uintptr_t p = reinterpret_cast<uintptr_t>(a);
+        *w++ = !a ? 0 : p <= 0xFFFFFFFFu ? static_cast<uint32_t>(p)
+                                           : host_pool<std::remove_pointer_t<A>>::va_for(a);
+    }
+    else if constexpr (std::is_pointer_v<A>) { *w++ = a ? va_of(a) : 0; }
     else if constexpr (std::is_same_v<A, float>) { uint32_t u; std::memcpy(&u, &a, 4); *w++ = u; }
     else if constexpr (std::is_same_v<A, double>) { uint64_t u; std::memcpy(&u, &a, 8); *w++ = (uint32_t)u; *w++ = (uint32_t)(u >> 32); }
     else if constexpr (std::is_class_v<A>) {               // by-value struct: its 32-bit image
@@ -206,9 +227,10 @@ inline void run_export(Fn fn, bool stdcall_pop) {
 // structs). A native function address does not fit in 32 bits, so each distinct pointer
 // gets a guest-callable thunk from a fixed pool per signature; the pool slot remembers
 // the native pointer. 256 slots per signature is far more than FFNx uses for any one.
-template <typename Sig> struct host_pool;
 template <typename R, typename... A>
 struct host_pool<R(A...)> {
+    static_assert(guest_safe_sig<R(A...)>::value,
+                  "a native function exposed to the guest takes or returns T **: use gptr<T> * (4-byte guest cells)");
     using fp = R (*)(A...);
     static constexpr int N = 256;
     static inline fp fns[N];
@@ -310,6 +332,8 @@ static_assert(sizeof(gfn<void()>) == 4, "gfn must stay 4 bytes");
 template <auto F, bool Stdcall = false> struct export_of;
 template <typename R, typename... A, R (*F)(A...), bool Stdcall>
 struct export_of<F, Stdcall> {
+    static_assert(guest_safe_sig<R(A...)>::value,
+                  "a native function exposed to the guest takes or returns T **: use gptr<T> * (4-byte guest cells)");
     static void thunk() { run_export<R, A...>(F, Stdcall); }
 };
 

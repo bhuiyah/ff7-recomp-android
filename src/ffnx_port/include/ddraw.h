@@ -58,6 +58,27 @@ typedef struct _DDCAPS_DX5 {
 } DDCAPS_DX5, *LPDDCAPS_DX5;
 static_assert(sizeof(DDCAPS_DX5) == 364, "DDCAPS_DX5 must match 32-bit Windows");
 typedef DDCAPS_DX5 DDCAPS;
+typedef DDCAPS *LPDDCAPS;
+#define DDERR_INVALIDPARAMS E_INVALIDARG
+#define DDERR_GENERIC E_FAIL
+#ifndef E_INVALIDARG
+#define E_INVALIDARG ((HRESULT)0x80070057)
+#endif
+
+// DDSURFACEDESC2 (FFNx's FF8 fake DirectDraw only; host memory, native layout is fine).
+typedef struct _DDSURFACEDESC2 {
+    DWORD dwSize, dwFlags, dwHeight, dwWidth;
+    union { LONG lPitch; DWORD dwLinearSize; };
+    union { DWORD dwBackBufferCount; DWORD dwDepth; };
+    union { DWORD dwMipMapCount; DWORD dwRefreshRate; DWORD dwSrcVBHandle; };
+    DWORD dwAlphaBitDepth, dwReserved;
+    LPVOID lpSurface;
+    union { DDCOLORKEY ddckCKDestOverlay; DWORD dwEmptyFaceColor; };
+    DDCOLORKEY ddckCKDestBlt, ddckCKSrcOverlay, ddckCKSrcBlt;
+    union { DDPIXELFORMAT ddpfPixelFormat; DWORD dwFVF; };
+    struct { DWORD dwCaps, dwCaps2, dwCaps3, dwCaps4; } ddsCaps;
+    DWORD dwTextureStage;
+} DDSURFACEDESC2, *LPDDSURFACEDESC2;
 
 #define DD_OK S_OK
 #define DDSD_CAPS 0x1u

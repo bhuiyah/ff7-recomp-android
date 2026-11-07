@@ -28,6 +28,17 @@ public:
     bool RequestCurrentStats() { return false; }
 };
 class ISteamUtils { public: AppId_t GetAppID() { return 0; } };
+class CGameID {
+    uint64 id_ = 0;
+public:
+    CGameID() = default;
+    explicit CGameID(uint64 id) : id_(id) {}
+    explicit CGameID(AppId_t app) : id_(app) {}
+    uint64 ToUint64() const { return id_; }
+    AppId_t AppID() const { return (AppId_t)(id_ & 0xFFFFFFu); }
+    bool operator==(const CGameID &o) const { return id_ == o.id_; }
+    bool operator!=(const CGameID &o) const { return id_ != o.id_; }
+};
 class ISteamUser { public: bool BLoggedOn() { return false; } };
 
 inline ISteamUserStats *SteamUserStats() { static ISteamUserStats s; return &s; }

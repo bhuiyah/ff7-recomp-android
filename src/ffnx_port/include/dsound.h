@@ -6,7 +6,44 @@
 #include <mmsystem.h>
 #include "ffnx_guest.h"
 
-struct IDirectSound; struct IDirectSoundBuffer; struct IDirectSound3DBuffer; struct IDirectSound3DListener;
+struct IDirectSound; struct IDirectSound3DBuffer; struct IDirectSound3DListener;
+
+// The game's sound buffers are guest COM objects (from the DirectSound the game sees).
+// FFNx calls methods on them; each call goes through the object's guest vtable
+// (stdcall, `this` first), in IDirectSoundBuffer's slot order.
+struct IDirectSoundBuffer {
+private:
+    uint32_t self() const { return guest::va_of(this); }
+    uint32_t slot(int i) const { return *reinterpret_cast<const uint32_t *>((uintptr_t)(*reinterpret_cast<const uint32_t *>(this) + 4u * (uint32_t)i)); }
+    template <typename... A> HRESULT call(int i, A... a) const { return guest::gcall<HRESULT>(slot(i), self(), a...); }
+public:
+    ULONG AddRef() { return (ULONG)call(1); }
+    ULONG Release() { return (ULONG)call(2); }
+    HRESULT GetCurrentPosition(LPDWORD play, LPDWORD write) { return call(4, play, write); }
+    HRESULT GetVolume(LPLONG v) { return call(6, v); }
+    HRESULT GetPan(LPLONG p) { return call(7, p); }
+    HRESULT GetFrequency(LPDWORD f) { return call(8, f); }
+    HRESULT GetStatus(LPDWORD s) { return call(9, s); }
+    HRESULT Lock(DWORD off, DWORD n, LPVOID *p1, LPDWORD n1, LPVOID *p2, LPDWORD n2, DWORD flags) {
+        // The game hands back guest pointers in 4-byte cells.
+        uint32_t *c1 = static_cast<uint32_t *>(guest_calloc(4, sizeof(uint32_t)));
+        HRESULT hr = call(11, off, n, c1, n1, p2 ? c1 + 1 : (uint32_t *)nullptr, n2, flags);
+        if (p1) *p1 = (LPVOID)(uintptr_t)c1[0];
+        if (p2) *p2 = (LPVOID)(uintptr_t)c1[1];
+        guest_free(c1);
+        return hr;
+    }
+    HRESULT Play(DWORD r1, DWORD prio, DWORD flags) { return call(12, r1, prio, flags); }
+    HRESULT SetCurrentPosition(DWORD pos) { return call(13, pos); }
+    HRESULT SetVolume(LONG v) { return call(15, v); }
+    HRESULT SetPan(LONG p) { return call(16, p); }
+    HRESULT SetFrequency(DWORD f) { return call(17, f); }
+    HRESULT Stop() { return call(18); }
+    HRESULT Unlock(LPVOID p1, DWORD n1, LPVOID p2, DWORD n2) { return call(19, p1, n1, p2, n2); }
+    HRESULT Restore() { return call(20); }
+};
+#define DSERR_BUFFERLOST ((HRESULT)0x88780096)
+#define DSBSTATUS_BUFFERLOST 0x2u
 typedef IDirectSound *LPDIRECTSOUND;
 typedef IDirectSoundBuffer *LPDIRECTSOUNDBUFFER;
 // The game's IDirectSound* lives in a 4-byte guest cell: a pointer to that cell is a

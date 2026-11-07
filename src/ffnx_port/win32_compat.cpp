@@ -22,6 +22,9 @@
 #include <shlobj.h>
 #include "libavcodec/avcodec.h"
 
+extern HWND gameHwnd;   // FFNx's global (C++ linkage)
+static HWND ffnx_game_hwnd() { return gameHwnd; }
+
 namespace {
 thread_local DWORD t_last_error;
 
@@ -57,6 +60,37 @@ void OutputDebugStringA(LPCSTR s) { fputs(s, stderr); }
 DWORD timeGetTime(void) { return GetTickCount(); }
 MMRESULT timeBeginPeriod(UINT) { return 0; }
 MMRESULT timeEndPeriod(UINT) { return 0; }
+// Multimedia timers: FFNx's sfx uses one for fades. A detached thread per timer that
+// calls back on schedule (periodic or once) until killed.
+struct mm_timer { UINT id, delay; LPTIMECALLBACK cb; DWORD_PTR user; UINT flags; volatile bool alive; };
+static std::mutex g_timer_lock;
+static mm_timer *g_timers[64];
+static void *mm_timer_thread(void *arg) {
+    mm_timer *t = static_cast<mm_timer *>(arg);
+    do {
+        usleep(t->delay * 1000u);
+        if (!t->alive) break;
+        t->cb(t->id, 0, t->user, 0, 0);
+    } while (t->alive && (t->flags & TIME_PERIODIC));
+    return nullptr;
+}
+MMRESULT timeSetEvent(UINT delay, UINT, LPTIMECALLBACK cb, DWORD_PTR user, UINT flags) {
+    std::lock_guard<std::mutex> lk(g_timer_lock);
+    for (UINT i = 0; i < 64; i++) if (!g_timers[i]) {
+        mm_timer *t = new mm_timer{ i + 1, delay ? delay : 1, cb, user, flags, true };
+        g_timers[i] = t;
+        pthread_t th; pthread_create(&th, nullptr, mm_timer_thread, t); pthread_detach(th);
+        return t->id;
+    }
+    return 0;
+}
+MMRESULT timeKillEvent(UINT id) {
+    std::lock_guard<std::mutex> lk(g_timer_lock);
+    if (id == 0 || id > 64 || !g_timers[id - 1]) return 1;
+    g_timers[id - 1]->alive = false;   // the thread exits on its next wake; the record is leaked deliberately
+    g_timers[id - 1] = nullptr;
+    return 0;
+}
 void GetLocalTime(LPSYSTEMTIME st) {
     struct timeval tv; gettimeofday(&tv, nullptr); struct tm t; time_t s = tv.tv_sec; localtime_r(&s, &t);
     st->wYear = (WORD)(t.tm_year + 1900); st->wMonth = (WORD)(t.tm_mon + 1); st->wDayOfWeek = (WORD)t.tm_wday; st->wDay = (WORD)t.tm_mday;
@@ -118,6 +152,30 @@ BOOL GetMonitorInfoA(HMONITOR, MONITORINFOEXA *mi) {
     return TRUE;
 }
 LONG ChangeDisplaySettingsExA(LPCSTR, DEVMODEA *, HWND, DWORD, LPVOID) { return DISP_CHANGE_SUCCESSFUL; }
+HCURSOR LoadCursorA(HINSTANCE, LPCSTR) { return 1; }
+HCURSOR SetCursor(HCURSOR c) { return c; }
+BOOL GetCursorPos(LPPOINT p) { if (p) { p->x = 0; p->y = 0; } return TRUE; }
+BOOL SetCursorPos(int, int) { return TRUE; }
+BOOL ScreenToClient(HWND, LPPOINT) { return TRUE; }
+BOOL ClientToScreen(HWND, LPPOINT) { return TRUE; }
+BOOL GetClientRect(HWND, LPRECT r) {
+    int w = 0, h = 0;
+    extern void *ff7_platform_window(int *, int *);
+    ff7_platform_window(&w, &h);
+    if (r) *r = { 0, 0, w, h };
+    return TRUE;
+}
+HWND GetCapture(void) { return 0; }
+HWND SetCapture(HWND) { return 0; }
+BOOL ReleaseCapture(void) { return TRUE; }
+HWND GetForegroundWindow(void) { return ffnx_game_hwnd(); }
+HWND GetActiveWindow(void) { return ffnx_game_hwnd(); }
+BOOL IsChild(HWND, HWND) { return FALSE; }
+BOOL WaitMessage(void) { sched_yield(); return TRUE; }
+LSTATUS RegSetValueExA(HKEY, LPCSTR, DWORD, DWORD, const BYTE *, DWORD) { return ERROR_FILE_NOT_FOUND; }
+LSTATUS RegFlushKey(HKEY) { return ERROR_SUCCESS; }
+BOOL MoveFileExA(LPCSTR from, LPCSTR to, DWORD) { return rename(from, to) == 0; }
+char *StrStrIA(const char *hay, const char *needle) { return (char *)strcasestr(hay, needle); }
 BOOL AdjustWindowRect(LPRECT, DWORD, BOOL) { return TRUE; }
 
 // ---- modules / exceptions: no DLLs to load; crashes are reported by src/host/ff7_crash.c

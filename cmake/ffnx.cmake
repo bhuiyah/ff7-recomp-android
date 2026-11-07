@@ -23,15 +23,27 @@ configure_file("${FFNX_DEPS}/libpng/pngconf.h" "${FFNX_GEN_INC}/libpng16/pngconf
 configure_file("${FFNX_DEPS}/libpng/scripts/pnglibconf.h.prebuilt" "${FFNX_GEN_INC}/libpng16/pnglibconf.h" COPYONLY)
 # FFNx's vgmstream port installs the *internal* src/vgmstream.h (VGMSTREAM, sample_t) as
 # <libvgmstream/vgmstream.h> (.vcpkg/ports/vgmstream/cmake.patch).
-file(WRITE "${FFNX_GEN_INC}/libvgmstream/vgmstream.h"
-  "#pragma once\n#include \"${FFNX_DEPS}/vgmstream/src/vgmstream.h\"\n")
+foreach(pair "vgmstream.h=vgmstream.h" "vgmstream_types.h=vgmstream_types.h" "plugins.h=base/plugins.h"
+             "util.h=util.h" "util/log.h=util/log.h" "util/reader_get.h=util/reader_get.h"
+             "util/reader_put.h=util/reader_put.h" "util/vgmstream_limits.h=util/vgmstream_limits.h"
+             "streamtypes.h=streamtypes.h" "streamfile.h=streamfile.h" "coding/g72x_state.h=coding/g72x_state.h")
+  string(REPLACE "=" ";" kv "${pair}")
+  list(GET kv 0 dst)
+  list(GET kv 1 src)
+  get_filename_component(dst_dir "${FFNX_GEN_INC}/libvgmstream/${dst}" DIRECTORY)
+  file(MAKE_DIRECTORY "${dst_dir}")
+  file(WRITE "${FFNX_GEN_INC}/libvgmstream/${dst}" "#pragma once\n#include \"${FFNX_DEPS}/vgmstream/src/${src}\"\n")
+endforeach()
 
 if(NOT DEFINED FFNX_SOURCES)
-  # The renderer core (docs/FFNX_PORT.md phase A); grows module by module.
-  set(FFNX_SOURCES
-    common.cpp ff7_opengl.cpp renderer.cpp cfg.cpp log.cpp utils.cpp saveload.cpp
-    gl/gl.cpp gl/deferred.cpp gl/special_case.cpp gl/texture.cpp
-    image/image.cpp image/tim.cpp)
+  # All of FFNx's FF7 side. Left out: FF8-only code (ff8 is a runtime flag, always false
+  # here), FFNx's own patch.cpp (replaced by src/ffnx_port/patch_recomp.cpp), the Windows
+  # crash dialog (crashdump.cpp; crashes are reported by src/host/ff7_crash.c), DirectInput/
+  # WMI joystick enumeration (joystick.cpp; controllers come through XInput here), and the
+  # FFmpeg movie player (video/*) until FFmpeg is built. Their symbols are named stops
+  # (tools/ffnx_link_stubs.py).
+  file(GLOB_RECURSE FFNX_SOURCES RELATIVE "${FFNX_SRC}" "${FFNX_SRC}/*.cpp" "${FFNX_SRC}/*.c")
+  list(FILTER FFNX_SOURCES EXCLUDE REGEX "^(ff8/|ff8_|fake_dd\\.cpp$|patch\\.cpp$|crashdump\\.cpp$|joystick\\.cpp$|video/)")
 endif()
 list(TRANSFORM FFNX_SOURCES PREPEND "${FFNX_SRC}/")
 
@@ -62,8 +74,26 @@ target_compile_definitions(ffnx PUBLIC
   NOMINMAX
   FFNX_ANDROID=1)
 target_compile_options(ffnx PRIVATE
+  "SHELL:-include ${FF7_ROOT}/src/ffnx_port/include/ffnx_prelude.h"
   -ferror-limit=0 -fms-extensions -Wno-microsoft -Wno-invalid-offsetof -Wno-writable-strings
   -Wno-unused-value -Wno-format -Wno-c++11-narrowing-const-reference)
 target_compile_features(ffnx PUBLIC cxx_std_20)
 set_target_properties(ffnx PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(ffnx PUBLIC ff7_core bgfx ffnx::rc)
+include("${FF7_ROOT}/cmake/ffnx_deps.cmake")
+include("${FF7_ROOT}/cmake/ffnx_audio.cmake")
+target_include_directories(ffnx PRIVATE "${FFNX_DEPS}/cgltf")
+target_link_libraries(ffnx PUBLIC ff7_core bgfx ffnx::rc ffnx_png ffnx_imgui ffnx_pugixml ffnx_xxhash
+  ffnx_soloud ffnx_vgmstream ffnx_openpsf ffnx_lz4)
+# FFNx defines globals in headers and links with /FORCE:MULTIPLE (its CMakeLists.txt):
+# one definition is kept and every reference binds to it. lld's equivalent:
+target_link_options(ffnx INTERFACE "-Wl,--allow-multiple-definition")
+
+# Link check: an executable over the FFNx core, to list what the unported modules still
+# owe (tools/ffnx_link_stubs.py turns the undefined symbols into named stops).
+if(FFNX_LINK_PROBE)
+  add_executable(ffnx_link_probe "${FF7_ROOT}/src/host/ff7_headless_main.c")
+  # Whole archive: nothing in main references FFNx, so the linker would drop it all.
+  target_link_libraries(ffnx_link_probe PRIVATE "-Wl,--whole-archive" ffnx "-Wl,--no-whole-archive" ff7_core bgfx ffnx_png ffnx_imgui ffnx_pugixml ffnx_xxhash ffnx-resources)
+  # lld only reports undefined symbols in live sections; keep everything for the census.
+  target_link_options(ffnx_link_probe PRIVATE "-Wl,--no-gc-sections" "-Wl,--error-limit=0")
+endif()

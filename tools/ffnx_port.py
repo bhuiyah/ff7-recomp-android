@@ -72,6 +72,14 @@ TYPEDEF_MEMBER = re.compile(r'^(?P<ind>\s*)(?P<t>' + '|'.join(TYPEDEF_PTRS) + r'
 SPAN_OF_PTRS = re.compile(r'std::span<\s*((?:struct\s+)?[\w:]+)\s*\*\s*>')
 
 
+# Inside a game function's signature, `T **` is a pointer to a 4-byte guest pointer cell.
+PARAM_PTRPTR = re.compile(r'((?:const\s+)?(?:struct\s+)?[\w:]+(?:<[^()<>]*>)?)\s*\*\s*\*')
+
+
+def fix_params(sig):
+    return PARAM_PTRPTR.sub(lambda m: f'gptr<{m.group(1)}> *', sig)
+
+
 def convert_line(line, host, fntypes, stats):
     if host and SPAN_OF_PTRS.search(line):
         # A span over guest memory holding pointers: its elements are 4-byte cells.
@@ -91,7 +99,7 @@ def convert_line(line, host, fntypes, stats):
         cc = (m.group('cc') or '').strip()
         tmpl = {'__thiscall': 'gfn_thiscall', '__stdcall': 'gfn_stdcall'}.get(cc, 'gfn')
         stats['fn'] += 1
-        return f"{m.group('ind')}{tmpl}<{m.group('ret').strip()}({m.group('args').strip()})> {m.group('name')};{m.group('tail')}"
+        return f"{m.group('ind')}{tmpl}<{fix_params(m.group('ret').strip())}({fix_params(m.group('args').strip())})> {m.group('name')};{m.group('tail')}"
     m = PTR_MEMBER.match(line)
     if not m:
         return line
@@ -210,6 +218,9 @@ CAST_MARKER = '// FF7Recomp: guest pointer-cell casts (tools/ffnx_port.py casts)
 # Not preceded by "(*)": that would be a function-pointer parameter list, not a cast.
 PTRPTR_CAST = re.compile(r'(?<!\(\*\))\(\s*((?:const\s+)?(?:struct\s+)?[\w:]+(?:<[^()]*?>)?)\s*\*\s*\*\s*\)')
 # A local `T **x = (gptr<T> *)...` must hold the cell type too.
+FNPTR_CAST = re.compile(r'(\(\s*[^()]*?\(\s*(?:__\w+\s+)?\*\s*\)\s*\()([^()]*)(\)\s*\))')
+# The return type of a function-pointer cast: `(p_hundred** (*)(...))`
+FNPTR_RET = re.compile(r'\(\s*((?:struct\s+)?[\w:]+)\s*\*\s*\*\s*\(\s*\*\s*\)')
 PTRPTR_LOCAL = re.compile(r'\b((?:struct\s+)?[\w:]+)\s*\*\*\s*(\w+)\s*=\s*\(gptr<\1> \*\)')
 
 
@@ -224,10 +235,89 @@ def cmd_casts():
             continue
         new, n = PTRPTR_CAST.subn(lambda m: f'(gptr<{m.group(1)}> *)', text)
         new = PTRPTR_LOCAL.sub(lambda m: f'gptr<{m.group(1)}> *{m.group(2)} = (gptr<{m.group(1)}> *)', new)
+        # Function-pointer casts: `(R (*)(..., T **, ...))` -> T ** parameters become cells,
+        # matching the converted gfn member signatures.
+        new = FNPTR_CAST.sub(lambda m: m.group(1) + fix_params(m.group(2)) + m.group(3), new)
+        new = FNPTR_RET.sub(lambda m: f'(gptr<{m.group(1)}> * (*)', new)
         nl = '\r\n' if '\r\n' in new else '\n'
         new = CAST_MARKER + nl + new
         open(path, 'wb').write(new.encode('utf-8', errors='surrogateescape'))
         print(f'  {rel}: {n} pointer-cell casts')
+
+
+# ---- calls into the game through a cast: ((R (*)(A))expr)(args) -> a guest call --------
+# On Windows that cast turns a game address into a callable pointer. Here the game is
+# lifted code: calling a 32-bit x86 address as native code would crash, so each such call
+# becomes (guest::gfn<R(A)>::from_va((uint32_t)(expr)))(args).
+CALL_MARKER = '// FF7Recomp: casts-and-calls into the game are guest calls (tools/ffnx_port.py calls)'
+CAST_HEAD = re.compile(r'\(\(\s*((?:struct\s+)?[\w:<>]+(?:\s*\*)*)\s*\(\s*(?:__\w+\s+)?\*\s*\)\s*\(')
+
+
+def match_paren(s, i):
+    """Index just past the parenthesis group starting at s[i] == '('."""
+    depth = 0
+    for j in range(i, len(s)):
+        if s[j] == '(':
+            depth += 1
+        elif s[j] == ')':
+            depth -= 1
+            if depth == 0:
+                return j + 1
+    return -1
+
+
+def convert_calls(text, stats):
+    out, pos = [], 0
+    while True:
+        m = CAST_HEAD.search(text, pos)
+        if not m:
+            break
+        start = m.start()                       # the outer '(' of ((R (*)(A))expr)
+        args_open = m.end() - 1                 # '(' of the parameter list
+        args_close = match_paren(text, args_open)
+        if args_close < 0 or text[args_close:args_close + 1] != ')':
+            pos = m.end(); continue
+        cast_end = args_close + 1               # just past the cast's ')'
+        outer_end = match_paren(text, start)    # just past the outer ')'
+        if outer_end < 0:
+            pos = m.end(); continue
+        rest = text[outer_end:]
+        call = re.match(r'\s*\(', rest)
+        if not call:                            # a cast not immediately called: leave it
+            pos = m.end(); continue
+        ret = m.group(1).strip()
+        params = fix_params(text[args_open + 1:args_close - 1].strip())
+        expr = text[cast_end:outer_end - 1].strip()
+        out.append(text[pos:start])
+        out.append(f'(guest::gfn<{ret}({params})>::from_va((uint32_t)({expr})))')
+        pos = outer_end
+        stats['calls'] += 1
+    out.append(text[pos:])
+    return ''.join(out)
+
+
+def cmd_calls():
+    total = 0
+    for dirpath, _, files in os.walk(FFNX):
+        rel_dir = os.path.relpath(dirpath, FFNX)
+        if rel_dir.startswith('ff8'):
+            continue
+        for name in files:
+            if not name.endswith(('.cpp', '.h')) or name.startswith(('ff8', 'fake_dd')):
+                continue
+            path = os.path.join(dirpath, name)
+            raw = open(path, 'rb').read().decode('utf-8', errors='surrogateescape')
+            if CALL_MARKER in raw:
+                continue
+            stats = {'calls': 0}
+            new = convert_calls(raw, stats)
+            if not stats['calls']:
+                continue
+            nl = '\r\n' if '\r\n' in new else '\n'
+            open(path, 'wb').write((CALL_MARKER + nl + new).encode('utf-8', errors='surrogateescape'))
+            total += stats['calls']
+            print(f'  {os.path.relpath(path, FFNX)}: {stats["calls"]} guest calls')
+    print(f'{total} cast-and-call sites -> guest calls')
 
 
 OVERRIDES = os.path.join(ROOT, 'src', 'ffnx_port', 'override')
@@ -258,5 +348,7 @@ if __name__ == '__main__':
         cmd_overrides()
     elif len(sys.argv) >= 2 and sys.argv[1] == 'casts':
         cmd_casts()
+    elif len(sys.argv) >= 2 and sys.argv[1] == 'calls':
+        cmd_calls()
     else:
         sys.exit(__doc__)

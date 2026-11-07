@@ -39,6 +39,10 @@ py -I (Join-Path $root 'tools\ffnx_port.py') gptr
 if (-not $?) { throw 'tools/ffnx_port.py gptr failed' }
 py -I (Join-Path $root 'tools\ffnx_port.py') casts
 if (-not $?) { throw 'tools/ffnx_port.py casts failed' }
+py -I (Join-Path $root 'tools\ffnx_port.py') calls
+if (-not $?) { throw 'tools/ffnx_port.py calls failed' }
 # Our replacements for FFNx files that cannot work as-is (patch.h: typed hook API).
 py -I (Join-Path $root 'tools\ffnx_port.py') overrides
 if (-not $?) { throw 'tools/ffnx_port.py overrides failed' }
+py -I (Join-Path $root 'tools\ffnx_edit_android.py')
+if (-not $?) { throw 'tools/ffnx_edit_android.py failed' }
