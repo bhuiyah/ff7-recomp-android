@@ -12,6 +12,7 @@
 #include "win32hle.h"
 
 extern const char *g_cur_import;   /* host_lite.c: the shim being run, for diagnostics */
+void ff7_trace_dump(int last);     /* ff7_trace.c */
 
 static void dump_regs(void) {
     fprintf(stderr,
@@ -23,8 +24,10 @@ static void dump_regs(void) {
     fprintf(stderr, "  recent indirect calls (target <- from):\n");
     for (uint32_t i = 0; i < 8 && i < g_icall_count; i++) {
         uint32_t k = (g_icall_trace_idx - 1 - i) & (ICALL_TRACE_SIZE - 1);
-        fprintf(stderr, "    0x%08X <- 0x%08X\n", g_icall_trace[k], g_icall_from[k]);
+        const char *nm = hle_name(g_icall_trace[k]);
+        fprintf(stderr, "    0x%08X <- 0x%08X%s%s\n", g_icall_trace[k], g_icall_from[k], nm ? "  " : "", nm ? nm : "");
     }
+    ff7_trace_dump(64);
 }
 
 void recomp_unresolved(const char *kind, uint32_t va, uint32_t from) {

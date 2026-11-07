@@ -141,13 +141,21 @@ static void k_GetCurrentDirectoryA(void) {         /* (size, buf) */
     memcpy(buf, FF7_GUEST_ROOT, need + 1);
     RET(need, 2);
 }
-/* GetProcAddress(hModule, name): nothing is dynamically loadable yet; log what the
- * game probes for (a name, or an ordinal when the high word is 0) and answer "absent". */
+/* GetProcAddress(hModule, name): every module (LoadLibraryA hands out one fake HMODULE)
+ * resolves against the shim registry, so a function the game looks up by name -- the
+ * graphics driver's new_dll_graphics_driver, which FF7 loads with LoadLibrary as well
+ * as importing -- reaches the same shim the IAT does. Unknown names (or ordinals, high
+ * word 0) are logged and answered NULL, which callers treat as "absent". */
 static void k_GetProcAddress(void) {
     uint32_t name = A32(1);
-    if (name > 0xFFFFu) fprintf(stderr, "[ff7] GetProcAddress(0x%08X, \"%s\") -> NULL\n", A32(0), (const char *)(uintptr_t)name);
-    else fprintf(stderr, "[ff7] GetProcAddress(0x%08X, #%u) -> NULL\n", A32(0), name);
-    RET(0, 2);
+    if (name <= 0xFFFFu) {
+        fprintf(stderr, "[ff7] GetProcAddress(0x%08X, #%u) -> NULL\n", A32(0), name);
+        RET(0, 2);
+    }
+    const char *s = (const char *)(uintptr_t)name;
+    uint32_t va = hle_resolve(s);
+    fprintf(stderr, "[ff7] GetProcAddress(0x%08X, \"%s\") -> 0x%08X\n", A32(0), s, va);
+    RET(va, 2);
 }
 
 /* GlobalMemoryStatus(MEMORYSTATUS*): dwLength +0, dwMemoryLoad +4, TotalPhys +8,

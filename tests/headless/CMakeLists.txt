@@ -19,6 +19,12 @@ if(NOT EXISTS "${GEN}/recomp_dispatch.c")
 endif()
 
 set(GUEST_DEFS RECOMP_FLAT_MEMORY RECOMP_STRICT_ICALL)
+# -DFF7_TRACE=ON: record every lifted-function entry in a ring (src/host/ff7_trace.c),
+# printed on a crash or a STOP. Costs a store per call; rebuilds all generated code.
+option(FF7_TRACE "Lifted-function entry ring" OFF)
+if(FF7_TRACE)
+  list(APPEND GUEST_DEFS RECOMP_TRACE)
+endif()
 
 # Generated code: big, machine-written, built once. -O1 keeps compile time sane;
 # FP contraction off so x87 results match the original rounding.
@@ -43,6 +49,8 @@ set(HLE_SOURCES
 add_executable(ff7_headless
   "${HOST}/ff7_headless_main.c"
   "${HOST}/ff7_runtime_hooks.c"
+  "${HOST}/ff7_crash.c"
+  "${HOST}/ff7_trace.c"
   "${FF7HLE}/ff7_hle.c"
   "${FF7HLE}/ff7_kernel32.c"
   "${FF7HLE}/ff7_paths.c"

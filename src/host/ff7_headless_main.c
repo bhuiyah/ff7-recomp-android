@@ -18,6 +18,8 @@
 #include "win32hle.h"
 #include "ff7_hle.h"
 
+void ff7_install_crash_handler(void);
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: %s <game dir>\n", argv[0]);
@@ -29,6 +31,7 @@ int main(int argc, char **argv) {
         perror("chdir to game dir");
         return 66;
     }
+    ff7_install_crash_handler();
     if (guest_alloc_init(FF7_ARENA_LO, FF7_ARENA_HI) != 0) return 70;
     if (ff7_virtual_init() != 0) return 70;
     fprintf(stderr, "[ff7] guest arena [0x%08X,0x%08X)\n", FF7_ARENA_LO, FF7_ARENA_HI);

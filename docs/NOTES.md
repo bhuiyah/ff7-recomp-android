@@ -18,3 +18,14 @@
 - win32hle allocated guest-visible memory with host malloc (above 4 GB on arm64). Patch 0015 adds `guest_alloc.c` (first-fit low arena, MAP_FIXED_NOREPLACE) and routes Heap*/Local*/Global*/VirtualAlloc/TIB/guest stacks/DIBs through it.
 - `tests/probe_lowmem`: checks the Thor can map [0x400000, 0x80000000) 1:1. Waiting on the device (adb shows none yet).
 - Dev loop: headless NDK binaries run over `adb shell` on the Thor (user's choice; no WSL on this PC).
+
+## 2026-11-07 (M1: first device boots, AYN Thor QCS8550 / Android 13)
+- tests/probe_lowmem PASS on the Thor: [0x400000,0x80000000) maps 1:1 (mmap_min_addr 0x8000). Flat memory is viable.
+- Guest layout: image 0x400000-0xB6F000; guest heap arena 0x10000000-0x60000000; VirtualAlloc region 0x60000000-0x70000000; win32hle shim VAs 0x7F000000+.
+- Loop: tools/build_headless.sh -> tools/run_device.sh (strip, adb push, run 120 s, logs/device-N.log). Each missing import stops with its name.
+- Boot reached, in order: CRT init (heaps, TLS, CS, locale, env), WinMain, dotemuReg config reads, swap check, APP.LOG, timing loop (~1.2 M timeGetTime calls), window creation, DirectDraw enumerate/create, IDirect3D QI (refused, as intended with the custom driver), exclusive 640x480x16, primary+back surfaces, colour key.
+- Fixes found on device: CRT small-block heap needs 64 KB-aligned VirtualAlloc (ff7_virtual.c); GetCommandLineA/GetEnvironmentStrings returned host statics above 4 GB (now guest copies); win32hle reported install C:\FURY3X (now C:\FF7); GlobalMemoryStatus without swap made FF7 refuse to start.
+- The SIGSEGV "in CRT _write (0x0040F250)" was really in its caller (g_cur_func is only set on entry): FF7 loads AF3DN.P with LoadLibraryA and looks up new_dll_graphics_driver with GetProcAddress, our GetProcAddress said NULL, the game logged the failure to APP.LOG and then used the NULL driver. GetProcAddress now resolves any registered shim by name.
+- With the driver found, FF7 skips the DirectDraw path entirely (that was its fallback) and calls new_dll_graphics_driver right after configuration. **Pre-renderer boot complete on device: the run ends at the renderer boundary (exit 93, the deliberate STOP).** Next M1 step: FFNx as the driver.
+- Entry-trace build: `bash tools/build_headless.sh --trace` + `bash tools/run_device.sh --trace` (src/host/ff7_trace.c ring, printed on crash/STOP).
+- Heredoc gotcha hit again (bash turned backslash-n escapes into real newlines in a py heredoc): all edits now via Edit/Write tools.
