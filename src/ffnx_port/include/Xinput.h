@@ -1,5 +1,5 @@
-// Xinput.h - XInput types/constants FFNx's gamepad.cpp uses. Controllers on Android come
-// through SDL3 (FFNx's sdl_gamepad.cpp); XInputGetState reports no pad so FFNx uses that.
+// Xinput.h - XInput for FFNx's gamepad.cpp. On Android the device's controls are pad 0
+// (ff7_platform_pad_state); FFNx's SDL3 path reports no gamepads (input_android.cpp).
 #pragma once
 #include <windows.h>
 
@@ -30,5 +30,19 @@ typedef struct _XINPUT_VIBRATION { WORD wLeftMotorSpeed, wRightMotorSpeed; } XIN
 #define ERROR_DEVICE_NOT_CONNECTED 1167L
 #define ZeroMemory(p, n) std::memset((p), 0, (n))
 
-inline DWORD XInputGetState(DWORD, XINPUT_STATE *) { return ERROR_DEVICE_NOT_CONNECTED; }
-inline DWORD XInputSetState(DWORD, XINPUT_VIBRATION *) { return ERROR_DEVICE_NOT_CONNECTED; }
+// The device's controls (src/android/ff7_android_main.cpp: Android key/motion events).
+#include "ff7_boot.h"
+static_assert(sizeof(ff7_pad_state) == sizeof(XINPUT_GAMEPAD), "ff7_pad_state is XINPUT_GAMEPAD");
+
+inline DWORD XInputGetState(DWORD i, XINPUT_STATE *s) {
+    static DWORD packet;
+    if (!ff7_platform_pad_state(i, reinterpret_cast<ff7_pad_state *>(&s->Gamepad))) return ERROR_DEVICE_NOT_CONNECTED;
+    s->dwPacketNumber = ++packet;
+    return ERROR_SUCCESS;
+}
+inline DWORD XInputSetState(DWORD i, XINPUT_VIBRATION *v) {
+    ff7_pad_state probe;
+    if (!ff7_platform_pad_state(i, &probe)) return ERROR_DEVICE_NOT_CONNECTED;
+    ff7_platform_pad_rumble(i, v->wLeftMotorSpeed, v->wRightMotorSpeed);
+    return ERROR_SUCCESS;
+}

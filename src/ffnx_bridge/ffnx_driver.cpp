@@ -154,6 +154,9 @@ void *new_dll_graphics_driver(void *game_object) {
 
 }  // namespace
 
+#ifndef FF7_WITH_FFNX
+// With FFNx linked, src/ffnx_port/ffnx_boot.cpp exports FFNx's own driver instead.
 extern "C" void ffnx_bridge_register(void) {
     guest_export<&new_dll_graphics_driver>("new_dll_graphics_driver");
 }
+#endif

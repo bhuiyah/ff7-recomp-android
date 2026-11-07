@@ -38,6 +38,15 @@ target_include_directories(bimg PUBLIC "${BIMG_DIR}/include" PRIVATE "${BIMG_DIR
 target_link_libraries(bimg PUBLIC bx astcenc)
 target_compile_options(bimg PRIVATE -w)
 
+# bimg_decode: bimg::imageParse (PNG/DDS/KTX/EXR/WebP/... textures, used by FFNx's texture
+# loading and mod textures). AVIF/HEIF are off: FF7 texture packs do not use them, and AVIF
+# would pull in dav1d + libavif.
+add_library(bimg_decode STATIC "${BIMG_DIR}/src/image_decode.cpp" "${BIMG_DIR}/src/image_decode_wic.cpp")
+target_include_directories(bimg_decode PRIVATE "${BIMG_DIR}/3rdparty" "${BIMG_DIR}/3rdparty/tinyexr/deps")
+target_compile_definitions(bimg_decode PRIVATE BIMG_CONFIG_PARSE_AVIF=0 BIMG_CONFIG_PARSE_HEIF=0)
+target_link_libraries(bimg_decode PUBLIC bimg)
+target_compile_options(bimg_decode PRIVATE -w)
+
 add_library(bgfx STATIC "${BGFX_DIR}/src/amalgamated.cpp")
 target_include_directories(bgfx
   PUBLIC  "${BGFX_DIR}/include"
@@ -51,7 +60,7 @@ target_compile_definitions(bgfx
           BGFX_CONFIG_DYNAMIC_VERTEX_BUFFER_SIZE=${FF7_BGFX_DYNAMIC_VERTEX_BUFFER_SIZE}
           BGFX_CONFIG_MAX_RECT_CACHE=${FF7_BGFX_MAX_RECT_CACHE}
           BGFX_CONFIG_RENDERER_VULKAN_DESCRIPTOR_SETS_PER_POOL=10240)
-target_link_libraries(bgfx PUBLIC bimg bx)
+target_link_libraries(bgfx PUBLIC bimg_decode bimg bx)
 target_compile_options(bgfx PRIVATE -w)
 if(ANDROID)
   target_link_libraries(bgfx PUBLIC android log dl)

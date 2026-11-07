@@ -4,6 +4,7 @@ project(FF7App C CXX)
 get_filename_component(FF7_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../.." ABSOLUTE)
 
 set(FF7_WITH_BGFX ON CACHE BOOL "" FORCE)
+set(FF7_WITH_FFNX ON CACHE BOOL "" FORCE)
 include("${FF7_ROOT}/cmake/ff7core.cmake")
 
 add_library(ff7 SHARED "${FF7_ROOT}/src/android/ff7_android_main.cpp")

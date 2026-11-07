@@ -28,6 +28,9 @@ extern const win32hle_shim ff7_af3dn[];
 extern const win32hle_shim ff7_user32[];
 extern const win32hle_shim ff7_winmm[];
 extern const win32hle_shim ff7_ddraw[];
+extern const win32hle_shim ff7_dsound[];
+extern const win32hle_shim ff7_msacm[];
+extern const win32hle_shim ff7_dinput[];
 int ff7_virtual_init(void);
 
 /* Give the machine lock to another guest thread and take it back (a blocking wait). */

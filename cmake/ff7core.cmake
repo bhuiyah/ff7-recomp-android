@@ -53,6 +53,9 @@ add_library(ff7_core STATIC
   "${FF7HLE}/ff7_winmm.c"
   "${FF7HLE}/ff7_com.c"
   "${FF7HLE}/ff7_ddraw.c"
+  "${FF7HLE}/ff7_dsound.c"
+  "${FF7HLE}/ff7_msacm.c"
+  "${FF7HLE}/ff7_dinput.c"
   "${BRIDGE}/ffnx_driver.cpp"
   "${BRIDGE}/ffnx_display.cpp"
   $<TARGET_OBJECTS:ff7_guest>)
@@ -62,6 +65,9 @@ target_compile_options(ff7_core PRIVATE -O1 -g -Wall -Wno-unused-function -Wno-u
 target_compile_features(ff7_core PUBLIC cxx_std_17)
 set_target_properties(ff7_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(ff7_core PUBLIC m)
+if(ANDROID)
+  target_link_libraries(ff7_core PUBLIC aaudio)    # ff7_dsound.c mixer
+endif()
 if(NOT ANDROID)
   target_link_libraries(ff7_core PUBLIC pthread)
 endif()
@@ -71,4 +77,16 @@ if(FF7_WITH_BGFX)
   include("${FF7_ROOT}/cmake/bgfx.cmake")
   target_compile_definitions(ff7_core PRIVATE FF7_WITH_BGFX=1)
   target_link_libraries(ff7_core PUBLIC bgfx)
+endif()
+
+# FFNx as the game's renderer and patch set (cmake/ffnx.cmake; src/ffnx_port/ffnx_boot.cpp):
+# boot runs FFNx's DllMain, and the game's new_dll_graphics_driver is FFNx's own.
+option(FF7_WITH_FFNX "Link FFNx (renderer, audio, movies, hooks)" OFF)
+if(FF7_WITH_FFNX)
+  if(NOT FF7_WITH_BGFX)
+    include("${FF7_ROOT}/cmake/bgfx.cmake")
+  endif()
+  include("${FF7_ROOT}/cmake/ffnx.cmake")
+  target_compile_definitions(ff7_core PRIVATE FF7_WITH_FFNX=1)
+  target_link_libraries(ff7_core PUBLIC ffnx)    # cyclic with ffnx -> ff7_core; CMake repeats the pair
 endif()

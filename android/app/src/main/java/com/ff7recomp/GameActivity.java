@@ -7,6 +7,9 @@ import android.hardware.display.DisplayManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Display;
+import android.view.InputDevice;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -34,6 +37,77 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private static native void nativeSetSurface(Surface surface, int width, int height);
     private static native void nativeSetCompanionSurface(Surface surface, int width, int height);
     private static native void nativeStart(String gameDir, String logDir);
+    private static native void nativePad(int buttons, int lt, int rt, int lx, int ly, int rx, int ry);
+
+    // ---- controls: one XInput-style pad (XINPUT_GAMEPAD_* bits), fed to FFNx's XInput path.
+    private int padButtons;
+    private int padLt, padRt, padLx, padLy, padRx, padRy;
+    private int hatButtons;
+
+    private static int xinputBit(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_UP:      return 0x0001;
+            case KeyEvent.KEYCODE_DPAD_DOWN:    return 0x0002;
+            case KeyEvent.KEYCODE_DPAD_LEFT:    return 0x0004;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:   return 0x0008;
+            case KeyEvent.KEYCODE_BUTTON_START: return 0x0010;
+            case KeyEvent.KEYCODE_BUTTON_SELECT:
+            case KeyEvent.KEYCODE_BACK:         return 0x0020;
+            case KeyEvent.KEYCODE_BUTTON_THUMBL: return 0x0040;
+            case KeyEvent.KEYCODE_BUTTON_THUMBR: return 0x0080;
+            case KeyEvent.KEYCODE_BUTTON_L1:    return 0x0100;
+            case KeyEvent.KEYCODE_BUTTON_R1:    return 0x0200;
+            case KeyEvent.KEYCODE_BUTTON_A:     return 0x1000;
+            case KeyEvent.KEYCODE_BUTTON_B:     return 0x2000;
+            case KeyEvent.KEYCODE_BUTTON_X:     return 0x4000;
+            case KeyEvent.KEYCODE_BUTTON_Y:     return 0x8000;
+            default: return 0;
+        }
+    }
+
+    private void sendPad() {
+        nativePad(padButtons | hatButtons, padLt, padRt, padLx, padLy, padRx, padRy);
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        int code = e.getKeyCode();
+        // Digital L2/R2 on pads that report them as keys.
+        if (code == KeyEvent.KEYCODE_BUTTON_L2 || code == KeyEvent.KEYCODE_BUTTON_R2) {
+            int v = e.getAction() == KeyEvent.ACTION_DOWN ? 255 : 0;
+            if (code == KeyEvent.KEYCODE_BUTTON_L2) padLt = v; else padRt = v;
+            sendPad();
+            return true;
+        }
+        int bit = xinputBit(code);
+        if (bit == 0) return super.dispatchKeyEvent(e);   // volume etc. stay with the system
+        if (e.getAction() == KeyEvent.ACTION_DOWN) padButtons |= bit;
+        else if (e.getAction() == KeyEvent.ACTION_UP) padButtons &= ~bit;
+        sendPad();
+        return true;
+    }
+
+    private static int axis16(float v) { return Math.max(-32768, Math.min(32767, Math.round(v * 32767f))); }
+    private static int trigger8(float v) { return Math.max(0, Math.min(255, Math.round(v * 255f))); }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent e) {
+        if ((e.getSource() & InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK
+                || e.getAction() != MotionEvent.ACTION_MOVE) return super.dispatchGenericMotionEvent(e);
+        // XInput's Y axes point up; Android's point down.
+        padLx = axis16(e.getAxisValue(MotionEvent.AXIS_X));
+        padLy = axis16(-e.getAxisValue(MotionEvent.AXIS_Y));
+        padRx = axis16(e.getAxisValue(MotionEvent.AXIS_Z));
+        padRy = axis16(-e.getAxisValue(MotionEvent.AXIS_RZ));
+        padLt = trigger8(Math.max(e.getAxisValue(MotionEvent.AXIS_LTRIGGER), e.getAxisValue(MotionEvent.AXIS_BRAKE)));
+        padRt = trigger8(Math.max(e.getAxisValue(MotionEvent.AXIS_RTRIGGER), e.getAxisValue(MotionEvent.AXIS_GAS)));
+        // D-pads that report as a hat.
+        float hx = e.getAxisValue(MotionEvent.AXIS_HAT_X), hy = e.getAxisValue(MotionEvent.AXIS_HAT_Y);
+        hatButtons = (hy < -0.5f ? 0x0001 : 0) | (hy > 0.5f ? 0x0002 : 0)
+                   | (hx < -0.5f ? 0x0004 : 0) | (hx > 0.5f ? 0x0008 : 0);
+        sendPad();
+        return true;
+    }
 
     @Override
     protected void onCreate(Bundle state) {

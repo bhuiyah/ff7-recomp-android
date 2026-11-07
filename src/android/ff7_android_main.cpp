@@ -82,6 +82,39 @@ extern "C" void *ff7_platform_companion_window(int *width, int *height) {
     return g_companion;
 }
 
+// ---- controls: GameActivity folds key and motion events into one XInput-style pad.
+namespace {
+std::mutex g_pad_lock;
+ff7_pad_state g_pad{};
+}
+
+extern "C" int ff7_platform_pad_state(unsigned index, ff7_pad_state *out) {
+    if (index != 0) return 0;          // the Thor's built-in controls (and any paired pad) are pad 0
+    std::lock_guard<std::mutex> lk(g_pad_lock);
+    *out = g_pad;
+    return 1;
+}
+
+extern "C" void ff7_platform_pad_rumble(unsigned, unsigned short, unsigned short) {}
+
+// No physical keyboard path yet: the game's DirectInput keyboard sees nothing pressed and
+// FFNx drives FF7's controls from the pad.
+extern "C" int ff7_platform_keyboard_state(unsigned char keys[256]) {
+    std::memset(keys, 0, 256);
+    return 0;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ff7recomp_GameActivity_nativePad(JNIEnv *, jclass, jint buttons, jint lt, jint rt,
+                                          jint lx, jint ly, jint rx, jint ry) {
+    std::lock_guard<std::mutex> lk(g_pad_lock);
+    g_pad.buttons = (unsigned short)buttons;
+    g_pad.left_trigger = (unsigned char)lt;
+    g_pad.right_trigger = (unsigned char)rt;
+    g_pad.lx = (short)lx; g_pad.ly = (short)ly;
+    g_pad.rx = (short)rx; g_pad.ry = (short)ry;
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_ff7recomp_GameActivity_nativeSetCompanionSurface(JNIEnv *env, jclass, jobject surface, jint w, jint h) {
     std::lock_guard<std::mutex> lk(g_win_lock);

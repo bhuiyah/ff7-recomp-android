@@ -21,6 +21,20 @@ void *ff7_platform_companion_window(int *width, int *height);
  * device's controls. Returns 0 on success, as IDirectInputDevice::GetDeviceState does. */
 int ff7_platform_keyboard_state(unsigned char keys[256]);
 
+/* A controller in XInput's XINPUT_GAMEPAD layout (buttons are XINPUT_GAMEPAD_* bits).
+ * On the Thor, pad 0 is the built-in controls (plus any paired pad, merged). */
+typedef struct ff7_pad_state {
+    unsigned short buttons;
+    unsigned char left_trigger, right_trigger;
+    short lx, ly, rx, ry;
+} ff7_pad_state;
+
+/* Fills *out and returns 1 if pad `index` is connected, else returns 0. */
+int ff7_platform_pad_state(unsigned index, ff7_pad_state *out);
+
+/* Rumble, 0..65535 per motor; ignored where the device has none. */
+void ff7_platform_pad_rumble(unsigned index, unsigned short left, unsigned short right);
+
 #ifdef __cplusplus
 }
 #endif

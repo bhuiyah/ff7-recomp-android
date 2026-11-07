@@ -51,6 +51,7 @@ typedef IDirectSoundBuffer *LPDIRECTSOUNDBUFFER;
 typedef gptr<IDirectSound> *LPLPDIRECTSOUND;
 typedef gptr<IDirectSoundBuffer> *LPLPDIRECTSOUNDBUFFER;
 typedef struct _DSBUFFERDESC { DWORD dwSize, dwFlags, dwBufferBytes, dwReserved; LPWAVEFORMATEX lpwfxFormat; GUID guid3DAlgorithm; } DSBUFFERDESC, *LPDSBUFFERDESC;
+typedef struct _DSBUFFERDESC1 { DWORD dwSize, dwFlags, dwBufferBytes, dwReserved; LPWAVEFORMATEX lpwfxFormat; } DSBUFFERDESC1, *LPDSBUFFERDESC1;   // DirectX 5
 #define DS_OK S_OK
 #define DSBCAPS_CTRLVOLUME 0x80u
 #define DSBCAPS_CTRLPAN 0x40u

@@ -3,6 +3,10 @@
 #include <windows.h>
 #include "ff7_boot.h"
 
+// FFNx's module handle (DllMain hinstDLL): FFNx is linked in, not loaded, so this is a
+// name only; GetModuleFileNameA answers "AF3DN.P" for it (win32_compat.cpp).
+#define FFNX_MODULE ((HMODULE)0x7EFE0000u)
+
 // FFNx's wine.h: only consulted when WINELOADER is set, which it never is here.
 inline const char *GetWineVersion() { return "Wine is not detected."; }
 

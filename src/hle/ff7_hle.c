@@ -20,4 +20,7 @@ void ff7_hle_register(void) {
     win32hle_register(ff7_user32);
     win32hle_register(ff7_winmm);
     win32hle_register(ff7_ddraw);
+    win32hle_register(ff7_dsound);
+    win32hle_register(ff7_msacm);
+    win32hle_register(ff7_dinput);
 }

@@ -138,6 +138,11 @@ EDITS = [
     ('ff7_data.h',
      '\tff7_externals.engine_load_bin_file_sub_419210 = (int (*)(char *filename, int offset, int size, char **out_buffer, void (*callback)(void)))(get_relative_call(ff7_externals.battle_scene_bin_sub_5D1050, 0x85));',
      '\tff7_externals.engine_load_bin_file_sub_419210 = get_relative_call(ff7_externals.battle_scene_bin_sub_5D1050, 0x85);   // FF7Recomp: address only'),
+    # The exe is the 2026 rerelease's ff7_en (data/lang-*, music_ogg, ...). FFNx recognises
+    # that edition by its install folder name ("workingdir"); on Android the game folder is the
+    # app's files/game, so the edition is a given.
+    ('common.cpp', '\t\t\t\tif (strstr(basedir, "workingdir") != NULL)',
+     '\t\t\t\tif (FFNX_ANDROID || strstr(basedir, "workingdir") != NULL)   // FF7Recomp: 2026 rerelease exe'),
 ]
 
 

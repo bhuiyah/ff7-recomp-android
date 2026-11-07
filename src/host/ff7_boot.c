@@ -18,6 +18,7 @@
 #include "ff7_boot.h"
 
 void ff7_install_crash_handler(void);
+int ff7_ffnx_attach(void);   /* src/ffnx_port/ffnx_boot.cpp (FF7_WITH_FFNX) */
 
 int ff7_boot_and_run(const char *game_dir) {
     if (chdir(game_dir) != 0) {
@@ -36,6 +37,14 @@ int ff7_boot_and_run(const char *game_dir) {
         fprintf(stderr, "[ff7] could not map ff7_en.exe in %s\n", game_dir);
         return 71;
     }
+#ifdef FF7_WITH_FFNX
+    /* FFNx's DllMain: version check on the mapped image, FFNx.toml, hooks. As AF3DN.P on
+     * Windows it runs before WinMain, so here it runs before the entry. */
+    if (ff7_ffnx_attach() != 0) {
+        fprintf(stderr, "[ff7] FFNx refused this exe (see FFNx.log)\n");
+        return 72;
+    }
+#endif
     fprintf(stderr, "[ff7] calling lifted entry 0x%08X\n", recomp_host_entry());
     uint32_t rc = recomp_host_run();
     fprintf(stderr, "[ff7] entry returned 0x%08X\n", rc);

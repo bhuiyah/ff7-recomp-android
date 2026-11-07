@@ -21,6 +21,7 @@
 #include <shlwapi.h>
 #include <shlobj.h>
 #include "libavcodec/avcodec.h"
+#include "ffnx_android.h"
 
 extern HWND gameHwnd;   // FFNx's global (C++ linkage)
 static HWND ffnx_game_hwnd() { return gameHwnd; }
@@ -43,9 +44,11 @@ extern "C" {
 // ---- process / time
 DWORD GetCurrentDirectoryA(DWORD n, LPSTR buf) { if (!getcwd(buf, n)) return 0; return (DWORD)strlen(buf); }
 BOOL SetCurrentDirectoryA(LPCSTR p) { return chdir(p) == 0; }
-DWORD GetModuleFileNameA(HMODULE, LPSTR buf, DWORD n) {
+// NULL is the game; FFNX_MODULE (ffnx_boot.cpp) is FFNx itself, installed as the game's
+// graphics driver AF3DN.P, which is how DllMain tells it is driving FF7 (not FF8).
+DWORD GetModuleFileNameA(HMODULE m, LPSTR buf, DWORD n) {
     char cwd[1024]; if (!getcwd(cwd, sizeof cwd)) cwd[0] = 0;
-    return (DWORD)snprintf(buf, n, "%s/ff7_en.exe", cwd);
+    return (DWORD)snprintf(buf, n, "%s/%s", cwd, m == FFNX_MODULE ? "AF3DN.P" : "ff7_en.exe");
 }
 DWORD GetTickCount(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (DWORD)(t.tv_sec * 1000ull + t.tv_nsec / 1000000ull); }
 ULONGLONG GetTickCount64(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1000ull + t.tv_nsec / 1000000ull; }
@@ -291,10 +294,12 @@ void CoTaskMemFree(LPVOID) {}
 // ---- WINMM MCI (FFNx's CD audio path): no CD device
 MCIERROR mciSendCommandA(MCIDEVICEID, UINT, DWORD_PTR, DWORD_PTR) { return 1; }
 
-// ---- FFmpeg log (placeholder until FFmpeg is built)
+#ifndef FF7_HAVE_FFMPEG
+// ---- FFmpeg log (placeholder for builds without build/ffmpeg-android)
 void av_log_set_level(int) {}
 void av_log_set_callback(void (*)(void *, int, const char *, va_list)) {}
 void av_log_format_line(void *, int, const char *fmt, va_list vl, char *line, int n, int *) { vsnprintf(line, (size_t)n, fmt, vl); }
+#endif
 
 }  // extern "C"
 
