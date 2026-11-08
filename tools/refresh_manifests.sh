@@ -37,7 +37,7 @@ done
 printf 'FF7_WATCHDOG=30\n' > "$ROOT/build/env.txt"
 "$ADB" push "$(cygpath -w "$ROOT/build/env.txt")" "$FILES/env.txt" > /dev/null
 # Windows paths: run_lift.py runs under the Windows Python, which cannot open /c/... paths.
-list=$(for f in "$M"/ffnx_manifest_l*.json; do cygpath -m "$f"; done | tr '\n' ',' | sed 's/,$//')
+list=$(for f in "$M"/ffnx_manifest_l*.json "$M"/hext_*.json; do [ -f "$f" ] || continue; cygpath -m "$f"; done | tr '\n' ',' | sed 's/,$//')
 (cd "$ROOT" && py tools/run_lift.py lift game/ff7_en.exe analysis/catalog.json generated/recomp --manifests "$list" \
    | grep -E 'FFNx manifests|\[!\]|lift_failures')
 (cd "$ROOT" && py tools/gen_retn_table.py | tail -1)

@@ -11,6 +11,7 @@
 #include "modinfo.hpp"
 #include "mods.h"
 #include "runtimevar.hpp"
+#include "hext.hpp"
 #include <map>
 
 static int g_fail, g_pass;
@@ -44,7 +45,7 @@ int main(int argc, char **argv) {
     // ---- IRO archive
     ff7mods::IroArchive a;
     CHECK(a.open(dir + "/test.iro"));
-    CHECK(a.entries().size() == 11);
+    CHECK(a.entries().size() == 15);
     std::vector<uint8_t> v;
     CHECK(a.read("BASE/field/RAW.bin", v) && as_str(v) == "raw contents");      // any case, either slash
     CHECK(a.read("base\\field\\abc.bin", v) && as_str(v) == "ABCABCABC");      // LZS with a back-reference
@@ -113,6 +114,58 @@ int main(int argc, char **argv) {
     CHECK(rv.eval_var("Sys:Year", "2000..3000"));
     CHECK(!rv.eval_var("Bogus:1", "1"));
     CHECK(rv.eval_var("CounterAdv:c:3", "1") && rv.eval_var("CounterAdv:c:3", "2") && rv.eval_var("CounterAdv:c:3", "0"));
+
+    // ---- hext format (AppWrapper/HexPatch.cs)
+    {
+        std::map<uint32_t, uint8_t> mem;
+        auto rd = [](uint32_t) -> uint32_t { return 0x7000; };
+        auto wr = [&](uint32_t va, const uint8_t *b, uint32_t n) { for (uint32_t i = 0; i < n; i++) mem[va + i] = b[i]; };
+        ff7mods::HextResult r = ff7mods::hext_run(
+            "Title 1000=FF\n# comment\n{ comment\n{{\n2000=11\n}}\n+10\n1000=01 02,03\t04\n-10\n"
+            "3000=90:3\n4000+4=AB\n5000^+2=CD\n6000:10\n  \n", true, rd, wr);
+        CHECK(r.error.empty() && r.delay_ms < 0 && r.writes == 4);
+        CHECK(!mem.count(0x1000) && !mem.count(0x2000));                    // title line, {{ }} block skipped
+        CHECK(mem[0x1010] == 1 && mem[0x1011] == 2 && mem[0x1012] == 3 && mem[0x1013] == 4);   // +10, mixed separators
+        CHECK(mem[0x2FF0] == 0x90 && mem[0x2FF2] == 0x90 && !mem.count(0x2FF3));   // -10, fill
+        CHECK(mem[0x3FF4] == 0xAB);                                          // addr+4
+        CHECK(mem[0x6FF2] == 0xCD);                                          // pointer read
+        mem.clear();
+        r = ff7mods::hext_run("t\r\nDelay=500\r\n1000=01\r\n", true, rd, wr);
+        CHECK(r.delay_ms == 500 && r.writes == 0 && mem.empty());
+        r = ff7mods::hext_run("t\r\nDelay=500\r\n1000=01\r\n", false, rd, wr);
+        CHECK(r.writes == 1 && mem[0x1000] == 1);                            // CRLF, Delay line itself skipped
+        r = ff7mods::hext_run("t\nDelay = soon\n1000=02\n", true, rd, wr);
+        CHECK(r.skipped && mem[0x1000] == 1);                                // bad Delay: never applied
+        r = ff7mods::hext_run("t\n1000=GG\n2000=01\n", true, rd, wr);
+        CHECK(!r.error.empty() && r.writes == 0 && !mem.count(0x2000));      // an error stops the file
+    }
+
+    // ---- hext files of the enabled mods, in 7th Heaven's order
+    {
+        struct Got { std::vector<std::string> files; std::map<uint32_t, uint8_t> mem; } got;
+        auto collect = [](const char *mod, const char *file, const char *text, unsigned len, void *ctx) {
+            Got &g = *static_cast<Got *>(ctx);
+            g.files.push_back(std::string(mod) + ":" + file);
+            ff7mods::hext_run(std::string(text, len), true, [](uint32_t) { return 0u; },
+                [&](uint32_t va, const uint8_t *b, uint32_t n) { for (uint32_t i = 0; i < n; i++) g.mem[va + i] = b[i]; });
+        };
+        CHECK(ff7_mods_load((dir + "/profile_default.xml").c_str(), cache.c_str()) == 0);
+        ff7_mods_hext(collect, &got);
+        // lowest priority mod first (test.iro, then folder_mod); names from the root first, then
+        // folders; each name from Conditionals, ModFolders, root
+        CHECK(got.files.size() == 4);
+        if (got.files.size() == 4) {
+            CHECK(got.files[0] == "test.iro:base/hext/shared.txt");
+            CHECK(got.files[1] == "test.iro:hext/shared.txt");
+            CHECK(got.files[2] == "test.iro:night/hext/n.txt");
+            CHECK(got.files[3] == "folder_mod:hext/f.txt");
+        }
+        CHECK(got.mem[0x1000] == 3 && got.mem[0x1001] == 0xAA && !got.mem.count(0x1002));   // highest priority wins; alt inactive
+        Got alt;
+        CHECK(ff7_mods_load((dir + "/profile_alt.xml").c_str(), cache.c_str()) == 0);
+        ff7_mods_hext(collect, &alt);
+        CHECK(alt.mem[0x1002] == 0xBB);                                      // Style = 1 activates alt/
+    }
 
     // ---- no profile: nothing redirected
     CHECK(ff7_mods_load((dir + "/missing.xml").c_str(), cache.c_str()) == 0);

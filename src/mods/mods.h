@@ -37,6 +37,11 @@ const char *ff7_mods_redirect(const char *rel, char *buf, unsigned n);
 /* Number of game paths the loaded mods replace (0 = no mods). */
 unsigned ff7_mods_count(void);
 
+/* The enabled mods' hext patch files in the order 7th Heaven applies them (lowest-priority
+ * mod first, so the highest-priority mod's bytes win): cb(mod, file, text, len, ctx). */
+typedef void (*ff7_mods_hext_cb)(const char *mod, const char *file, const char *text, unsigned len, void *ctx);
+void ff7_mods_hext(ff7_mods_hext_cb cb, void *ctx);
+
 #ifdef __cplusplus
 }
 #endif

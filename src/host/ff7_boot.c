@@ -21,6 +21,7 @@
 void ff7_install_crash_handler(void);
 void ff7_start_watchdog(void);   /* ff7_crash.c, FF7_WATCHDOG=<s> */
 int ff7_ffnx_attach(void);   /* src/ffnx_port/ffnx_boot.cpp (FF7_WITH_FFNX) */
+void ff7_hext_apply_mods(void);   /* ff7_hext.cpp */
 
 int ff7_boot_and_run(const char *game_dir) {
     if (chdir(game_dir) != 0) {
@@ -52,6 +53,9 @@ int ff7_boot_and_run(const char *game_dir) {
         fprintf(stderr, "[ff7] could not map ff7_en.exe in %s\n", game_dir);
         return 71;
     }
+    /* The mods' hext patches: after the image is mapped, before FFNx (7th Heaven patches the
+     * process before the driver loads). */
+    ff7_hext_apply_mods();
 #ifdef FF7_WITH_FFNX
     /* FFNx's DllMain: version check on the mapped image, FFNx.toml, hooks. As AF3DN.P on
      * Windows it runs before WinMain, so here it runs before the entry. */

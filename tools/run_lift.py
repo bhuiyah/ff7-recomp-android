@@ -15,6 +15,7 @@ Adapted from codepdbh/nfsu2-recompiled scripts/run_lift.py (MIT License).
         recomp_funcs.h         declarations
         recomp_dispatch.c      sorted VA -> function table (binary search)
         recomp_imports.c       IAT slot VA -> "dll!name" (for crash trails)
+        recomp_variants.c      patched-code variants lifted (checked by ff7_hext.cpp)
         lift_stats.json        counts for docs/LIFT_REPORT.md
       --prefix P names a second module's output (P + every file and table
       above, e.g. server_recomp_dispatch_table for server.dll) so it links
@@ -310,6 +311,21 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
         for slot, (dll, nm) in sorted(iat.items()):
             fh.write(f'    {{ 0x{slot:08X}u, "{dll}!{nm}" }},\n')
         fh.write("    { 0, 0 } };\n")
+    # Patched-code variants the lift has (src/host/ff7_hext.cpp checks mod hext code writes
+    # against these: a write with no matching variant cannot take effect).
+    def cstr(b):
+        return '"' + "".join(f"\\x{x:02X}" for x in b) + '"'
+    with open(os.path.join(outdir, f"{prefix}recomp_variants.c"), "w", newline="\n") as fh:
+        fh.write("/* AUTO-GENERATED: lifted patched-code variants (start, end, bytes, mask). */\n#include <stdint.h>\n")
+        fh.write("typedef struct { uint32_t start, end; const char *bytes, *mask; } ff7_code_variant_t;\n")
+        rows = [(s, v) for s, vs in sorted(code_variants.items()) for v in vs]
+        fh.write(f"const ff7_code_variant_t {prefix}ff7_code_variants[] = {{\n")
+        for s, v in rows:
+            fh.write(f"    {{ 0x{s:08X}u, 0x{v['end']:08X}u, {cstr(v['bytes'])}, {cstr(v['mask'])} }},\n")
+        if not rows:
+            fh.write("    { 0, 0, 0, 0 },\n")
+        fh.write("};\n")
+        fh.write(f"const uint32_t {prefix}ff7_code_variant_count = {len(rows)};\n")
 
     out = {"functions": len(entries), "files": idx, "c_lines": lines_total,
            "lift_failures": len(failed), "failures": failed[:200],

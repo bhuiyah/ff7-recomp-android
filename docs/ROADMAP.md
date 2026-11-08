@@ -47,7 +47,21 @@ Order:
 2. IRO reader + `mod.xml` parser (priority, config options, conditions).
 3. Union file system feeding FFNx's override folders and the Win32 file layer. Covers the
    M4 exit test (IFRIT + Ninostyle Chibi).
-4. hext: data writes, then the interpreter fallback for code writes.
+4. hext (done, except the interpreter): each enabled mod's hext/ files, applied as 7th Heaven
+   does (src/mods/hext.cpp, mods.cpp ff7_mods_hext, src/host/ff7_hext.cpp) at boot, after
+   the exe is mapped and before FFNx; `Delay=` files from a background thread.
+   - data writes: take effect as on Windows.
+   - code writes: lifted at build time. `bash tools/hext_manifest.sh <mods or profile.xml>`
+     writes analysis/ffnx_manifests/hext_*.json (the mods read exactly as on the device);
+     the next re-lift (refresh_manifests.sh) adds their patched code, which runs whenever
+     the mod's bytes are in memory. Each code write is checked against the lift's variant
+     table (recomp_variants.c); one with no lifted counterpart is logged
+     (`[hext] ... patched code not lifted`).
+   - FFNx's own hext folder (game/hext/ff7/en) works through FFNx (its code writes are in
+     the FFNx manifests when the folder is on the device at refresh_manifests time).
+   - Still to do: an x86 interpreter for code patches nobody lifted, so any mod's code
+     patch works on the device without a PC re-lift; and the launcher showing each mod's
+     hext status.
 5. Launcher: import IROs through the Android file picker (scoped storage) into app storage,
    later the Qhimm catalog; each mod shows a status: works / runs interpreted / unsupported.
 

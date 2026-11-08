@@ -83,11 +83,18 @@ def main():
         ("night\\field\\raw.bin", 0, b"night contents"),
         ("perfile\\field\\perfile.bin", 0, b"perfile contents"),
         ("custom\\field\\custom.bin", 0, b"custom contents"),
+        # hext: the root always counts for hext (not for files), active folders do, inactive not
+        ("hext\\shared.txt", 0, b"root shared\r\n1000=01\r\n"),
+        ("base\\hext\\shared.txt", 0, b"base shared\n1000=02\n"),
+        ("night\\hext\\n.txt", 0, b"night\n1001=AA\n"),
+        ("alt\\hext\\alt.txt", 0, b"alt only\n1002=BB\n"),
     ])
     open(os.path.join(out, "7thHeaven.var"), "w").write("Time=Byte:0xDC08EB\nFieldID=Short:0xCC15D0\n")
     fm = os.path.join(out, "folder_mod", "Textures")
     os.makedirs(fm, exist_ok=True)
     open(os.path.join(fm, "Shared.png"), "wb").write(b"from folder mod")
+    os.makedirs(os.path.join(out, "folder_mod", "hext"), exist_ok=True)
+    open(os.path.join(out, "folder_mod", "hext", "F.txt"), "wb").write(b"folder mod\n1000=03\n")
     for name, extra in (("profile_default.xml", ""), ("profile_alt.xml", '<Option ID="style" Value="1"/>')):
         open(os.path.join(out, name), "w").write(
             '<Profile Language="en">\n'

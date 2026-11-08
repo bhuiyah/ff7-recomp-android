@@ -114,6 +114,9 @@ struct Mod {
     std::unique_ptr<IroArchive> iro;
     int64_t mtime = 0;
     ModInfo info;
+    // Where its hext/ files are looked for, in 7th Heaven's order (RuntimeMod.GetOverrides):
+    // active Conditionals, active ModFolders, then the mod root (always, unlike files).
+    std::vector<std::string> hext_folders;
 };
 
 struct Override {
@@ -210,10 +213,80 @@ std::string materialize(const Mod &m, int mi, const std::string &entry) {
     return out;
 }
 
+// The hext files (names relative to <folder>/hext) of one folder of a mod.
+std::vector<std::string> hext_names(const Mod &m, const std::string &folder) {
+    std::vector<std::string> out;
+    std::string prefix = norm_key(folder.empty() ? std::string("hext") : folder + "/hext") + "/";
+    if (m.iro) {
+        for (const IroArchive::Entry &e : m.iro->entries()) {
+            std::string k = norm_key(e.name);
+            if (k.size() > prefix.size() && k.compare(0, prefix.size(), prefix) == 0) out.push_back(k.substr(prefix.size()));
+        }
+    } else {
+        std::string dir = resolve_ci(m.path, folder.empty() ? std::string("hext") : folder + "/hext");
+        if (!dir.empty() && is_dir(dir)) list_files(dir, "", out);
+    }
+    return out;
+}
+
+bool read_hext(const Mod &m, const std::string &folder, const std::string &name, std::string &text) {
+    std::string rel = (folder.empty() ? std::string("hext") : folder + "/hext") + "/" + name;
+    if (m.iro) {
+        const IroArchive::Entry *e = m.iro->find(rel);
+        if (!e) {
+            std::string bs = rel;
+            for (char &c : bs) if (c == '/') c = '\\';
+            e = m.iro->find(bs);
+        }
+        if (!e) return false;
+        std::vector<uint8_t> data;
+        if (!m.iro->read(e->name, data)) return false;
+        text.assign(data.begin(), data.end());
+        return true;
+    }
+    std::string p = resolve_ci(m.path, rel);
+    if (p.empty() || !is_file(p)) return false;
+    std::FILE *f = std::fopen(p.c_str(), "rb");
+    if (!f) return false;
+    char buf[65536];
+    size_t r;
+    text.clear();
+    while ((r = std::fread(buf, 1, sizeof buf, f)) > 0) text.append(buf, r);
+    std::fclose(f);
+    return true;
+}
+
 }  // namespace
 }  // namespace ff7mods
 
 using namespace ff7mods;
+
+// AppWrapper Wrap.cs: mods lowest priority first; each mod's hext file names from its root,
+// active Conditionals and active ModFolders; each name applied from every one of those
+// folders that has it (Conditionals, ModFolders, root).
+extern "C" void ff7_mods_hext(ff7_mods_hext_cb cb, void *ctx) {
+    std::lock_guard<std::mutex> lk(g.lock);
+    for (size_t i = g.mods.size(); i-- > 0;) {
+        const Mod &m = *g.mods[i];
+        std::vector<std::string> names, order;
+        order.push_back("");
+        for (const std::string &f : m.hext_folders) if (!f.empty()) order.push_back(f);
+        for (const std::string &f : order)
+            for (const std::string &n : hext_names(m, f)) {
+                std::string k = norm_key(n);
+                bool dup = false;
+                for (const std::string &x : names) dup |= (x == k);
+                if (!dup) names.push_back(k);
+            }
+        for (const std::string &n : names)
+            for (const std::string &f : m.hext_folders) {
+                std::string text;
+                if (!read_hext(m, f, n, text)) continue;
+                std::string label = (f.empty() ? std::string("hext/") : f + "/hext/") + n;
+                cb(m.name.c_str(), label.c_str(), text.data(), (unsigned)text.size(), ctx);
+            }
+    }
+}
 
 extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
     std::lock_guard<std::mutex> lk(g.lock);
@@ -273,14 +346,17 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         for (const ConditionalFolder &c : mod.info.conditionals) {
             if (!is_active(c.active_when.get(), opts, g.language)) continue;
             add_folder(mi, c.folder, &c);   // its run-time conditions are checked at each open
+            mod.hext_folders.push_back(c.folder);
             folders++;
         }
         for (const ModFolder &f : mod.info.mod_folders) {
             if (!is_active(f.active_when.get(), opts, g.language)) continue;
             add_folder(mi, f.folder);
+            mod.hext_folders.push_back(f.folder);
             folders++;
         }
         if (mod.info.conditionals.empty() && mod.info.mod_folders.empty()) add_folder(mi, "");
+        mod.hext_folders.push_back("");
         for (const std::string &w : mod.info.windows_code)
             std::fprintf(stderr, "[mods] %s: %s -- Windows code, not supported on Android\n", mod.name.c_str(), w.c_str());
         std::fprintf(stderr, "[mods] %s \"%s\" %s: %d active folder(s)\n", mod.name.c_str(), mod.info.name.c_str(),

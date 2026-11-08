@@ -66,6 +66,8 @@ add_library(ff7_core STATIC
   "${MODS}/modinfo.cpp"
   "${MODS}/mods.cpp"
   "${MODS}/runtimevar.cpp"
+  "${MODS}/hext.cpp"
+  "${HOST}/ff7_hext.cpp"
   "${FF7_DEPS}/lzma/LzmaDec.c"
   "${FF7_DEPS}/pugixml/src/pugixml.cpp"
   $<TARGET_OBJECTS:ff7_guest>)

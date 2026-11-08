@@ -1,0 +1,112 @@
+// ff7_hext.cpp - 7th Heaven hext patches from the enabled mods, applied to guest memory at
+// boot (after the exe is mapped, before FFNx attaches: on Windows 7th Heaven patches the
+// process before the driver loads). Delayed files are applied from a background thread
+// after their delay, as 7th Heaven does.
+//
+// Writes into data take effect as on Windows. Writes into .text only take effect where the
+// lift has the patched code (a code variant from a hext manifest, tools/hext_manifest.sh):
+// each code write is checked against the lift's variant table (recomp_variants.c, emitted by
+// run_lift.py) and one that has no lifted counterpart is reported -- its bytes are in memory
+// but the ARM64 code runs the original instructions.
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
+#include "hext.hpp"
+#include "mods.h"
+
+extern "C" {
+typedef struct { uint32_t start, end; const char *bytes, *mask; } ff7_code_variant_t;
+// Weak: absent until the lift that emits recomp_variants.c.
+extern const ff7_code_variant_t ff7_code_variants[] __attribute__((weak));
+extern const uint32_t ff7_code_variant_count __attribute__((weak));
+}
+
+namespace {
+
+constexpr uint32_t IMAGE_LO = 0x00401000u, IMAGE_HI = 0x00F6F000u;   // ff7_en sections
+constexpr uint32_t TEXT_LO = 0x00401000u, TEXT_HI = 0x007B6000u;
+constexpr uint32_t ARENA_LO = 0x33000000u, ARENA_HI = 0x6B010000u;   // heap, VirtualAlloc, FFNx block
+
+bool readable(uint32_t va, uint32_t n) {
+    uint64_t e = (uint64_t)va + n;
+    return (va >= IMAGE_LO && e <= IMAGE_HI) || (va >= ARENA_LO && e <= ARENA_HI);
+}
+
+uint32_t read32(uint32_t va) {
+    if (!readable(va, 4)) throw std::runtime_error("pointer read outside game memory");
+    uint32_t v;
+    std::memcpy(&v, (const void *)(uintptr_t)va, 4);
+    return v;
+}
+
+// Is the patched code at [va, va+n) (now in memory) something the lift can run?
+const char *code_status(uint32_t va, const std::vector<uint8_t> &before, uint32_t n) {
+    if (std::memcmp(before.data(), (const void *)(uintptr_t)va, n) == 0) return nullptr;   // unchanged
+    if (!&ff7_code_variant_count) return "no variant table in this build";
+    bool covered = false;
+    for (uint32_t i = 0; i < ff7_code_variant_count; i++) {
+        const ff7_code_variant_t &v = ff7_code_variants[i];
+        if (v.end <= va || v.start >= va + n) continue;
+        covered = true;
+        const uint8_t *m = (const uint8_t *)(uintptr_t)v.start;
+        bool match = true;
+        for (uint32_t k = 0; k < v.end - v.start && match; k++)
+            match = !(uint8_t)v.mask[k] || m[k] == (uint8_t)v.bytes[k];
+        if (match) return nullptr;
+    }
+    return covered ? "patched code differs from every lifted variant" : "patched code not lifted";
+}
+
+struct Ctx { int files = 0, writes = 0, data_writes = 0, code_ok = 0, code_bad = 0, errors = 0, delayed = 0; };
+
+void apply_one(const std::string &mod, const std::string &file, const std::string &text, bool honour_delay, Ctx &c) {
+    ff7mods::HextResult r = ff7mods::hext_run(text, honour_delay, read32,
+        [&](uint32_t va, const uint8_t *b, uint32_t n) {
+            if (!readable(va, n)) throw std::runtime_error("write outside game memory");
+            bool code = va < TEXT_HI && va + n > TEXT_LO;
+            std::vector<uint8_t> before((const uint8_t *)(uintptr_t)va, (const uint8_t *)(uintptr_t)va + n);
+            std::memcpy((void *)(uintptr_t)va, b, n);
+            c.writes++;
+            if (!code) { c.data_writes++; return; }
+            if (const char *why = code_status(va, before, n)) {
+                c.code_bad++;
+                std::fprintf(stderr, "[hext] %s %s: code write 0x%08X (%u bytes): %s\n", mod.c_str(), file.c_str(), va, n, why);
+            } else {
+                c.code_ok++;
+            }
+        });
+    if (r.skipped) { std::fprintf(stderr, "[hext] %s %s: Delay is not a number, not applied (as in 7th Heaven)\n", mod.c_str(), file.c_str()); return; }
+    if (r.delay_ms >= 0) {
+        c.delayed++;
+        std::thread([mod, file, text, ms = r.delay_ms]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+            Ctx d;
+            apply_one(mod, file, text, false, d);
+            std::fprintf(stderr, "[hext] delayed %s %s: %d writes (%d code, %d not runnable)\n",
+                         mod.c_str(), file.c_str(), d.writes, d.code_ok + d.code_bad, d.code_bad);
+        }).detach();
+        return;
+    }
+    c.files++;
+    if (!r.error.empty()) {
+        c.errors++;
+        std::fprintf(stderr, "[hext] %s %s: stopped at: %s\n", mod.c_str(), file.c_str(), r.error.c_str());
+    }
+}
+
+}  // namespace
+
+extern "C" void ff7_hext_apply_mods(void) {
+    Ctx c;
+    ff7_mods_hext([](const char *mod, const char *file, const char *text, unsigned len, void *ctx) {
+        apply_one(mod, file, std::string(text, len), true, *static_cast<Ctx *>(ctx));
+    }, &c);
+    if (c.files || c.delayed)
+        std::fprintf(stderr, "[hext] %d file(s) applied, %d delayed: %d writes (%d data, %d code runnable, %d code not runnable), %d error(s)\n",
+                     c.files, c.delayed, c.writes, c.data_writes, c.code_ok, c.code_bad, c.errors);
+}

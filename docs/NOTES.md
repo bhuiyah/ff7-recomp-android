@@ -169,3 +169,15 @@
   "code_variants" lifted by run_lift.py). Refactored run_lift's manifest handling gives the
   same 384 variants at 240 sites on the existing manifests. APK builds. Needs the mode-4
   manifest from the Thor, a re-lift and a side-by-side check against 60 FPS.
+
+## 2026-11-07: hext patches from mods
+- src/mods/hext.cpp mirrors AppWrapper/HexPatch.cs (title line skipped, comments, +/- offset,
+  addr=bytes with fill and pointer reads, addr:len, Delay). mods.cpp ff7_mods_hext lists
+  each enabled mod's hext files in Wrap.cs order (lowest priority first; names from root,
+  active Conditionals, active ModFolders; each name from Conditionals, ModFolders, root).
+- src/host/ff7_hext.cpp applies them at boot (after the image is mapped, before FFNx) and
+  checks each code write against recomp_variants.c (new run_lift output, weak until the
+  next lift).
+- tools/hext_manifest.sh: the code writes of given mods/profiles as re-lift manifests,
+  read through the same src/mods code. A test mod patching 0x41BDE5 gives one more lifted
+  variant (384 -> 385). tests/mods: 68/68.
