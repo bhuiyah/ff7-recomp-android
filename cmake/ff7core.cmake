@@ -90,3 +90,12 @@ if(FF7_WITH_FFNX)
   target_compile_definitions(ff7_core PRIVATE FF7_WITH_FFNX=1)
   target_link_libraries(ff7_core PUBLIC ffnx)    # cyclic with ffnx -> ff7_core; CMake repeats the pair
 endif()
+
+# The renderer, its libraries and the runtime are optimised in every build type (a debug
+# APK at -O0 runs FFNx/bgfx far below the game's frame rate). The lift keeps its own -O1.
+foreach(t ff7_core ffnx bgfx bx bimg bimg_decode astcenc ffnx_png ffnx_imgui ffnx_pugixml ffnx_xxhash
+          ffnx_ogg ffnx_vorbis ffnx_vgmstream ffnx_soloud ffnx_openpsf ffnx_lz4)
+  if(TARGET ${t})
+    target_compile_options(${t} PRIVATE -O2)
+  endif()
+endforeach()

@@ -96,6 +96,9 @@ target_compile_definitions(ffnx PUBLIC
   FFNX_ANDROID=1)
 target_compile_options(ffnx PRIVATE
   "SHELL:-include ${FF7_ROOT}/src/ffnx_port/include/ffnx_prelude.h"
+  # MSVC semantics FFNx relies on: null checks after arithmetic on possibly-null game
+  # pointers (&p->array[i] then `if (ptr)`) and type punning between game structs.
+  -fno-delete-null-pointer-checks -fno-strict-aliasing
   -ferror-limit=0 -fms-extensions -Wno-microsoft -Wno-invalid-offsetof -Wno-writable-strings
   -Wno-unused-value -Wno-format -Wno-c++11-narrowing-const-reference)
 target_compile_features(ffnx PUBLIC cxx_std_20)

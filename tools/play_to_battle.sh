@@ -17,8 +17,12 @@ shot() { "$ADB" exec-out screencap -p > "$SHOTS/$1.png" 2>/dev/null; }
   key BUTTON_B; sleep 3; key BUTTON_B; sleep 3
   for i in $(seq 1 24); do key DPAD_UP; done; shot walk  # up the platform: the guards attack
   for t in $(seq 1 40); do sleep 3; key BUTTON_B; [ $((t % 3)) -eq 0 ] && shot "battle$t"; done
+  # back in the field: the main menu (Triangle = XInput Y), its status screen, then out
+  sleep 5; key BUTTON_Y; sleep 3; shot menu1
+  key DPAD_DOWN; sleep 1; key BUTTON_B; sleep 3; shot menu2
+  key BUTTON_A; sleep 2; key BUTTON_A; sleep 2; shot menu3
 ) &
-bash "$ROOT/tools/run_app.sh" 400 "${1:-}"
+bash "$ROOT/tools/run_app.sh" 440 "${1:-}"
 wait
 n=$(ls -d "$ROOT"/logs/app-[0-9]*/ | sed 's|/$||; s/.*app-//' | sort -n | tail -1)
 mv "$SHOTS"/*.png "$ROOT/logs/app-$n/" 2>/dev/null

@@ -83,3 +83,15 @@
 - vgmstream: FFNx expects vgmstream's *internal* src/vgmstream.h at <libvgmstream/vgmstream.h> (its port's cmake.patch).
 - **All 13 renderer-core files + 6 port files compile for arm64** (cmake/ffnx.cmake default list). Not yet linked: next is resolving the link (modules common.cpp calls: music, sfx, voice, movies, field, world, lighting, ...; libpng; bimg decode), compiling FFNx's shaders to SPIR-V, and calling FFNx's DllMain(DLL_PROCESS_ATTACH) from the host before the game starts.
 - Dual screen (M7) bottom-screen swap chain already works from the bring-up display.
+
+## 2026-11-07 (FFNx linked: FF7 plays on the Thor)
+- FFNx fully linked into libff7.so: FFmpeg n9.0.2 static (VP8/Vorbis Matroska), bimg decode, SDL/DirectInput-joystick as "no device", FF8/crash-dialog symbols as named stops (tools/ffnx_link_stubs.py). Shaders: bgfx shaderc built with VS2022 Build Tools, 43 SPIR-V shaders pushed to <game>/shaders.
+- Boot: ff7_boot runs FFNx's DllMain after mapping the exe (FF7_WITH_FFNX); the game gets FFNx's own new_dll_graphics_driver.
+- Game-side HLE added: DirectSound (AAudio mixer), MSACM (MS-ADPCM), DirectInput init, ole32 (no DirectMusic), multimedia timers run on the game thread at its poll points, guest working directory.
+- Bridge (guest_abi.h): host const char* -> interned guest copies; FILE* as handles (0xF0000000+); bounce buffers for host structs / scalar out-params / char* strings passed to game functions.
+- ffnx_edit_android.py now also rewrites, by pattern: patch_code_dword(addr, (DWORD)&fn) -> ffnx_guest_va (108); native pointers to game functions -> guest::gfn (39). Plus guest-memory placement for data FFNx hands the game (blend modes, keys, texture sets, driver heap, facial vertices).
+- FFNx compiled -O2 with -fno-delete-null-pointer-checks -fno-strict-aliasing (MSVC semantics it relies on; clang -O2 removed a null check after &null_ptr[i]).
+- **Verified on the Thor:** credits -> title -> New Game -> opening FMV -> Sector 1 station field (walk with the pad) -> first battle to victory -> field menu. OK is Circle = XInput B (PS1/Steam layout). Audio sessions active (not yet checked by ear).
+- Tools: run_app.sh, play_newgame.sh, play_to_battle.sh (adb-driven), symbolize.sh, files/env.txt switches (FF7_PATH_TRACE, FF7_WATCHDOG).
+- Open: frame rate (39 FPS in credits at -O0 FFNx; 21 after -O2 with the battery at 5% -- remeasure charged, profile with simpleperf); saves; world map/minigames; bottom-screen panels (the FFNx renderer owns bgfx now, so M7 needs a second view in FFNx's renderer); launcher (M4).
+- The Thor drains on 900 mA USB while the game runs: test on a proper charger.
