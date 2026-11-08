@@ -208,6 +208,24 @@ public class LauncherActivity extends Activity {
         col.addView(g);
         col.addView(space(16));
         col.addView(heading("Display"));
+        RadioGroup ar = new RadioGroup(this);
+        String[][] aspects = {
+            { "0", "4:3, original", "Black bars at the sides of a 16:9 screen" },
+            { "2", "16:9 widescreen", "3D scenes and menus use the whole screen; fields without widescreen backgrounds keep side bars" },
+        };
+        int curAr = prefs.getInt("aspect", 2);
+        for (String[] a : aspects) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(a[1] + "\n" + a[2]);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            final int v = Integer.parseInt(a[0]);
+            rb.setOnClickListener(x -> prefs.edit().putInt("aspect", v).apply());
+            ar.addView(rb);
+            if (v == curAr) rb.setChecked(true);
+        }
+        col.addView(ar);
         CheckBox fps = new CheckBox(this);
         fps.setText("Show the frame-rate counter");
         fps.setTextColor(TEXT);
@@ -305,7 +323,7 @@ public class LauncherActivity extends Activity {
             library.load();
             library.save();
             install.installRuntime();
-            install.writeFfnxToml(prefs.getInt("fps", 3), prefs.getBoolean("show_fps", false), library.mods);
+            install.writeFfnxToml(prefs.getInt("fps", 3), prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods);
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)));
             return null;
         });

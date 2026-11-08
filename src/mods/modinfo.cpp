@@ -47,6 +47,29 @@ std::unique_ptr<ActiveWhen> parse_aw_node(pugi::xml_node n) {
     return aw;
 }
 
+std::unique_ptr<RuntimeCondition> parse_condition(pugi::xml_node n) {
+    auto c = std::make_unique<RuntimeCondition>();
+    const char *k = n.name();
+    if (ieq(k, "And")) c->kind = RuntimeCondition::And;
+    else if (ieq(k, "Or")) c->kind = RuntimeCondition::Or;
+    else if (ieq(k, "Not")) c->kind = RuntimeCondition::Not;
+    else {
+        c->kind = RuntimeCondition::Var;                  // RuntimeVar
+        c->var = trim(n.attribute("Var").value());
+        c->values = trim(n.attribute("Values").value());
+        return c;
+    }
+    for (pugi::xml_node ch : n.children())
+        if (ch.type() == pugi::node_element) c->children.push_back(parse_condition(ch));
+    return c;
+}
+
+std::string norm_path(std::string s) {
+    for (char &c : s) c = c == '\\' ? '/' : (char)std::tolower((unsigned char)c);
+    while (!s.empty() && s[0] == '/') s.erase(0, 1);
+    return s;
+}
+
 // ActiveWhen.Parse: a nested <ActiveWhen> element (its first child), else the attribute.
 std::unique_ptr<ActiveWhen> parse_active_when(pugi::xml_node n) {
     if (pugi::xml_node x = child(n, "ActiveWhen")) {
@@ -154,8 +177,12 @@ bool parse_mod_xml(const std::string &xml, ModInfo &m, std::string &error) {
             ConditionalFolder c;
             c.folder = n.attribute("Folder").value();
             c.active_when = parse_active_when(n);
-            for (pugi::xml_node x : n.children())
-                if (x.type() == pugi::node_element && !ieq(x.name(), "ActiveWhen")) c.has_runtime_conditions = true;
+            // Every other child is a condition for the file named in its ApplyTo ("" = all).
+            for (pugi::xml_node x : n.children()) {
+                if (x.type() != pugi::node_element || ieq(x.name(), "ActiveWhen")) continue;
+                c.conditions[norm_path(x.attribute("ApplyTo").value())] = parse_condition(x);
+                c.has_runtime_conditions = true;
+            }
             m.conditionals.push_back(std::move(c));
         } else if (ieq(k, "FFNxConfig")) {
             for (pugi::xml_node c : n.children()) {

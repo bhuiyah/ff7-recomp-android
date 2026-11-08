@@ -11,3 +11,7 @@ rm -rf "$OUT"; mkdir -p "$OUT/shaders"
 cp "$ROOT"/external/FFNx/misc/FFNx*.toml "$OUT/"
 cp "$ROOT"/build/shaders/* "$OUT/shaders/"
 echo "staged $(ls "$OUT" | wc -l) entries, $(ls "$OUT/shaders" | wc -l) shaders"
+# 7th Heaven's variable aliases (MS-PL) for mods' run-time conditions; installed next to the
+# mod profile (files/mods/7thHeaven.var).
+mkdir -p "$ROOT/build/apk-assets/modsdata"
+cp "$ROOT/external/7th-Heaven/AppUI/Resources/7thHeaven.var" "$ROOT/build/apk-assets/modsdata/"

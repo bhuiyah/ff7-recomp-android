@@ -177,6 +177,10 @@ final class GameInstall {
         if (marker.isFile() && want.equals(new String(readAll(new java.io.FileInputStream(marker)), StandardCharsets.UTF_8))) return;
         game.mkdirs();
         copyAssets(ctx.getAssets(), "ffnx", game);
+        // 7th Heaven's variable aliases for mods' run-time conditions, next to the profile.
+        File mods = new File(files, "mods");
+        mods.mkdirs();
+        try (InputStream in = ctx.getAssets().open("modsdata/7thHeaven.var")) { copy(in, new File(mods, "7thHeaven.var")); }
         try (OutputStream o = new FileOutputStream(marker)) { o.write(want.getBytes(StandardCharsets.UTF_8)); }
     }
 
@@ -209,13 +213,16 @@ final class GameInstall {
      * the launcher's choices, then each enabled mod's FFNxConfig (later mods first, so the
      * highest-priority mod's values win, as files do).
      */
-    void writeFfnxToml(int fpsLimiter, boolean showFps, List<ModLibrary.Mod> mods) throws IOException {
+    void writeFfnxToml(int fpsLimiter, int aspectRatio, boolean showFps, List<ModLibrary.Mod> mods) throws IOException {
         File template = new File(game, "FFNx.template.toml");
         String toml = new String(readAll(new java.io.FileInputStream(template)), StandardCharsets.UTF_8);
         toml = set(toml, "renderer_backend", "5");
         toml = set(toml, "fullscreen", "true");
         toml = set(toml, "ff7_fps_limiter", Integer.toString(fpsLimiter));
         toml = set(toml, "show_fps", showFps ? "true" : "false");
+        // 16:9 (FFNx aspect_ratio 2) also uncrops: the Thor's screen is 16:9 top to bottom.
+        toml = set(toml, "aspect_ratio", Integer.toString(aspectRatio));
+        toml = set(toml, "enable_uncrop", aspectRatio != 0 ? "true" : "false");
         for (int i = mods.size() - 1; i >= 0; i--) {
             ModLibrary.Mod m = mods.get(i);
             if (!m.enabled || m.error != null) continue;

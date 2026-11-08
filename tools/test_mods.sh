@@ -11,6 +11,6 @@ py -I "$ROOT/tests/mods/make_test_mods.py" "$OUT/data"
 cd "$OUT"
 "$CC" -c -O1 -I"$ROOT/src/mods" -I"$ROOT/external/deps/lzma" "$ROOT/src/mods/lzs.c" "$ROOT/external/deps/lzma/LzmaDec.c"
 "$CXX" -std=c++20 -O1 -D_CRT_SECURE_NO_WARNINGS -I"$ROOT/src/mods" -I"$ROOT/external/deps/lzma" -I"$ROOT/external/deps/pugixml/src" \
-  "$ROOT/tests/mods/test_mods.cpp" "$ROOT/src/mods/iro.cpp" "$ROOT/src/mods/modinfo.cpp" "$ROOT/src/mods/mods.cpp" \
+  "$ROOT/tests/mods/test_mods.cpp" "$ROOT/src/mods/iro.cpp" "$ROOT/src/mods/modinfo.cpp" "$ROOT/src/mods/mods.cpp" "$ROOT/src/mods/runtimevar.cpp" \
   "$ROOT/external/deps/pugixml/src/pugixml.cpp" lzs.o LzmaDec.o -o test_mods.exe
 ./test_mods.exe data 2>/dev/null

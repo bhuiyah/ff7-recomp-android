@@ -153,3 +153,14 @@
   enabled mods' FFNxConfig, then starts GameActivity in its own ":game" process; when the
   game ends the process exits and the launcher shows again.
 - Not run yet (the Thor was disconnected): first device run of the launcher is next.
+
+## 2026-11-07: 120 FPS battles assessed; widescreen setting; mod run-time conditions
+- Mod run-time conditions: src/mods/runtimevar.* evaluates 7th Heaven's RuntimeVar
+  conditions (Byte/Short/Int with mask, Sys, counters, random) through a memory reader, with
+  7thHeaven.var aliases installed next to the profile. Conditional folders apply only while
+  their condition holds. tests/mods: 49/49.
+- Widescreen: the launcher's Settings page gets an aspect choice (4:3, or 16:9 with uncrop,
+  the default). writeFfnxToml sets aspect_ratio/enable_uncrop. refresh_manifests.sh collects
+  each frame-rate mode with aspect 0 and 2 (ffnx_manifest_l{n}[_ar2].json). Needs the Thor to
+  collect the widescreen manifests and re-lift.
+- 120 FPS battles: not feasible as constant patches. See ROADMAP M5b; mode 4 keeps battles at 60.

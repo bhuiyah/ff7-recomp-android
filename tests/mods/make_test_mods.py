@@ -23,6 +23,10 @@ MOD_XML = """<?xml version="1.0" encoding="utf-8"?>
     <Type>List</Type><Default>0</Default><ID>Style</ID><Name>Style</Name>
     <Option Value="0" Name="Classic"/><Option Value="1" Name="Alternative"/>
   </ConfigOption>
+  <Variable Name="Custom">Int:0xDC1000:0xFF</Variable>
+  <Conditional Folder="night"><RuntimeVar Var="Time" Values="1..2"/></Conditional>
+  <Conditional Folder="perfile"><RuntimeVar ApplyTo="field\\perfile.bin" Var="FieldID" Values="116,117"/></Conditional>
+  <Conditional Folder="custom"><Not><RuntimeVar Var="Custom" Values="5"/></Not></Conditional>
   <ModFolder Folder="alt" ActiveWhen="Style = 1"/>
   <ModFolder Folder="base"/>
   <Conditional Folder="cond"><ActiveWhen><Not><Option>Style = 1</Option></Not></ActiveWhen></Conditional>
@@ -76,7 +80,11 @@ def main():
         ("alt\\field\\raw.bin", 0, b"alt contents"),
         ("cond\\field\\cond.bin", 0, b"conditional contents"),
         ("ignored\\x.bin", 0, b"not in any active folder"),
+        ("night\\field\\raw.bin", 0, b"night contents"),
+        ("perfile\\field\\perfile.bin", 0, b"perfile contents"),
+        ("custom\\field\\custom.bin", 0, b"custom contents"),
     ])
+    open(os.path.join(out, "7thHeaven.var"), "w").write("Time=Byte:0xDC08EB\nFieldID=Short:0xCC15D0\n")
     fm = os.path.join(out, "folder_mod", "Textures")
     os.makedirs(fm, exist_ok=True)
     open(os.path.join(fm, "Shared.png"), "wb").write(b"from folder mod")

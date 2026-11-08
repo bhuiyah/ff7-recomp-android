@@ -13,6 +13,7 @@
 #include <vector>
 #include "iro.hpp"
 #include "modinfo.hpp"
+#include "runtimevar.hpp"
 #include "pugixml.hpp"
 #if defined(_WIN32)
 #include <direct.h>
@@ -118,6 +119,7 @@ struct Mod {
 struct Override {
     int mod;                                // index in g.mods
     std::string file;                       // archive entry name, or host path for folder mods
+    const ConditionalFolder *cond;          // its Conditional folder (run-time conditions), or null
 };
 
 struct State {
@@ -125,29 +127,39 @@ struct State {
     std::vector<std::unique_ptr<Mod>> mods;
     std::unordered_map<std::string, std::vector<Override>> map;   // key -> overrides, priority order
     std::string cache, language = "en";
+    RuntimeVars vars;                       // 7thHeaven.var + the mods' <Variable> aliases
 } g;
 
-void add_override(const std::string &key, int mod, const std::string &file) {
-    g.map[norm_key(key)].push_back({ mod, file });
+void add_override(const std::string &key, int mod, const std::string &file, const ConditionalFolder *cond) {
+    g.map[norm_key(key)].push_back({ mod, file, cond });
+}
+
+// ConditionalFolder.IsActive(path): the condition for this file, else the folder-wide one
+// (ApplyTo=""), else none (active).
+bool cond_active(const ConditionalFolder *cf, const std::string &key) {
+    if (!cf || cf->conditions.empty()) return true;
+    auto it = cf->conditions.find(key);
+    if (it == cf->conditions.end()) it = cf->conditions.find("");
+    return it == cf->conditions.end() || g.vars.eval(it->second.get());
 }
 
 // Files of one folder of a mod ("" = the mod root) into the map, keyed relative to it.
-void add_folder(int mi, const std::string &folder) {
+void add_folder(int mi, const std::string &folder, const ConditionalFolder *cond = nullptr) {
     Mod &m = *g.mods[mi];
     std::string fkey = norm_key(folder);
     if (m.iro) {
         for (const IroArchive::Entry &e : m.iro->entries()) {
             std::string k = norm_key(e.name);
-            if (fkey.empty()) add_override(k, mi, e.name);
+            if (fkey.empty()) add_override(k, mi, e.name, cond);
             else if (k.size() > fkey.size() && k.compare(0, fkey.size(), fkey) == 0 && k[fkey.size()] == '/')
-                add_override(k.substr(fkey.size() + 1), mi, e.name);
+                add_override(k.substr(fkey.size() + 1), mi, e.name, cond);
         }
     } else {
         std::string dir = fkey.empty() ? m.path : resolve_ci(m.path, folder);
         if (dir.empty() || !is_dir(dir)) return;
         std::vector<std::string> files;
         list_files(dir, "", files);
-        for (const std::string &f : files) add_override(f, mi, join(dir, f));
+        for (const std::string &f : files) add_override(f, mi, join(dir, f), cond);
     }
 }
 
@@ -207,6 +219,7 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
     std::lock_guard<std::mutex> lk(g.lock);
     g.mods.clear();
     g.map.clear();
+    g.vars = RuntimeVars();
     g.cache = cache_dir ? cache_dir : "";
     if (!profile_path || !is_file(profile_path)) return 0;
     pugi::xml_document doc;
@@ -216,6 +229,16 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
     std::string base = profile_path;
     for (char &c : base) if (c == '\\') c = '/';
     base = base.find('/') == std::string::npos ? std::string(".") : base.substr(0, base.rfind('/'));
+
+    // 7th Heaven's variable aliases (Time, FieldID, ...), next to the profile.
+    if (std::FILE *vf = std::fopen(join(base, "7thHeaven.var").c_str(), "rb")) {
+        std::string text;
+        char vb[4096];
+        size_t r;
+        while ((r = std::fread(vb, 1, sizeof vb, vf)) > 0) text.append(vb, r);
+        std::fclose(vf);
+        g.vars.load_aliases(text);
+    }
 
     for (pugi::xml_node mn : prof.children("Mod")) {
         std::string p = mn.attribute("Path").value();
@@ -243,15 +266,13 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         int mi = (int)g.mods.size();
         g.mods.push_back(std::move(m));
         Mod &mod = *g.mods[mi];
+        for (const auto &v : mod.info.variables) g.vars.add_alias(v.first, v.second);
         // AppCore Profile.GetRuntime: active Conditionals and ModFolders; the mod root only
         // when it has neither (Wrap.cs). Conditionals come first, as there.
         int folders = 0;
         for (const ConditionalFolder &c : mod.info.conditionals) {
             if (!is_active(c.active_when.get(), opts, g.language)) continue;
-            if (c.has_runtime_conditions)
-                std::fprintf(stderr, "[mods] %s: folder %s has run-time conditions (game memory checks): applied unconditionally for now\n",
-                             mod.name.c_str(), c.folder.c_str());
-            add_folder(mi, c.folder);
+            add_folder(mi, c.folder, &c);   // its run-time conditions are checked at each open
             folders++;
         }
         for (const ModFolder &f : mod.info.mod_folders) {
@@ -288,7 +309,12 @@ extern "C" const char *ff7_mods_redirect(const char *rel_in, char *buf, unsigned
         if (rel.compare(0, p.size(), p) != 0) continue;
         auto it = g.map.find(rel.substr(p.size()));
         if (it == g.map.end()) continue;
-        const Override &o = it->second.front();      // first mod in the profile wins
+        // VFile.MapFile: the first override whose folder is active for this file wins.
+        const std::string key = rel.substr(p.size());
+        const Override *pick = nullptr;
+        for (const Override &c : it->second) if (cond_active(c.cond, key)) { pick = &c; break; }
+        if (!pick) continue;
+        const Override &o = *pick;
         const Mod &m = *g.mods[o.mod];
         std::string host = m.iro ? materialize(m, o.mod, o.file) : o.file;
         if (host.empty()) return nullptr;

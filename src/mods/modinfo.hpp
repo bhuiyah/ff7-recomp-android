@@ -47,10 +47,21 @@ struct ModFolder {
     std::unique_ptr<ActiveWhen> active_when;
 };
 
+// A run-time condition of a Conditional folder, checked when a file is opened (Profile.cs
+// Conditional: And / Or / Not / RuntimeVar Var="spec or alias" Values="1,2 | a..b").
+struct RuntimeCondition {
+    enum Kind { And, Or, Not, Var } kind = Var;
+    std::string var, values;                            // Var: spec ("Byte:0xDC08EB[:mask]") or alias
+    std::vector<std::unique_ptr<RuntimeCondition>> children;
+};
+
 struct ConditionalFolder {
     std::string folder;
     std::unique_ptr<ActiveWhen> active_when;
-    bool has_runtime_conditions = false;                // <RuntimeVar> etc. (game memory checks)
+    // ApplyTo (file path inside the folder, lower case, '/' separators; "" = every file)
+    // -> its condition. No entry for a file and no "" entry: always active.
+    std::map<std::string, std::unique_ptr<RuntimeCondition>> conditions;
+    bool has_runtime_conditions = false;
 };
 
 struct ModInfo {
