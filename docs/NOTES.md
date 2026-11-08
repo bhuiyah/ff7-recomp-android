@@ -138,3 +138,18 @@
   for now and are reported), hext from mods, FFNxConfig from mods into FFNx.toml (the
   launcher's job), directory listings of modded folders, and a test with real 7th Heaven
   mods on the Thor (the M4 exit test: IFRIT + Ninostyle Chibi).
+
+## 2026-11-07 (M4: launcher)
+- LauncherActivity is the app's entry point: Mods (list from files/mods in priority order,
+  on/off, move up/down, per-mod options from mod.xml, add .iro archives or mod folders via
+  the Android file picker), Settings (frame-rate mode 0-4, FPS counter), Game files (import
+  from the Steam folder via the folder picker: ff7/resources/ff7_1.02/ff7_en -> ff7_en.exe,
+  ff7/workingdir/data -> data, other languages skipped), Play. Pad-driven: D-pad focus,
+  A confirms, B back, Start plays.
+- libff7launcher.so: mod.xml/IRO metadata through the same src/mods code (JSON over JNI).
+- Play: writes files/mods/profile.xml (all mods, Enabled flags), installs FFNx's runtime
+  files from the APK (assets/ffnx, staged by tools/stage_apk_assets.sh) once per app
+  version, writes FFNx.toml from FFNx's defaults + Android settings + the frame-rate choice +
+  enabled mods' FFNxConfig, then starts GameActivity in its own ":game" process; when the
+  game ends the process exits and the launcher shows again.
+- Not run yet (the Thor was disconnected): first device run of the launcher is next.

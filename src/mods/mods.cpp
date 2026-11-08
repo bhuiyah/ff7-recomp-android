@@ -221,6 +221,8 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         std::string p = mn.attribute("Path").value();
         for (char &c : p) if (c == '\\') c = '/';
         if (p.empty()) continue;
+        // The launcher keeps disabled mods in the profile (their order and options survive).
+        if (pugi::xml_attribute en = mn.attribute("Enabled"); en && !en.as_bool(true)) continue;
         if (p[0] != '/' && !(p.size() > 1 && p[1] == ':')) p = join(base, p);
         auto m = std::make_unique<Mod>();
         m->path = p;

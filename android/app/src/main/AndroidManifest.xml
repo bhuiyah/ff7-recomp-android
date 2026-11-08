@@ -1,21 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature android:name="android.hardware.vulkan.version" android:version="0x401000" android:required="true" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <application
         android:label="FF7Recomp"
         android:hasCode="true"
         android:extractNativeLibs="false"
-        android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+        android:isGame="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
+        <!-- The entry point: game files, mods, settings, Play (LauncherActivity.java). -->
         <activity
-            android:name=".GameActivity"
+            android:name=".LauncherActivity"
             android:exported="true"
             android:screenOrientation="sensorLandscape"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode"
-            android:launchMode="singleTask">
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- The game, in its own process: the lifted exe boots once per process (fixed guest
+             memory), so each Play starts a fresh process and quitting returns to the launcher. -->
+        <!-- exported: the dev scripts (tools/run_app.sh) start it directly with adb. -->
+        <activity
+            android:name=".GameActivity"
+            android:exported="true"
+            android:process=":game"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode"
+            android:launchMode="singleTask" />
     </application>
 </manifest>

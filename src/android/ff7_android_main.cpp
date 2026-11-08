@@ -63,7 +63,11 @@ void redirect_output(const std::string &log_dir) {
 void *game_thread(void *) {
     int rc = ff7_boot_and_run(g_game_dir.c_str());
     std::fprintf(stderr, "[ff7] game thread finished with %d\n", rc);
-    return nullptr;
+    // The game owns this process (":game"): when it ends, so does the process, and Android
+    // shows the launcher again. Give the log pump a moment to write the last lines.
+    std::fflush(stderr);
+    usleep(300000);
+    _exit(0);
 }
 
 }  // namespace

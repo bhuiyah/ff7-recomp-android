@@ -7,6 +7,7 @@
  *   <Profile Language="en">
  *     <Mod Path="mods/IFRIT.iro"> <Option ID="SomeOption" Value="1"/> </Mod>
  *     <Mod Path="mods/NinostyleChibi"/>
+ *     <Mod Path="mods/Other.iro" Enabled="false"/>     (kept in order, not applied)
  *   </Profile>
  *
  * Paths are relative to the profile's folder or absolute. Each mod's mod.xml decides which
