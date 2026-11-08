@@ -17,6 +17,9 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.EditText;
+import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -38,6 +41,11 @@ public class LauncherActivity extends Activity {
     private GameInstall install;
     private ModLibrary library;
     private SaveStates states;
+    private ModCatalog catalog;
+    private ModDownloader downloader;
+    private String catQuery = "", catCategory = null;      // the Get mods page's filters
+    private boolean catInstalledOnly;
+    private final java.util.Map<String, android.graphics.Bitmap> previews = new java.util.HashMap<>();
     private SharedPreferences prefs;
     private FrameLayout content;
     private TextView status;
@@ -50,6 +58,9 @@ public class LauncherActivity extends Activity {
         super.onCreate(state);
         install = new GameInstall(this);
         library = new ModLibrary(install.files);
+        catalog = new ModCatalog(install.files);
+        downloader = new ModDownloader(install.files, library.dir);
+        catalog.rebuild();
         prefs = getSharedPreferences("launcher", MODE_PRIVATE);
 
         LinearLayout root = new LinearLayout(this);
@@ -72,10 +83,15 @@ public class LauncherActivity extends Activity {
         side.addView(playButton, new LinearLayout.LayoutParams(dp(280), dp(72)));
         side.addView(space(16));
         side.addView(button("Mods", v -> show("mods")), navParams());
+        side.addView(button("Get mods", v -> show("catalog")), navParams());
         side.addView(button("Save states", v -> show("states")), navParams());
         side.addView(button("Settings", v -> show("settings")), navParams());
         side.addView(button("Game files", v -> show("game")), navParams());
-        root.addView(side, new LinearLayout.LayoutParams(dp(300), ViewGroup.LayoutParams.MATCH_PARENT));
+        // the menu scrolls when it is taller than the screen (Play, five pages, the status)
+        ScrollView sideScroll = new ScrollView(this);
+        sideScroll.setVerticalScrollBarEnabled(false);
+        sideScroll.addView(side);
+        root.addView(sideScroll, new LinearLayout.LayoutParams(dp(300), ViewGroup.LayoutParams.MATCH_PARENT));
 
         content = new FrameLayout(this);
         content.setBackground(rounded(PANEL));
@@ -84,6 +100,8 @@ public class LauncherActivity extends Activity {
         setContentView(root);
         hideSystemBars();
         show(install.hasGame() ? "mods" : "game");
+        // catalogs older than a day are fetched quietly in the background (as 7th Heaven does)
+        new Thread(() -> { catalog.refresh(false); runOnUiThread(this::refresh); }).start();
         playButton.requestFocus();
     }
 
@@ -102,8 +120,10 @@ public class LauncherActivity extends Activity {
 
     private void refresh() {
         library.load();
+        catalog.prune(library.dir);
         status.setText((install.hasGame() ? "Game files: ready" : "Game files: not imported yet")
                 + "\nMods: " + library.enabledCount() + " of " + library.mods.size() + " enabled"
+                + (catalog.updates().isEmpty() ? "" : "\nMod updates: " + catalog.updates().size())
                 + "\nFrame rate: " + fpsName(prefs.getInt("fps", 3)) + (prefs.getBoolean("turbo", false) ? ", 2\u00d7 speed" : ""));
         playButton.setEnabled(install.hasGame() && !busy);
         content.removeAllViews();
@@ -111,6 +131,7 @@ public class LauncherActivity extends Activity {
             case "settings": content.addView(settingsPage()); break;
             case "states": content.addView(statesPage()); break;
             case "game": content.addView(gamePage()); break;
+            case "catalog": content.addView(catalogPage()); break;
             default: content.addView(modsPage()); break;
         }
     }
@@ -122,6 +143,9 @@ public class LauncherActivity extends Activity {
         LinearLayout actions = row();
         actions.addView(button("Add .iro archive", v -> pick(PICK_IRO)));
         actions.addView(button("Add mod folder", v -> pick(PICK_FOLDER)));
+        actions.addView(button("Get mods…", v -> show("catalog")));
+        java.util.List<ModCatalog.Mod> ups = catalog.updates();
+        if (!ups.isEmpty()) actions.addView(button("Update all (" + ups.size() + ")", v -> installMods(ups, true)));
         col.addView(actions);
         if (library.mods.isEmpty()) col.addView(text("\nNo mods yet.", 16, DIM));
         for (int i = 0; i < library.mods.size(); i++) col.addView(modRow(i));
@@ -130,8 +154,6 @@ public class LauncherActivity extends Activity {
 
     private View modRow(int index) {
         ModLibrary.Mod m = library.mods.get(index);
-        LinearLayout r = row();
-        r.setPadding(0, dp(8), 0, dp(8));
         CheckBox cb = new CheckBox(this);
         cb.setTextColor(TEXT);
         cb.setTextSize(18);
@@ -151,11 +173,24 @@ public class LauncherActivity extends Activity {
         info.addView(text(sub.toString(), 13, m.error != null ? 0xFFFF8080 : DIM));
         if (m.error == null && m.hext != null)
             info.addView(text((m.hextProblem ? "⚠ " : "") + m.hext, 13, m.hextProblem ? 0xFFFFC060 : DIM));
-        r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        r.addView(small("▲", v -> { library.move(index, -1); saveProfile(); refresh(); }));
-        r.addView(small("▼", v -> { library.move(index, +1); saveProfile(); refresh(); }));
-        if (!m.options.isEmpty()) r.addView(small("Options", v -> options(m)));
-        return r;
+        ModCatalog.Installed fromCat = catalog.installedByFile(m.file);
+        ModCatalog.Mod catMod = fromCat == null ? null : catalog.byId(fromCat.id);
+        if (catMod != null && catalog.updateAvailable(catMod))
+            info.addView(text("Update available: " + fromCat.versionText + " → " + catMod.versionText, 13, ACCENT));
+        // the mod's details, then its buttons on a line of their own (side by side, the
+        // buttons left the details no width)
+        LinearLayout whole = column();
+        whole.setPadding(0, dp(8), 0, dp(8));
+        whole.addView(info);
+        LinearLayout buttons = row();
+        buttons.setPadding(dp(32), 0, 0, 0);
+        buttons.addView(small("▲", v -> { library.move(index, -1); saveProfile(); refresh(); }));
+        buttons.addView(small("▼", v -> { library.move(index, +1); saveProfile(); refresh(); }));
+        if (!m.options.isEmpty()) buttons.addView(small("Options", v -> options(m)));
+        if (catMod != null && catalog.updateAvailable(catMod)) buttons.addView(small("Update", v -> installMods(java.util.Collections.singletonList(catMod), true)));
+        if (catMod != null) buttons.addView(small("Info", v -> modPage(catMod)));
+        whole.addView(buttons);
+        return whole;
     }
 
     private void options(ModLibrary.Mod m) {
@@ -192,6 +227,270 @@ public class LauncherActivity extends Activity {
                 .setView(scroll(col))
                 .setPositiveButton("Done", (d, w) -> { saveProfile(); refresh(); })
                 .show();
+    }
+
+
+    // ------------------------------------------------------------------- Get mods (catalogs)
+    private View catalogPage() {
+        LinearLayout col = column();
+        col.addView(heading("Get mods"));
+        int total = catalog.mods.size();
+        StringBuilder sub = new StringBuilder();
+        sub.append(total).append(total == 1 ? " mod" : " mods").append(" in ");
+        for (int i = 0; i < catalog.subs.size(); i++) sub.append(i > 0 ? ", " : "").append(catalog.subs.get(i).name);
+        col.addView(text(sub.toString(), 14, DIM));
+
+        LinearLayout bar = row();
+        EditText q = new EditText(this);
+        q.setHint("Search name, author, tag…");
+        q.setText(catQuery);
+        q.setTextColor(TEXT);
+        q.setHintTextColor(DIM);
+        q.setSingleLine(true);
+        q.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        q.setOnEditorActionListener((v, id, ev) -> { catQuery = v.getText().toString(); refresh(); return true; });
+        bar.addView(q, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        bar.addView(small("Search", v -> { catQuery = q.getText().toString(); refresh(); }));
+        bar.addView(small("Refresh catalogs", v -> background(() -> {
+            progress("Checking the mod catalogs");
+            String err = catalog.refresh(true);
+            return err == null ? null : "Some catalogs could not be checked:\n" + err;
+        })));
+        java.util.List<ModCatalog.Mod> ups = catalog.updates();
+        if (!ups.isEmpty()) bar.addView(small("Update all (" + ups.size() + ")", v -> installMods(ups, true)));
+        col.addView(bar);
+
+        // categories (7th Heaven's), plus All and Installed
+        LinearLayout chips = row();
+        chips.addView(chip("All", catCategory == null && !catInstalledOnly, v -> { catCategory = null; catInstalledOnly = false; refresh(); }));
+        chips.addView(chip("Installed", catInstalledOnly, v -> { catInstalledOnly = !catInstalledOnly; refresh(); }));
+        for (String c : ModCatalog.CATEGORIES) {
+            boolean any = false;
+            for (ModCatalog.Mod m : catalog.mods) if (c.equalsIgnoreCase(m.category)) { any = true; break; }
+            if (any) chips.addView(chip(c, c.equals(catCategory), v -> { catCategory = c.equals(catCategory) ? null : c; refresh(); }));
+        }
+        HorizontalScrollView hs = new HorizontalScrollView(this);
+        hs.addView(chips);
+        col.addView(hs);
+
+        if (total == 0) {
+            col.addView(text("\nNo catalog loaded yet. Check the internet connection and press Refresh catalogs.", 16, DIM));
+            for (ModCatalog.Subscription sc : catalog.subs) if (sc.error != null) col.addView(text(sc.name + ": " + sc.error, 13, 0xFFFF8080));
+        }
+        java.util.List<ModCatalog.Mod> found = catalog.search(catQuery, catCategory, catInstalledOnly);
+        if (total > 0 && found.isEmpty()) col.addView(text("\nNothing matches.", 16, DIM));
+        for (ModCatalog.Mod m : found) col.addView(catalogRow(m));
+        return scroll(col);
+    }
+
+    private View catalogRow(ModCatalog.Mod m) {
+        LinearLayout r = row();
+        r.setPadding(0, dp(8), 0, dp(8));
+        LinearLayout info = column();
+        TextView name = text(m.name, 18, TEXT);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        info.addView(name);
+        StringBuilder b = new StringBuilder();
+        if (!m.author.isEmpty()) b.append("by ").append(m.author).append("  ·  ");
+        if (!m.category.isEmpty()) b.append(m.category).append("  ·  ");
+        if (!m.versionText.isEmpty()) b.append("v").append(m.versionText);
+        if (!m.sizeText().isEmpty()) b.append("  ·  ").append(m.sizeText());
+        info.addView(text(b.toString(), 13, DIM));
+        r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        r.addView(small("Details", v -> modPage(m)));
+        ModCatalog.Installed in = catalog.installedOf(m);
+        if (in == null) r.addView(small("Install", v -> installMods(java.util.Collections.singletonList(m), false)));
+        else if (catalog.updateAvailable(m)) r.addView(small("Update to " + m.versionText, v -> installMods(java.util.Collections.singletonList(m), true)));
+        else r.addView(text("Installed  ", 15, ACCENT));
+        r.setFocusable(false);
+        return r;
+    }
+
+    private Button chip(String label, boolean on, View.OnClickListener l) {
+        Button b = small(label, l);
+        if (on) {
+            GradientDrawable d = new GradientDrawable();
+            d.setColor(ACCENT);
+            d.setCornerRadius(dp(10));
+            b.setBackground(d);
+        }
+        return b;
+    }
+
+    /** One mod's page: preview, description, notes, links, install / update / remove. */
+    private void modPage(ModCatalog.Mod m) {
+        LinearLayout col = column();
+        col.setPadding(dp(24), dp(8), dp(24), dp(8));
+        ImageView img = new ImageView(this);
+        img.setAdjustViewBounds(true);
+        img.setMaxHeight(dp(260));
+        col.addView(img);
+        loadPreview(m, img);
+        StringBuilder head = new StringBuilder();
+        if (!m.author.isEmpty()) head.append("by ").append(m.author).append('\n');
+        head.append(m.category.isEmpty() ? "" : m.category + "  ·  ").append("version ").append(m.versionText.isEmpty() ? "?" : m.versionText);
+        if (!m.releaseDate.isEmpty()) head.append("  ·  ").append(m.releaseDate.length() > 10 ? m.releaseDate.substring(0, 10) : m.releaseDate);
+        if (!m.sizeText().isEmpty()) head.append("  ·  ").append(m.sizeText());
+        head.append("\nfrom ").append(m.catalog);
+        col.addView(text(head.toString(), 14, DIM));
+        ModCatalog.Installed in = catalog.installedOf(m);
+        if (in != null) col.addView(text("Installed: version " + in.versionText + " (" + in.file + ")", 14, ACCENT));
+        col.addView(space(8));
+        if (!m.description.isEmpty()) col.addView(text(m.description, 15, TEXT));
+        if (!m.releaseNotes.isEmpty()) { col.addView(space(8)); col.addView(text("Release notes", 16, TEXT)); col.addView(text(m.releaseNotes, 14, DIM)); }
+        if (!m.tags.isEmpty()) col.addView(text("\nTags: " + String.join(", ", m.tags), 13, DIM));
+        for (String[] req : m.requirements) {
+            ModCatalog.Mod rm = catalog.byId(req[0]);
+            String what = rm != null ? rm.name : (req[1].isEmpty() ? req[0] : req[1]);
+            boolean have = rm != null && catalog.installedOf(rm) != null;
+            col.addView(text("Needs: " + what + (have ? " (installed)" : rm != null ? " (installed with it)" : " (not in your catalogs)"), 14, have ? DIM : 0xFFFFC060));
+        }
+        boolean browserOnly = !m.links.isEmpty();
+        for (String l : m.links) if (ModDownloader.resolve(l) != null) browserOnly = false;
+        if (browserOnly) col.addView(text("\nThis mod is downloaded from a web page: open it, download, then add the file under Mods.", 14, 0xFFFFC060));
+        AlertDialog.Builder d = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(m.name)
+                .setView(scroll(col))
+                .setNegativeButton("Close", null);
+        if (in == null && !browserOnly) d.setPositiveButton("Install", (x, w) -> installMods(java.util.Collections.singletonList(m), false));
+        else if (in != null && catalog.updateAvailable(m)) d.setPositiveButton("Update to " + m.versionText, (x, w) -> installMods(java.util.Collections.singletonList(m), true));
+        else if (in != null) d.setPositiveButton("Remove", (x, w) -> uninstall(m));
+        String web = !m.infoLink.isEmpty() ? m.infoLink : null;
+        if (browserOnly) for (String l : m.links) { String u = ModDownloader.browserUrl(l); if (u != null) web = u; }
+        if (web != null) {
+            final String url = web;
+            d.setNeutralButton(browserOnly ? "Open download page" : "Mod's web page", (x, w) -> {
+                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); } catch (Exception e) { toastDialog("No browser to open " + url); }
+            });
+        }
+        d.show();
+    }
+
+    private void loadPreview(ModCatalog.Mod m, ImageView img) {
+        if (m.preview.isEmpty()) { img.setVisibility(View.GONE); return; }
+        android.graphics.Bitmap cached = previews.get(m.preview);
+        if (cached != null) { img.setImageBitmap(cached); return; }
+        new Thread(() -> {
+            try {
+                File dir = new File(catalog.dir, "previews");
+                dir.mkdirs();
+                File f = new File(dir, Integer.toHexString(m.preview.hashCode()) + ".img");
+                if (!f.isFile()) {
+                    byte[] b = ModDownloader.get(ModDownloader.resolve(m.preview) != null ? ModDownloader.resolve(m.preview) : m.preview);
+                    try (java.io.FileOutputStream o = new java.io.FileOutputStream(f)) { o.write(b); }
+                }
+                android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+                o.inSampleSize = 1;
+                android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                android.graphics.BitmapFactory.decodeFile(f.getPath(), bounds);
+                while (bounds.outWidth / o.inSampleSize > 1600) o.inSampleSize *= 2;
+                android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeFile(f.getPath(), o);
+                if (bm == null) return;
+                runOnUiThread(() -> { previews.put(m.preview, bm); img.setImageBitmap(bm); });
+            } catch (Exception e) {
+                runOnUiThread(() -> img.setVisibility(View.GONE));
+            }
+        }).start();
+    }
+
+    /** Install (or update) mods from the catalog, with the catalog mods they need first. */
+    private void installMods(java.util.List<ModCatalog.Mod> wanted, boolean update) {
+        if (busy) return;
+        java.util.List<ModCatalog.Mod> order = new java.util.ArrayList<>();
+        for (ModCatalog.Mod m : wanted) addWithRequirements(m, order, 0);
+        background(() -> {
+            StringBuilder done = new StringBuilder(), failed = new StringBuilder();
+            int k = 0;
+            for (ModCatalog.Mod m : order) {
+                k++;
+                ModCatalog.Installed in = catalog.installedOf(m);
+                if (in != null && !catalog.updateAvailable(m)) continue;
+                // an update keeps the library name, so the load order and options stay
+                String base = in != null ? in.file.replaceAll("(?i)\\.iro$", "") : m.name;
+                final String label = (order.size() > 1 ? "(" + k + "/" + order.size() + ") " : "") + m.name;
+                ModDownloader.Result r = downloader.install(m.id, base, m.links.toArray(new String[0]), m.sizeKb * 1024,
+                        (what, got, total) -> progress(what + " " + label + (got > 0 ? ": " + ModDownloader.human(got)
+                                + (total > 0 ? " of " + ModDownloader.human(total) : "") : "")));
+                if (r.error != null) { failed.append(m.name).append(": ").append(r.error).append('\n'); continue; }
+                catalog.markInstalled(m, r.file);
+                if (in == null) enableNew(r.file);
+                done.append(m.name).append(in != null ? " updated to " + m.versionText : " installed").append('\n');
+            }
+            String msg = (done.length() > 0 ? done.toString() : "") + (failed.length() > 0 ? "\nNot installed:\n" + failed : "");
+            return msg.trim().isEmpty() ? null : msg.trim();
+        });
+    }
+
+    private void addWithRequirements(ModCatalog.Mod m, java.util.List<ModCatalog.Mod> order, int depth) {
+        if (order.contains(m) || depth > 8) return;
+        for (String[] req : m.requirements) {
+            ModCatalog.Mod rm = catalog.byId(req[0]);
+            if (rm != null && catalog.installedOf(rm) == null) addWithRequirements(rm, order, depth + 1);
+        }
+        order.add(m);
+    }
+
+    /** A newly installed mod is switched on (the library lists new files last, off). */
+    private void enableNew(String file) {
+        library.load();
+        for (ModLibrary.Mod lm : library.mods) if (lm.file.equalsIgnoreCase(file)) lm.enabled = true;
+        try { library.save(); } catch (Exception ignored) { }
+    }
+
+    private void uninstall(ModCatalog.Mod m) {
+        ModCatalog.Installed in = catalog.installedOf(m);
+        if (in == null) return;
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setMessage("Remove " + m.name + "? Its file is deleted from the device.")
+                .setPositiveButton("Remove", (x, w) -> {
+                    ModDownloader.deleteTree(new File(library.dir, in.file));
+                    catalog.forget(m.id);
+                    library.load();
+                    saveProfile();
+                    refresh();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** Settings: the catalogs subscribed to. */
+    private View catalogSettings() {
+        LinearLayout col = column();
+        col.addView(heading("Mod catalogs"));
+        col.addView(text("Catalogs list mods to install and update, as in 7th Heaven. Checked once a day when the launcher opens.", 14, DIM));
+        java.text.DateFormat df = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT);
+        for (ModCatalog.Subscription sc : catalog.subs) {
+            LinearLayout r = row();
+            LinearLayout info = column();
+            info.addView(text(sc.name, 16, TEXT));
+            String st = sc.count + " mods" + (sc.lastCheck > 0 ? ", checked " + df.format(new java.util.Date(sc.lastCheck)) : ", not checked yet");
+            info.addView(text(st + (sc.error != null ? "\n⚠ " + sc.error : ""), 13, sc.error != null ? 0xFFFFC060 : DIM));
+            r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            if (!catalog.isDefault(sc)) r.addView(small("Remove", v -> { catalog.removeSubscription(sc); catalog.rebuild(); refresh(); }));
+            col.addView(r);
+        }
+        col.addView(button("Add a catalog…", v -> {
+            LinearLayout f = column();
+            f.setPadding(dp(24), dp(8), dp(24), dp(8));
+            EditText name = new EditText(this);
+            name.setHint("Name (optional)");
+            EditText url = new EditText(this);
+            url.setHint("iros://Url/https$... or https://...catalog.xml");
+            f.addView(name);
+            f.addView(url);
+            new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle("Add a mod catalog")
+                    .setView(f)
+                    .setPositiveButton("Add", (x, w) -> {
+                        String err = catalog.addSubscription(name.getText().toString(), url.getText().toString());
+                        if (err != null) { toastDialog(err); return; }
+                        background(() -> { progress("Checking the new catalog"); String e = catalog.refresh(false); return e; });
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        }));
+        return col;
     }
 
     private View settingsPage() {
@@ -272,6 +571,8 @@ public class LauncherActivity extends Activity {
         col.addView(space(16));
         col.addView(text("In game: press Start during a movie to skip it. Select+L1 / Select+R1 save and load the game's whole state, "
                 + "Select+Left / Right change the slot.", 14, DIM));
+        col.addView(space(16));
+        col.addView(catalogSettings());
         return scroll(col);
     }
 

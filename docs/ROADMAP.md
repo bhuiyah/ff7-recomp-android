@@ -80,6 +80,11 @@ Order:
    - dependencies/compatibility from the catalog entry (required mods, conflicts), installed
      together; uninstall frees the space.
    - the same library holds file-picker imports (no catalog source, no updates).
+   Status 2026-11-08: done in the launcher ("Get mods"): the Qhimm and Sega catalogs (113 mods),
+   search, categories, mod pages with previews, install / update / update all / remove,
+   required mods first, catalog subscriptions in Settings. Downloads: iros://Url (http/https),
+   iros://GDrive; .iro, .zip and .7z. Not yet: RAR, Mega shared folders (no live mod uses them),
+   .irop patches (full download instead), Wi-Fi-only option.
 
 ## M5b: 120 FPS battles (opt-in: FF7_BATTLE120=1)
 Status 2026-11-08: mode 4 runs field/world at 120 and battles at 60 (x4) by default. With

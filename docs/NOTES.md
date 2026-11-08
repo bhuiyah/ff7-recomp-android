@@ -435,3 +435,25 @@
   from the game heap and kept in host globals, which a load does not restore. Hook
   "ffnx-deferred" saves the two pointers with the state and restores them (states without the
   record get new arrays).
+
+## 2026-11-08: mod catalogs in the launcher (M4 step 6, "Get mods")
+- Format from 7th Heaven's source (tsunamods-codes/7th-Heaven): default subscriptions
+  iros://Url/https$github.com/tsunamods-codes/7th-Heaven-Catalogs/releases/download/canary/
+  {qhimm,sega}.xml (104 + 9 mods); Catalog > Mods > Mod (ID GUID, Name, Author, Category,
+  Description, Link = info page, Tags, Requirement/ModID, MetaVersion, LatestVersion with
+  repeated Link = download alternatives, Version decimal, ReleaseDate, ReleaseNotes,
+  PreviewImage, DownloadSize in KB). Catalogs refresh after a day; merged by ID (higher version).
+  Updates: catalog Version > installed Version.
+- Links: iros://Url/<scheme>$<rest> (raw spaces and brackets in paths), iros://GDrive/<id>
+  (docs.google.com/uc?id=..&export=download, then the warning page's form or confirm/uuid
+  fields; "Quota exceeded" page = error), iros://ExternalUrl (browser). Live: 77 Url, 41 GDrive.
+  Files: 41 .7z, 34 .iro, 1 .zip among the Url links; Drive files sniffed.
+- Launcher: ModCatalog.java (subscriptions, cache files/catalogs, parse, merge, search, the
+  installed registry files/mods/catalog_installed.json), ModDownloader.java (resumable HTTP
+  with its own redirects, free-space check, IRO/zip/7z by signature; Commons Compress + XZ
+  for 7z), LauncherActivity "Get mods" page and mod pages, Mods page Update / Update all,
+  Settings > Mod catalogs. A new install is enabled; an update keeps the library name (order
+  and options stay). INTERNET permission added.
+- Checked on the Thor: catalogs fetched (113 mods); Jessie Mod (.7z, mod.xml + folders) and
+  Curse Ring Challenge (Google Drive -> .iro) installed, enabled, loaded by the game
+  ("2 mod(s), 61 game paths replaced"), then removed from their pages.
