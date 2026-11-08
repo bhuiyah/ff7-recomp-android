@@ -163,6 +163,19 @@ EDITS = [
      '#define driver_free(x) guest_free(x)\n#define driver_realloc(x, y) guest_realloc(x, y)\n'
      '#elif !defined(HEAP_DEBUG)\n#define driver_malloc(x) malloc(x)\n#define driver_calloc(x, y) calloc(x, y)\n'
      '#define driver_free(x) free(x)\n#define driver_realloc(x, y) realloc(x, y)\n'),
+    # Pointer cells in game memory read through T** (8 bytes here): 4-byte guest cells.
+    ('sfx.cpp', '\tBYTE** sfx_tmp_volume = (BYTE**)(ff7_externals.config_menu_sub + ff7_externals.call_menu_sound_slider_loop_sfx_down + 0xA);',
+     '\tgptr<BYTE>* sfx_tmp_volume = (gptr<BYTE>*)(ff7_externals.config_menu_sub + ff7_externals.call_menu_sound_slider_loop_sfx_down + 0xA);   // FF7Recomp: guest cell'),
+    ('sfx.cpp', '\tuint32_t** flags = (uint32_t**)(ff7_externals.battle_clear_sound_flags + 5);',
+     '\tgptr<uint32_t>* flags = (gptr<uint32_t>*)(ff7_externals.battle_clear_sound_flags + 5);   // FF7Recomp: guest cell'),
+    ('sfx.cpp', '\tmemset((void*)*flags, 0, 5 * sizeof(uint32_t));',
+     '\tmemset((uint32_t*)*flags, 0, 5 * sizeof(uint32_t));'),
+    ('ff7/universal_buttons.cpp', '  byte*& buffer = *(byte**)((byte*)caller_frame + 0x14);\n  int button;\n  int byte_count;\n'
+                                  '  if (!universal_buttons_parse_field_prompt(buffer, &button, &byte_count))',
+     '  uint32_t& buffer = *(uint32_t*)((byte*)caller_frame + 0x14);   // FF7Recomp: guest pointer cell\n  int button;\n  int byte_count;\n'
+     '  if (!universal_buttons_parse_field_prompt((const byte*)(uintptr_t)buffer, &button, &byte_count))'),
+    ('ff7/japanese_text.cpp', '(*(ff7_graphics_object**)ff7_externals.menu_objects, game_object);',
+     '((ff7_graphics_object*)*(gptr<ff7_graphics_object>*)ff7_externals.menu_objects, game_object);   // FF7Recomp: guest cell'),
     # Facial textures draw a recoloured copy of a game primitive: its vertices go behind the
     # copy's gptr member, so they live in a guest scratch buffer.
     ('gl/gl.cpp', '\t\tfacial.vertices = vertices.data();',

@@ -33,6 +33,12 @@ extern const win32hle_shim ff7_msacm[];
 extern const win32hle_shim ff7_dinput[];
 int ff7_virtual_init(void);
 
+/* The guest working directory, relative to the game root ("" = the root). Set from a guest
+ * path (mapped, must be an existing directory); 0 on success. Relative guest paths given
+ * to hle_host_path resolve against it, as on Windows. */
+const char *ff7_guest_cwd(void);
+int ff7_set_guest_cwd(const char *guest_path);
+
 /* Give the machine lock to another guest thread and take it back (a blocking wait). */
 void hle_yield_machine(void);
 

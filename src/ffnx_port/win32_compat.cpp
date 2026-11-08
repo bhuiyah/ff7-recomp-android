@@ -288,6 +288,7 @@ int WideCharToMultiByte(UINT, DWORD, LPCWSTR w, int wn, LPSTR s, int n, LPCSTR, 
 
 // ---- shlwapi / shlobj
 BOOL PathAppendA(LPSTR path, LPCSTR more) {
+    if (!path || !more) return FALSE;            // as Windows: FFNx's redirect passes NULL
     size_t n = strlen(path);
     if (n && path[n - 1] != '/' && path[n - 1] != '\\') strcat(path, "/");
     strcat(path, more);

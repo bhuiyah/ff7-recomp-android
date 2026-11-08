@@ -8,6 +8,7 @@
 #include <dlfcn.h>
 #include <signal.h>
 #include <ucontext.h>
+#include <unwind.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -29,6 +30,16 @@ static void host_where(const char *what, uintptr_t a) {
     }
 }
 
+/* The native call stack at the fault (through the signal frame). */
+static int g_bt_n;
+static _Unwind_Reason_Code bt_frame(struct _Unwind_Context *ctx, void *arg) {
+    (void)arg;
+    uintptr_t pc = _Unwind_GetIP(ctx);
+    if (!pc || g_bt_n++ >= 24) return _URC_END_OF_STACK;
+    host_where("  at", pc);
+    return _URC_NO_REASON;
+}
+
 static void on_fault(int sig, siginfo_t *si, void *uc) {
 #if defined(__aarch64__)
     ucontext_t *u = (ucontext_t *)uc;
@@ -37,6 +48,9 @@ static void on_fault(int sig, siginfo_t *si, void *uc) {
 #else
     (void)uc;
 #endif
+    fprintf(stderr, "  native backtrace:\n");
+    g_bt_n = 0;
+    _Unwind_Backtrace(bt_frame, NULL);
     fprintf(stderr, "[ff7] FAULT: signal %d (%s) at host address %p",
             sig, strsignal(sig), si->si_addr);
     uintptr_t a = (uintptr_t)si->si_addr;

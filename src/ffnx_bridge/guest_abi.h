@@ -188,14 +188,27 @@ inline uint32_t guest_string(const char *s) {
 // copied back afterwards (not for const pointees). Only class types: their size is known.
 template <typename T, typename = void> struct is_complete : std::false_type {};
 template <typename T> struct is_complete<T, std::void_t<decltype(sizeof(T))>> : std::true_type {};
-struct bounce_entry { void *host; void *guest; size_t n; bool back; };
+struct bounce_entry { void *host; void *guest; size_t n; bool back; bool str; };
 inline std::vector<bounce_entry> &bounces() { thread_local std::vector<bounce_entry> v; return v; }
+// A host char* (a string literal, or a local name buffer the game function fills in, as
+// FFNx's swap_extension("D", filename, hrc_filename)): a guest buffer with the string and
+// room to grow; afterwards the guest string is copied back only if the game changed it,
+// so literals in read-only memory are never written.
+constexpr size_t k_str_bounce = 1024;
+inline uint32_t bounce_str(char *p) {
+    size_t n = strnlen(p, k_str_bounce - 1);
+    char *g = static_cast<char *>(guest_calloc(1, k_str_bounce));
+    if (!g) fatal("bounce: guest heap exhausted", k_str_bounce);
+    std::memcpy(g, p, n);
+    bounces().push_back({ (void *)p, g, n, true, true });
+    return va_of(g);
+}
 template <typename T> inline uint32_t bounce_in(T *p) {
     using U = std::remove_cv_t<T>;
     void *g = guest_malloc(sizeof(U));
     if (!g) fatal("bounce: guest heap exhausted", sizeof(U));
     std::memcpy(g, (const void *)p, sizeof(U));
-    bounces().push_back({ (void *)p, g, sizeof(U), !std::is_const_v<T> });
+    bounces().push_back({ (void *)p, g, sizeof(U), !std::is_const_v<T>, false });
     return va_of(g);
 }
 struct bounce_scope {
@@ -204,7 +217,13 @@ struct bounce_scope {
         auto &v = bounces();
         while (v.size() > mark) {
             bounce_entry b = v.back(); v.pop_back();
-            if (b.back) std::memcpy(b.host, b.guest, b.n);
+            if (b.str) {
+                const char *g = static_cast<const char *>(b.guest);
+                size_t n = strnlen(g, k_str_bounce - 1);
+                if (n != b.n || std::memcmp(b.host, g, n) != 0) std::memcpy(b.host, g, n + 1);
+            } else if (b.back) {
+                std::memcpy(b.host, b.guest, b.n);
+            }
             guest_free(b.guest);
         }
     }
@@ -226,8 +245,16 @@ template <typename A> inline void put_arg(uint32_t *&w, A a) {
     }
     else if constexpr (std::is_pointer_v<A>) {
         using T = std::remove_pointer_t<A>;
-        if constexpr (std::is_class_v<T> && is_complete<T>::value && !is_host_handle<std::remove_cv_t<T>>::value) {
+        // Structs, and scalars that are not characters (out-parameters such as &size; char
+        // pointers are strings or byte buffers, handled below or left to fail loudly).
+        using TU = std::remove_cv_t<T>;
+        constexpr bool scalar_out = std::is_arithmetic_v<TU> && !std::is_same_v<TU, char> &&
+                                    !std::is_same_v<TU, unsigned char> && !std::is_same_v<TU, signed char>;
+        if constexpr ((std::is_class_v<T> && is_complete<T>::value && !is_host_handle<TU>::value) || scalar_out) {
             if (reinterpret_cast<uintptr_t>(a) > 0xFFFFFFFFu) { *w++ = bounce_in(a); return; }
+        }
+        if constexpr (std::is_same_v<A, char *>) {
+            if (reinterpret_cast<uintptr_t>(a) > 0xFFFFFFFFu) { *w++ = bounce_str(a); return; }
         }
         *w++ = to_va(a);
     }

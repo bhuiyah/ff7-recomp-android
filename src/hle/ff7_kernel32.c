@@ -133,13 +133,21 @@ static void k_GetModuleFileNameA(void) {           /* (hModule, buf, size) */
     int n = snprintf(buf, size, "%s\\ff7_en.exe", FF7_GUEST_ROOT);
     RET(n < (int)size ? (uint32_t)n : size, 3);
 }
+/* The guest's working directory (ff7_paths.c keeps it, relative to the game root): FF7
+ * changes into data\battle and friends and opens files there by bare name. */
 static void k_GetCurrentDirectoryA(void) {         /* (size, buf) */
     uint32_t size = A32(0);
     char *buf = ASTR(1);
-    uint32_t need = (uint32_t)strlen(FF7_GUEST_ROOT);
-    if (!buf || size <= need) RET(need + 1, 2);
-    memcpy(buf, FF7_GUEST_ROOT, need + 1);
-    RET(need, 2);
+    char cwd[512];
+    const char *rel = ff7_guest_cwd();
+    int n = snprintf(cwd, sizeof cwd, "%s%s%s", FF7_GUEST_ROOT, rel[0] ? "\\" : "", rel);
+    for (char *p = cwd; *p; p++) if (*p == '/') *p = '\\';
+    if (!buf || size <= (uint32_t)n) RET((uint32_t)n + 1, 2);
+    memcpy(buf, cwd, (size_t)n + 1);
+    RET((uint32_t)n, 2);
+}
+static void k_SetCurrentDirectoryA(void) {         /* (path) */
+    RET(ff7_set_guest_cwd(ASTR(0)) == 0 ? 1u : 0u, 1);
 }
 /* GetProcAddress(hModule, name): every module (LoadLibraryA hands out one fake HMODULE)
  * resolves against the shim registry, so a function the game looks up by name -- the
@@ -484,6 +492,7 @@ const win32hle_shim ff7_kernel32[] = {
     { "GlobalMemoryStatus", k_GlobalMemoryStatus },
     { "GetModuleFileNameA", k_GetModuleFileNameA },
     { "GetCurrentDirectoryA", k_GetCurrentDirectoryA },
+    { "SetCurrentDirectoryA", k_SetCurrentDirectoryA },
     { "GetProcAddress", k_GetProcAddress },
     { "SetErrorMode", k_SetErrorMode },
     { "IsBadReadPtr", k_IsBadReadPtr },
