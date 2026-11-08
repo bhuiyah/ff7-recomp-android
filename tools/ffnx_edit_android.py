@@ -315,22 +315,73 @@ EDITS = [
      '            patch_multiply_code<byte>(ff7_externals.battle_sub_429AC0 + 0x152, battle_frame_multiplier);\n'
      '            patch_multiply_code<byte>(ff7_externals.battle_sub_429D8A + 0x1D8, battle_frame_multiplier);\n'
      '        }\n'),
-    # 120 FPS battles: the battle models' keyframe counter (battle_update_3d_model_data,
-    # `add reg, 1` at +0x13C / +0x314) advances once per frame -- FFNx doubles it at 30 FPS and
-    # leaves it at 60, so at x8 every model animated twice as fast (idle stances looked like
-    # shaking). It advances +1 / +0 on alternate frames.
+    # Battle animations at raised frame rates: FFNx's battle code takes the animation files to
+    # have 4x the original frames (8x at 120 FPS battles) -- the 60 FPS animation mods -- and
+    # advances each model's keyframe counter (battle_update_3d_model_data, `add reg, 1`) 60
+    # times a second (+2 at 30 FPS, +1 at 60) or 120 (x8). With the game's own files every
+    # battle model moved 4x fast. Each animation gets its in-between frames the first time it
+    # plays (ffnx_smooth_animation, ff7/loaders.cpp; marked so it is done once).
+    # The weapons (Cloud's sword, the soldiers' batons) are models of their own, drawn with the
+    # body's frame counter from their own animations: those get their in-between frames as they
+    # are drawn (the battle model draw calls of draw_3d_model, 0x5E0D3C / 0x5E0DDE), or a weapon
+    # vanishes whenever the counter passes its original length.
+    ('ff7/battle/animations.cpp',
+     '    // FF7Recomp: in-between frames for the animation a battle model is about to play\n',
+     '    // FF7Recomp: battle models and their weapons drawn from animations with in-between frames\n'
+     '    static void battle_draw_3d_model_smooth(uint32_t frame, uint32_t anim, uint32_t pos, uint32_t hrc, uint32_t game)\n'
+     '    {\n'
+     '        const int factor = battle_frame_multiplier == 2 ? 4 : battle_frame_multiplier;\n'
+     '        if (anim && factor > 1) ffnx_smooth_animation((struct anim_header *)(uintptr_t)anim, factor);\n'
+     '        (guest::gfn<void(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)>::from_va(ff7_externals.draw_3d_model))(frame, anim, pos, hrc, game);\n'
+     '    }\n\n'
+     '    // FF7Recomp: in-between frames for the animation a battle model is about to play\n'),
+    ('ff7/battle/animations.cpp',
+     '                replace_call_function(site, battle_update_3d_model_data_smooth);\n',
+     '                replace_call_function(site, battle_update_3d_model_data_smooth);\n'
+     '        for (uint32_t site : {0x5E0D8Cu, 0x5E0DD2u, 0x5E0E57u, 0x5E0EC6u})   // FF7Recomp: battle model and weapon draws\n'
+     '            if (*(const byte *)(uintptr_t)site == 0xE8 && get_relative_call(site, 0) == ff7_externals.draw_3d_model)\n'
+     '                replace_call_function(site, battle_draw_3d_model_smooth);\n'),
+    ('ff7/battle/animations.cpp', '#include "animations.h"\n',
+     '#include "../defs.h"   // FF7Recomp: ffnx_smooth_animation\n#include "animations.h"\n'),
+    ('ff7/battle/animations.cpp', '    void animations_hook_init()\n',
+     '    // FF7Recomp: in-between frames for the animation a battle model is about to play\n'
+     '    static void battle_update_3d_model_data_smooth(int actor, int arg2, int arg3)\n'
+     '    {\n'
+     '        const int factor = battle_frame_multiplier == 2 ? 4 : battle_frame_multiplier;\n'
+     '        const short id = (short)actor;\n'
+     '        if (factor > 1 && id >= 0 && id < 10)\n'
+     '        {\n'
+     '            const uint32_t state = 0xBE1178u + (uint32_t)id * 0x1AECu;   // 1.02 US battle_model_state\n'
+     '            const uint32_t model = *(const uint32_t *)(uintptr_t)(state + 0xBA8);\n'
+     '            const short idx = *(const short *)(uintptr_t)(state + 0xE);   // runningAnimIdx\n'
+     '            uint32_t anim = 0;\n'
+     '            if (model && idx >= 0)\n'
+     '            {\n'
+     '                if (id < 3 && idx >= 0x2C && idx < 0x34)   // the weapon animations (0x424B1A)\n'
+     '                {\n'
+     '                    const uint32_t arr = *(const uint32_t *)(uintptr_t)(model + 0x14);\n'
+     '                    if (arr) anim = *(const uint32_t *)(uintptr_t)(arr + 4u * (uint32_t)(idx - 0x2C));\n'
+     '                }\n'
+     '                else if (idx < *(const int *)(uintptr_t)(model + 8))\n'
+     '                {\n'
+     '                    const uint32_t arr = *(const uint32_t *)(uintptr_t)(model + 0xC);\n'
+     '                    if (arr) anim = *(const uint32_t *)(uintptr_t)(arr + 4u * (uint32_t)idx);\n'
+     '                }\n'
+     '            }\n'
+     '            if (anim) ffnx_smooth_animation((struct anim_header *)(uintptr_t)anim, factor);\n'
+     '        }\n'
+     '        (guest::gfn<void(int, int, int)>::from_va(ff7_externals.battle_update_3d_model_data))(actor, arg2, arg3);\n'
+     '    }\n\n'
+     '    void animations_hook_init()\n'),
     ('ff7/battle/animations.cpp',
      '            patch_multiply_code<byte>(ff7_externals.battle_update_3d_model_data + 0x316, battle_frame_multiplier);\n'
      '        }\n',
      '            patch_multiply_code<byte>(ff7_externals.battle_update_3d_model_data + 0x316, battle_frame_multiplier);\n'
      '        }\n'
-     '        else if (battle_frame_multiplier >= 8)\n'
-     '        {\n'
-     '            // FF7Recomp: model keyframes at the 60 FPS rate: +1 and +0 on alternate frames\n'
-     '            static const byte one = 1, zero = 0;\n'
-     '            ffnx_recomp::step_alternate(ff7_externals.battle_update_3d_model_data + 0x13E, &one, &zero, 1);\n'
-     '            ffnx_recomp::step_alternate(ff7_externals.battle_update_3d_model_data + 0x316, &one, &zero, 1);\n'
-     '        }\n'),
+     '        // FF7Recomp: every call of battle_update_3d_model_data (1.02 US; each site checked)\n'
+     '        for (uint32_t site : {0x4201C7u, 0x4245FEu, 0x4246DCu, 0x4247AAu, 0x4247E6u, 0x424800u, 0x424815u, 0x42483Au, 0x42487Du})\n'
+     '            if (*(const byte *)(uintptr_t)site == 0xE8 && get_relative_call(site, 0) == ff7_externals.battle_update_3d_model_data)\n'
+     '                replace_call_function(site, battle_update_3d_model_data_smooth);\n'),
     # ... and the ATB: the battle menu step runs once per frame at x8 as at 60 (fewer passes
     # leave frames without the battle windows, which its last pass queues), so every gauge filled
     # twice as fast. The ATB tick (1.02 US 0x4322AE, `add ecx, [ebp-0xC]`: gauge += speed) adds
@@ -355,10 +406,17 @@ EDITS = [
      '\tfloat d = fmodf(b - a + 540.0f, 360.0f) - 180.0f;\n'
      '\treturn a + d * t;\n'
      '}\n\n'
-     'static void ffnx_smooth_animation(struct anim_header *a, int m)\n'
+     '// Every animation is done once: rotation_order[3] (padding) marks it.\n'
+     'void ffnx_smooth_animation(struct anim_header *a, int m)\n'
      '{\n'
+     '\tif (!a || (byte)a->rotation_order[3] == 0xA5) return;\n'
      '\tconst uint32_t n = a->num_frames, nb = a->num_bones;\n'
-     '\tif (m < 2 || n < 2 || a->use_matrix_array) return;\n'
+     '\tif (m < 2 || n < 2 || n > 4096 || nb > 128 || a->use_matrix_array || !a->frame_data || !a->anim_frames) return;\n'
+     '\tconst uint32_t per0 = sizeof(struct anim_frame_header) + nb * sizeof(vector3<float>);\n'
+     '\tstruct anim_frame *f0 = (struct anim_frame *)(uintptr_t)(uint32_t)a->anim_frames;\n'
+     '\t// only the layout load_animation builds: one block of [header, bones] per frame\n'
+     '\tif ((uint32_t)f0[0].header != (uint32_t)a->frame_data || (uint32_t)f0[1].header != (uint32_t)a->frame_data + per0 ||\n'
+     '\t    (uint32_t)f0[0].data != (uint32_t)a->frame_data + sizeof(struct anim_frame_header)) return;\n'
      '\tconst uint32_t total = n * m;\n'
      '\tconst uint32_t per = sizeof(struct anim_frame_header) + nb * sizeof(vector3<float>);\n'
      '\tbyte *data = (byte *)external_calloc(per, total);\n'
@@ -397,6 +455,7 @@ EDITS = [
      '\ta->frame_data = data;\n'
      '\ta->anim_frames = frames;\n'
      '\ta->num_frames = total;\n'
+     '\ta->rotation_order[3] = (char)0xA5;\n'
      '}\n\n'
      'struct anim_header *field_load_animation_smooth(struct file_context *file_context, char *filename)\n'
      '{\n'
@@ -408,7 +467,8 @@ EDITS = [
      '// load battle HRC file (does not save modpath name)\n'),
     ('ff7/defs.h', 'struct anim_header *load_animation(struct file_context *file_context, char *filename);\n',
      'struct anim_header *load_animation(struct file_context *file_context, char *filename);\n'
-     'struct anim_header *field_load_animation_smooth(struct file_context *file_context, char *filename);   // FF7Recomp\n'),
+     'struct anim_header *field_load_animation_smooth(struct file_context *file_context, char *filename);   // FF7Recomp\n'
+     'void ffnx_smooth_animation(struct anim_header *a, int m);   // FF7Recomp: in-between frames, m per original frame\n'),
     ('ff7_opengl.cpp', '\treplace_function(ff7_externals.load_animation, load_animation);\n',
      '\treplace_function(ff7_externals.load_animation, load_animation);\n'
      '\treplace_call_function(ff7_externals.field_load_animation + 0x16D, field_load_animation_smooth);   // FF7Recomp: field animations at 60 / 120 FPS\n'),

@@ -303,3 +303,24 @@
 - Not done: the world map (its models use other loaders; FFNx scales its frame intervals
   itself; no save that reaches it yet). A 60 FPS animation mod installed on top would be
   doubled again.
+
+## 2026-11-08: battle animations at raised frame rates; 2x speed
+- Battle models moved 4x fast at 60 / 120 FPS. The original 15 FPS battle advances a model's
+  keyframe counter (battle_update_3d_model_data, model state +0xB9C) about 15 times a second;
+  FFNx makes that 60 (+2 at 30 FPS, +1 at 60) or 120 at x8. Like the field, it assumes
+  animation files with 4x (8x) the frames.
+- Fix: each battle animation gets in-between frames the first time it is updated or drawn.
+  The hooks are the nine calls of battle_update_3d_model_data and the four battle-model calls of
+  draw_3d_model (0x5E0D3C / 0x5E0DDE), so weapon animations are covered too: they live in the
+  same model's array at the body's index + 0x34. The factor is 4 at x2 / x4 and 8 at x8, and the
+  x8 +1/+0 keyframe alternation is gone. ffnx_smooth_animation is shared with the field, marks
+  what it has done (anim_header.rotation_order[3] = 0xA5), and only takes load_animation's
+  layout. Weapon animations have no bones, only a root transform per frame.
+- Measured (FF7_WATCH on Cloud's counter): original 20 frames at 13 / s; 60 FPS 80 frames at
+  57 / s; x8 160 frames at 113 / s. That is the original pace in every mode. A recording at x8
+  shows the sword and the soldiers' guns in every frame.
+- 2x speed (launcher Settings, "2x speed (turbo)"): FFNx's speedhack starts at 2x
+  (speedhack_min = 2.0). With 60 or 120 FPS chosen, the game uses its 60 FPS timing
+  (ff7_fps_limiter 3), which at 2x is shown at 120 FPS. In game, L3 then L2/R2 toggles it
+  (FFNx's shortcut). Checked: 118 FPS shown, and opening-scene animations advance at twice the
+  60 FPS rate.

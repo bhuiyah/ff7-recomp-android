@@ -213,12 +213,16 @@ final class GameInstall {
      * the launcher's choices, then each enabled mod's FFNxConfig (later mods first, so the
      * highest-priority mod's values win, as files do).
      */
-    void writeFfnxToml(int fpsLimiter, int aspectRatio, boolean showFps, List<ModLibrary.Mod> mods) throws IOException {
+    void writeFfnxToml(int fpsLimiter, boolean turbo, int aspectRatio, boolean showFps, List<ModLibrary.Mod> mods) throws IOException {
         File template = new File(game, "FFNx.template.toml");
         String toml = new String(readAll(new java.io.FileInputStream(template)), StandardCharsets.UTF_8);
         toml = set(toml, "renderer_backend", "5");
         toml = set(toml, "fullscreen", "true");
+        // 2x speed: FFNx's speedhack at 2x from the start (L3 then L2/R2 toggles it). With 60 or 120
+        // FPS chosen the game keeps its 60 FPS timing, which at 2x is shown at 120 FPS.
+        if (turbo && fpsLimiter > 3) fpsLimiter = 3;
         toml = set(toml, "ff7_fps_limiter", Integer.toString(fpsLimiter));
+        toml = set(toml, "speedhack_min", turbo ? "2.0" : "1.0");
         toml = set(toml, "show_fps", showFps ? "true" : "false");
         // 16:9 (FFNx aspect_ratio 2) also uncrops: the Thor's screen is 16:9 top to bottom.
         toml = set(toml, "aspect_ratio", Integer.toString(aspectRatio));

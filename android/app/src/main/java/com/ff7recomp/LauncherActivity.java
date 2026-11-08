@@ -104,7 +104,7 @@ public class LauncherActivity extends Activity {
         library.load();
         status.setText((install.hasGame() ? "Game files: ready" : "Game files: not imported yet")
                 + "\nMods: " + library.enabledCount() + " of " + library.mods.size() + " enabled"
-                + "\nFrame rate: " + fpsName(prefs.getInt("fps", 3)));
+                + "\nFrame rate: " + fpsName(prefs.getInt("fps", 3)) + (prefs.getBoolean("turbo", false) ? ", 2\u00d7 speed" : ""));
         playButton.setEnabled(install.hasGame() && !busy);
         content.removeAllViews();
         switch (page) {
@@ -211,6 +211,14 @@ public class LauncherActivity extends Activity {
             if (mode == cur) rb.setChecked(true);
         }
         col.addView(g);
+        CheckBox turbo = new CheckBox(this);
+        turbo.setText("2\u00d7 speed (turbo)\nThe whole game runs twice as fast, shown at 120 FPS with the 60 FPS or "
+                + "120 FPS setting. In game, L3 then L2 or R2 switches it off and on.");
+        turbo.setTextColor(TEXT);
+        turbo.setTextSize(16);
+        turbo.setChecked(prefs.getBoolean("turbo", false));
+        turbo.setOnCheckedChangeListener((b, on) -> { prefs.edit().putBoolean("turbo", on).apply(); refresh(); });
+        col.addView(turbo);
         col.addView(space(16));
         col.addView(heading("Display"));
         RadioGroup ar = new RadioGroup(this);
@@ -395,7 +403,7 @@ public class LauncherActivity extends Activity {
             library.load();
             library.save();
             install.installRuntime();
-            install.writeFfnxToml(prefs.getInt("fps", 3), prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods);
+            install.writeFfnxToml(prefs.getInt("fps", 3), prefs.getBoolean("turbo", false), prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods);
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)));
             return null;
