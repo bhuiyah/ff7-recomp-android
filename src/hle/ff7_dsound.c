@@ -378,3 +378,17 @@ const win32hle_shim ff7_dsound[] = {
     { "DirectSoundCreate", d_DirectSoundCreate },
     { NULL, NULL }
 };
+
+/* ---- save states: the voice table is plain data (guest object and buffer addresses,
+ * positions, flags), restored with the guest memory it refers to. ---- */
+unsigned ff7_dsound_state_size(void) { return (unsigned)sizeof g_voices; }
+void ff7_dsound_state_save(void *out) {
+    pthread_mutex_lock(&g_lock);
+    memcpy(out, g_voices, sizeof g_voices);
+    pthread_mutex_unlock(&g_lock);
+}
+void ff7_dsound_state_restore(const void *in) {
+    pthread_mutex_lock(&g_lock);
+    memcpy(g_voices, in, sizeof g_voices);
+    pthread_mutex_unlock(&g_lock);
+}

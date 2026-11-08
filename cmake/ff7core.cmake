@@ -71,6 +71,7 @@ add_library(ff7_core STATIC
   "${MODS}/runtimevar.cpp"
   "${MODS}/hext.cpp"
   "${HOST}/ff7_hext.cpp"
+  "${HOST}/ff7_savestate.c"
   "${FF7_ROOT}/src/interp/x86_interp.c"
   "${FF7_DEPS}/lzma/LzmaDec.c"
   "${FF7_DEPS}/pugixml/src/pugixml.cpp"
@@ -85,7 +86,7 @@ target_include_directories(ff7_core PRIVATE "${FF7_ROOT}/src/interp")
 set_source_files_properties("${FF7_ROOT}/src/interp/x86_interp.c" PROPERTIES COMPILE_OPTIONS "-fno-strict-aliasing;-ffp-contract=off;-O2")
 target_compile_features(ff7_core PUBLIC cxx_std_17)
 set_target_properties(ff7_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(ff7_core PUBLIC m)
+target_link_libraries(ff7_core PUBLIC m z)    # z: save states (ff7_savestate.c)
 if(ANDROID)
   target_link_libraries(ff7_core PUBLIC aaudio)    # ff7_dsound.c mixer
 endif()

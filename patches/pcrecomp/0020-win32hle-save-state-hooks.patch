@@ -1,0 +1,121 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] win32hle: save-state hooks for the guest arena and file handles
+
+guest_alloc keeps its free list in host memory and kernel32_ext maps HANDLEs to FILE*s:
+both are state a restored guest memory image depends on. Export and import the free list
+(under the allocator lock) and record each file handle's path and mode so a handle can be
+reopened at a position.
+---
+--- a/runtime/win32hle/guest_alloc.c
++++ b/runtime/win32hle/guest_alloc.c
+@@ -193,6 +193,26 @@
+ }
+ 
+ uint64_t guest_alloc_live_bytes(void) { return g_live; }
++/* Save states: the arena's bookkeeping is host memory, so a restored arena needs its free
++ * list restored with it. Hold the lock across a capture or a restore so no other thread
++ * allocates in between. */
++void guest_alloc_lock(void)   { pthread_mutex_lock(&g_ga_lock); }
++void guest_alloc_unlock(void) { pthread_mutex_unlock(&g_ga_lock); }
++void guest_alloc_arena(uint32_t *lo, uint32_t *hi) { if (lo) *lo = g_arena_lo; if (hi) *hi = g_arena_hi; }
++uint32_t guest_alloc_free_ranges(uint32_t *pairs, uint32_t max) {   /* (addr, size) pairs; caller holds the lock */
++    for (uint32_t i = 0; i < (uint32_t)g_free_n && i < max; i++) { pairs[2 * i] = g_free[i].addr; pairs[2 * i + 1] = g_free[i].size; }
++    return (uint32_t)g_free_n;
++}
++void guest_alloc_set_free_ranges(const uint32_t *pairs, uint32_t n, uint64_t live) {   /* caller holds the lock */
++    if ((int)n > g_free_cap) {
++        g_free_cap = (int)n;
++        g_free = (ga_free *)realloc(g_free, sizeof *g_free * (size_t)g_free_cap);
++    }
++    for (uint32_t i = 0; i < n; i++) { g_free[i].addr = pairs[2 * i]; g_free[i].size = pairs[2 * i + 1]; }
++    g_free_n = (int)n;
++    g_live = live;
++}
++
+ int guest_alloc_is_guest(const void *p) {
+     uintptr_t a = (uintptr_t)p;
+     return g_arena_hi ? (a >= g_arena_lo && a < g_arena_hi) : (a <= 0xffffffffu);
+--- a/runtime/win32hle/guest_alloc.h
++++ b/runtime/win32hle/guest_alloc.h
+@@ -23,6 +23,12 @@
+ size_t guest_msize(void *p);                 /* usable size of a block; 0 on 32-bit hosts */
+ uint64_t guest_alloc_live_bytes(void);
+ int    guest_alloc_is_guest(const void *p);  /* 1 if p is guest-addressable */
++/* Save states (the free list is host memory). The two range calls need the lock held. */
++void     guest_alloc_lock(void);
++void     guest_alloc_unlock(void);
++void     guest_alloc_arena(uint32_t *lo, uint32_t *hi);
++uint32_t guest_alloc_free_ranges(uint32_t *pairs, uint32_t max);   /* returns the count */
++void     guest_alloc_set_free_ranges(const uint32_t *pairs, uint32_t n, uint64_t live);
+ 
+ #ifdef __cplusplus
+ }
+--- a/runtime/win32hle/kernel32_ext.c
++++ b/runtime/win32hle/kernel32_ext.c
+@@ -25,11 +25,41 @@
+ /* ---- file handles: a small table mapping a HANDLE to a FILE* ---- */
+ #define MAXF 64
+ static FILE *g_files[MAXF];
++static char g_fpath[MAXF][512], g_fmode[MAXF][8];   /* for save states: what each handle is */
+ #define FH_BASE 0x00F11E00u
+-static uint32_t file_open(FILE *f) {
+-    for (int i = 0; i < MAXF; i++) if (!g_files[i]) { g_files[i] = f; return FH_BASE + (uint32_t)i; }
++static uint32_t file_open_as(FILE *f, const char *path, const char *mode) {
++    for (int i = 0; i < MAXF; i++) if (!g_files[i]) {
++        g_files[i] = f;
++        snprintf(g_fpath[i], sizeof g_fpath[i], "%s", path ? path : "");
++        snprintf(g_fmode[i], sizeof g_fmode[i], "%s", mode ? mode : "rb");
++        return FH_BASE + (uint32_t)i;
++    }
+     fclose(f); return INVALID_HANDLE;
+ }
++
++/* Save states: the open file handles (the HANDLE values live in guest memory). */
++int hle_file_slots(void) { return MAXF; }
++int hle_file_info(int i, char *path, unsigned n, char mode[8], long *pos) {
++    if (i < 0 || i >= MAXF || !g_files[i]) return 0;
++    if (path) snprintf(path, n, "%s", g_fpath[i]);
++    if (mode) { memcpy(mode, g_fmode[i], 8); mode[7] = 0; }
++    if (pos) *pos = ftell(g_files[i]);
++    return 1;
++}
++/* Make slot i the file at `path` (a write mode reopens without truncating), at `pos`;
++ * path NULL closes it. 1 on success. */
++int hle_file_reopen(int i, const char *path, const char *mode, long pos) {
++    if (i < 0 || i >= MAXF) return 0;
++    if (!path) { if (g_files[i]) fclose(g_files[i]); g_files[i] = NULL; return 1; }
++    if (g_files[i] && !strcmp(g_fpath[i], path)) { fflush(g_files[i]); return fseek(g_files[i], pos, SEEK_SET) == 0; }
++    if (g_files[i]) fclose(g_files[i]);
++    const char *m = (mode[0] == 'w') ? "rb+" : mode;
++    g_files[i] = fopen(path, m);
++    if (!g_files[i]) return 0;
++    snprintf(g_fpath[i], sizeof g_fpath[i], "%s", path);
++    snprintf(g_fmode[i], sizeof g_fmode[i], "%s", mode);
++    return fseek(g_files[i], pos, SEEK_SET) == 0;
++}
+ static FILE *file_of(uint32_t h) {
+     uint32_t i = h - FH_BASE;
+     return (h >= FH_BASE && i < MAXF) ? g_files[i] : NULL;
+@@ -58,7 +88,7 @@
+     const char *host = name ? hle_host_path(name, hp, sizeof hp) : NULL;
+     FILE *f = host ? fopen(host, mode) : NULL;
+     if (!f && disp == 4 && host) f = fopen(host, "wb+");  /* open-always: make it */
+-    RET(f ? file_open(f) : INVALID_HANDLE, 7);
++    RET(f ? file_open_as(f, host, mode) : INVALID_HANDLE, 7);
+ }
+ 
+ static void k_ReadFile(void) {                           /* (h,buf,n,&read,ovl) */
+--- a/runtime/win32hle/win32hle.h
++++ b/runtime/win32hle/win32hle.h
+@@ -78,6 +78,11 @@
+  * letters, backslashes and case. `buf` (n bytes) is scratch the result may use. */
+ const char *hle_host_path(const char *guest, char *buf, unsigned n);
+ 
++/* Save states: the file handles (kernel32_ext.c). */
++int hle_file_slots(void);
++int hle_file_info(int i, char *path, unsigned n, char mode[8], long *pos);
++int hle_file_reopen(int i, const char *path, const char *mode, long pos);
++
+ /* ---- native -> guest ----
+  * Run a lifted function (window proc, dialog proc, thread start, timer) from
+  * HLE C, pushing `nargs` stdcall args. Returns the guest's eax. Takes the

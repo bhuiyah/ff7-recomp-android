@@ -231,6 +231,12 @@ EDITS = [
      '\t\t\tbreak;\n\t\tcase MODE_BATTLE:\n'
      '\t\t\tframerate = 15.0f * battle_frame_multiplier;   // FF7Recomp: 60, or 120 in the 120 FPS mode\n'
      '\t\t\tbreak;\n\t\tcase MODE_SWIRL:'),
+    # Save states (src/host/ff7_savestate.c): taken and applied as the driver flips a frame --
+    # once per frame, after the mode's loop has returned, so no game-mode code is on the host
+    # stack (ff7_savestate.c also checks the host stack depth).
+    ('common.cpp', 'void common_flip(struct game_obj *game_object)\n{\n',
+     'extern "C" void ff7_savestate_frame(void);   // FF7Recomp: src/host/ff7_savestate.c\n\n'
+     'void common_flip(struct game_obj *game_object)\n{\n\tff7_savestate_frame();   // FF7Recomp: the save-state safe point\n'),
     ('ff7/misc.cpp', 'void ff7_limit_fps()\n{\n\tstatic time_t last_gametime;\n',
      'namespace ffnx_recomp { void step_code(); }   // FF7Recomp: src/ffnx_port/patch_recomp.cpp\n\n'
      'void ff7_limit_fps()\n{\n\tffnx_recomp::step_code();   // FF7Recomp: per-frame stepped code values (120 FPS mode)\n'

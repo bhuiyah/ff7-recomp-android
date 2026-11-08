@@ -137,3 +137,14 @@ const win32hle_shim ff7_virtual[] = {
     { "VirtualQuery", k_VirtualQuery },
     { NULL, NULL }
 };
+
+/* ---- save states: the region table (the regions' bytes are captured as guest memory) ---- */
+int ff7_virtual_regions(uint32_t *pairs, int max) {
+    for (int i = 0; i < g_nreg && i < max; i++) { pairs[2 * i] = g_reg[i].base; pairs[2 * i + 1] = g_reg[i].size; }
+    return g_nreg;
+}
+void ff7_virtual_set_regions(const uint32_t *pairs, int n) {
+    if (n > MAX_REGIONS) n = MAX_REGIONS;
+    for (int i = 0; i < n; i++) { g_reg[i].base = pairs[2 * i]; g_reg[i].size = pairs[2 * i + 1]; }
+    g_nreg = n;
+}

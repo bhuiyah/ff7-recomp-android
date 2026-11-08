@@ -32,11 +32,18 @@ extern const win32hle_shim ff7_dsound[];
 extern const win32hle_shim ff7_msacm[];
 extern const win32hle_shim ff7_dinput[];
 int ff7_virtual_init(void);
+/* Save states (src/host/ff7_savestate.c) */
+int ff7_virtual_regions(uint32_t *pairs, int max);
+void ff7_virtual_set_regions(const uint32_t *pairs, int n);
+unsigned ff7_dsound_state_size(void);
+void ff7_dsound_state_save(void *out);
+void ff7_dsound_state_restore(const void *in);
 
 /* The guest working directory, relative to the game root ("" = the root). Set from a guest
  * path (mapped, must be an existing directory); 0 on success. Relative guest paths given
  * to hle_host_path resolve against it, as on Windows. */
 const char *ff7_guest_cwd(void);
+void ff7_restore_guest_cwd(const char *cwd);   /* save states */
 int ff7_set_guest_cwd(const char *guest_path);
 
 /* Give the machine lock to another guest thread and take it back (a blocking wait). */

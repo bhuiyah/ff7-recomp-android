@@ -59,6 +59,8 @@ static int match_component(const char *dir, const char *name, char *out, size_t 
 static char g_cwd[512];
 
 const char *ff7_guest_cwd(void) { return g_cwd; }
+/* Save states: put back a value ff7_guest_cwd returned (no path resolution). */
+void ff7_restore_guest_cwd(const char *cwd) { snprintf(g_cwd, sizeof g_cwd, "%s", cwd ? cwd : ""); }
 
 const char *hle_host_path(const char *guest, char *buf, unsigned n);
 
