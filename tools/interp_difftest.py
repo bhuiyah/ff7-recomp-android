@@ -88,6 +88,7 @@ LIFT_APPROX = {
     "sahf": {"OF", "SF"},
     "repe cmpsb": {"SF", "OF"}, "repne scasb": {"SF", "OF"}, "cmpsb": {"SF", "OF"},
 }
+P_FORMS = ("faddp", "fsubp", "fsubrp", "fmulp", "fdivp", "fdivrp")
 X87_COMPARES = ("fcom", "fcomp", "fcompp", "ftst", "fucom", "fucomp", "fucompp", "fxam", "ficom", "ficomp")
 
 
@@ -142,10 +143,8 @@ def main():
                 cur.append(ins)
                 if len(cur) >= 24:
                     break
-            # skip: segment-register pushes (data disassembled as code); fdivp/fdivrp st(0),
-            # which the lift gets wrong (pcrecomp: it treats every p-form as st(1))
-            if cur and not any((i.mnemonic in ("push", "pop") and i.op_str in ("es", "ds", "ss", "cs", "fs", "gs"))
-                               or (i.mnemonic in ("fdivp", "fdivrp", "fsubp", "fsubrp", "faddp", "fmulp") and i.op_str == "st(0)")
+            # skip segment-register pushes (data disassembled as code)
+            if cur and not any(i.mnemonic in ("push", "pop") and i.op_str in ("es", "ds", "ss", "cs", "fs", "gs")
                                for i in cur):
                 first_cmp = next((k for k, i in enumerate(cur) if i.mnemonic in X87_COMPARES), len(cur))
                 first_sw = next((k for k, i in enumerate(cur) if i.mnemonic == "fnstsw"), len(cur))
@@ -155,7 +154,8 @@ def main():
     rnd.shuffle(runs)
     count, chosen, taken = {}, [], set()
     for k, r in enumerate(runs):                     # every form at least per_form times
-        if any(count.get(form_of(i), 0) < per_form for i in r):
+        rare = any(i.mnemonic in P_FORMS and i.op_str == "st(0)" for i in r)   # pcrecomp patch 0019
+        if rare or any(count.get(form_of(i), 0) < per_form for i in r):
             chosen.append(r)
             taken.add(k)
             for i in r:

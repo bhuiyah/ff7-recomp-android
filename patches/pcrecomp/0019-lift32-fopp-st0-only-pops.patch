@@ -1,0 +1,33 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] lift32: fOPp st(0) only pops
+
+`faddp/fsubp/fsubrp/fmulp/fdivp/fdivrp st(0)` compute into st(0) and pop it, so the
+result is discarded; they were lifted as the st(1) form, changing st(1). Found by the
+FF7Recomp x86 interpreter difftest (MSVC CRT code near 0x7B3A30; checked natively).
+---
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -1609,6 +1609,12 @@
+             else:
+                 lines.append(f"_st[0] += _st[1]; {comment}")
+ 
++        elif m in ('faddp', 'fsubp', 'fsubrp', 'fmulp', 'fdivp', 'fdivrp') and self._fpu_p_st0(ops):
++            # `fOPp st(0), st(0)` computes into st(0) and then pops that very register:
++            # the result is discarded and only the pop remains. Treating it as the
++            # st(1) form (MSVC's CRT has `fdivp st(0)` / `fdivrp st(0)`) changed st(1).
++            lines.append(f"(void)fp_pop(); {comment}")
++
+         elif m == 'faddp':
+             lines.append(f"{{ double _v = fp_pop(); {self._fpu_popdst(ops)} += _v; }} {comment}")
+ 
+@@ -2095,6 +2101,10 @@
+             return f"_st[{op.reg - X86_REG_ST0}]"
+         return "_st[1]"
+ 
++    def _fpu_p_st0(self, ops) -> bool:
++        """`fOPp st(0)`: the pop-form whose destination is st(0) itself."""
++        return bool(ops) and ops[0].type == X86_OP_REG and ops[0].reg == X86_REG_ST0
++
+     def _fpu_popdst(self, ops) -> str:
+         """Destination of `fOPp st(i), st(0)`.
+ 

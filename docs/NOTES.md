@@ -202,7 +202,9 @@
   - 8/16-bit sar shifted zero-extended values (`sar cx, 1` on a negative short gave a
     large positive one; game code e.g. 0x5A5368). Fixed: patches/pcrecomp/0018. Takes
     effect at the next lift.
-  - fdivp/fdivrp st(0) (DE F8 / DE F0, CRT code near 0x7B3A30) lifted as the st(1) form.
-    Not fixed yet.
+  - fdivp/fdivrp st(0) (DE F8 / DE F0, CRT code at 0x7B3A30 / 0x7B3A3C) lifted as the
+    st(1) form; the real instruction pops its own result away (checked natively on the PC).
+    Fixed for all six pop-forms: patches/pcrecomp/0019. Takes effect at the next lift; the
+    difftest now includes those runs (17032 agree, 0 differ).
   - documented approximations the difftest masks: CF after inc/dec, OF/PF of shifts,
     imul/mul flags, bt ZF, narrow cmps/sbb SF/OF, fcom kept in the integer flags.
