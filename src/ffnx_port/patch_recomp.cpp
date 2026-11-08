@@ -25,7 +25,7 @@ namespace {
 constexpr uint32_t TEXT_LO = 0x00401000u, TEXT_HI = 0x007B6000u;   // ff7_en .text
 
 struct hook_rec { const char *what; uint32_t site, target; int installed; };
-struct write_rec { const char *what; uint32_t offset, size; };
+struct write_rec { const char *what; uint32_t offset, size; std::vector<uint8_t> before; };
 
 std::mutex g_lock;
 std::vector<hook_rec> g_hooks;
@@ -53,6 +53,8 @@ extern "C" int ff7_override_install(uint32_t va, uint32_t target);
 extern "C" void ff7_override_remove(uint32_t va);
 extern "C" int ff7_callsite_install(uint32_t site, uint32_t target, uint32_t orig);
 extern "C" void ff7_callsite_remove(uint32_t site);
+extern "C" int ff7_code_runnable(uint32_t va, uint32_t n);
+#include "x86_interp.h"
 
 namespace ffnx_recomp {
 
@@ -110,8 +112,12 @@ void note_divide_floor(uint32_t offset, int before, int divisor, int kept) {
 
 void note_code_write(uint32_t offset, uint32_t size, const char *what) {
     std::lock_guard<std::mutex> lk(g_lock);
-    if (in_text(offset)) g_code_writes.push_back({ what, offset, size });
-    else g_data_writes++;
+    if (in_text(offset)) {
+        const uint8_t *p = (const uint8_t *)(uintptr_t)offset;   // called before the write
+        g_code_writes.push_back({ what, offset, size, std::vector<uint8_t>(p, p + size) });
+    } else {
+        g_data_writes++;
+    }
 }
 
 // ------------------------------------------------------------------ per-frame stepping
@@ -169,8 +175,53 @@ void step_alternate(uint32_t offset, const void *even, const void *odd, uint32_t
     g_steps.push_back(s);
 }
 
+// ------------------------------------------------------------------ the safety net
+// A code write whose bytes the lift has no variant for runs the ORIGINAL instructions in the
+// lifted code -- FFNx's frame-rate patches silently undone, the game at 2-8x speed. Each new
+// write is checked once (from step_code, after FFNx has patched): the function holding one
+// the lift cannot run is switched to the x86 interpreter, which runs the patched bytes.
+// FF7_INTERP_FALLBACK=0 turns it off (A/B).
+namespace {
+size_t g_verified;
+bool fallback_enabled() {
+    static int on = -1;
+    if (on < 0) { const char *e = std::getenv("FF7_INTERP_FALLBACK"); on = !(e && e[0] == '0'); }
+    return on;
+}
+}  // namespace
+
+static void verify_code_writes_locked() {
+    for (; g_verified < g_code_writes.size(); g_verified++) {
+        const write_rec &w = g_code_writes[g_verified];
+        // A dword value is an operand the lift reads live (run_lift.py DWORD_VALUE_KINDS).
+        if (w.size == 4 && (!std::strcmp(w.what, "patch_code_dword") || !std::strcmp(w.what, "patch_code_int") ||
+                            !std::strcmp(w.what, "patch_code_uint")))
+            continue;
+        if (!std::memcmp(w.before.data(), (const void *)(uintptr_t)w.offset, w.size)) continue;   // nothing changed
+        int rc = ff7_code_runnable(w.offset, w.size);
+        if (rc == 1) continue;
+        uint32_t fn = ff7_interp_function_of(w.offset);
+        if (!fallback_enabled() || !fn) {
+            ffnx_warning("%s at 0x%08X: no lifted variant -- the original code runs\n", w.what, w.offset);
+            continue;
+        }
+        if (ff7_interp_marked(fn)) continue;
+        int m = ff7_interp_mark(fn);
+        if (m == 0)
+            ffnx_info("%s at 0x%08X: no lifted variant (%s) -- function 0x%08X runs interpreted\n",
+                      w.what, w.offset, rc == 0 ? "bytes differ" : "not covered", fn);
+        else
+            ffnx_warning("%s at 0x%08X: no lifted variant, function 0x%08X cannot be interpreted (%d)\n",
+                         w.what, w.offset, fn, m);
+    }
+}
+
+void quickboot_frame();   // quickboot.cpp
+
 void step_code() {
+    quickboot_frame();
     std::lock_guard<std::mutex> lk(g_lock);
+    if (g_verified < g_code_writes.size()) verify_code_writes_locked();
     const uint64_t k = g_step_frame++;
     for (const step_rec &s : g_steps) {
         uint8_t *p = (uint8_t *)(uintptr_t)s.offset;

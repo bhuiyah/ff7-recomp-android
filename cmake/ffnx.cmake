@@ -64,6 +64,7 @@ add_library(ffnx STATIC ${FFNX_SOURCES}
   "${FF7_ROOT}/src/ffnx_port/layout_asserts.cpp"
   # FFNx's patch API with recomp semantics (replaces FFNx's patch.cpp)
   "${FF7_ROOT}/src/ffnx_port/patch_recomp.cpp"
+  "${FF7_ROOT}/src/ffnx_port/quickboot.cpp"
   # platform helpers for FFNx's Android branches; FFNx's own Win32 calls
   "${FF7_ROOT}/src/ffnx_port/android_window.cpp"
   "${FF7_ROOT}/src/ffnx_port/win32_compat.cpp"
@@ -107,7 +108,7 @@ target_compile_features(ffnx PUBLIC cxx_std_20)
 set_target_properties(ffnx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 include("${FF7_ROOT}/cmake/ffnx_deps.cmake")
 include("${FF7_ROOT}/cmake/ffnx_audio.cmake")
-target_include_directories(ffnx PRIVATE "${FFNX_DEPS}/cgltf")
+target_include_directories(ffnx PRIVATE "${FFNX_DEPS}/cgltf" "${FF7_ROOT}/src/interp")
 target_link_libraries(ffnx PUBLIC ff7_core bgfx ffnx::rc ffnx_png ffnx_imgui ffnx_pugixml ffnx_xxhash
   ffnx_soloud ffnx_vgmstream ffnx_openpsf ffnx_lz4)
 if(FF7_HAVE_FFMPEG)

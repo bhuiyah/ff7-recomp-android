@@ -26,6 +26,8 @@ int ff7_platform_keyboard_state(unsigned char keys[256]) {
 
 int ff7_platform_pad_state(unsigned index, ff7_pad_state *out) { (void)index; (void)out; return 0; }
 void ff7_platform_pad_rumble(unsigned index, unsigned short l, unsigned short r) { (void)index; (void)l; (void)r; }
+void ff7_platform_pad_inject(unsigned short buttons) { (void)buttons; }
+int ff7_platform_pad_buttons(void) { return 0; }
 
 int main(int argc, char **argv) {
     if (argc < 2) {

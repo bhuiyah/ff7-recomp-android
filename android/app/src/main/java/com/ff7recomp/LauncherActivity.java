@@ -236,6 +236,28 @@ public class LauncherActivity extends Activity {
         fps.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("show_fps", on).apply());
         col.addView(fps);
         col.addView(space(16));
+        col.addView(heading("Start"));
+        RadioGroup st = new RadioGroup(this);
+        String[][] starts = {
+            { "", "Normal", "Credits, title screen and opening movie, as the game plays them" },
+            { "newgame", "Straight into a new game", "Skips the credits, picks New Game and skips the opening movie" },
+            { "continue", "Continue straight away", "Skips the credits and loads the first save of the first save file" },
+        };
+        String curStart = prefs.getString("quickboot", "");
+        for (String[] s : starts) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(s[1] + "\n" + s[2]);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            final String v = s[0];
+            rb.setOnClickListener(x -> prefs.edit().putString("quickboot", v).apply());
+            st.addView(rb);
+            if (v.equals(curStart)) rb.setChecked(true);
+        }
+        col.addView(st);
+        col.addView(text("Any button stops the automatic start.", 14, DIM));
+        col.addView(space(16));
         col.addView(text("In game: press Start during a movie to skip it.", 14, DIM));
         return scroll(col);
     }
@@ -326,6 +348,7 @@ public class LauncherActivity extends Activity {
             library.save();
             install.installRuntime();
             install.writeFfnxToml(prefs.getInt("fps", 3), prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods);
+            install.writeQuickboot(prefs.getString("quickboot", ""));
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)));
             return null;
         });

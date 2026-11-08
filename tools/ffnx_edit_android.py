@@ -221,6 +221,12 @@ EDITS = [
     #   - display-damage bounce: a 120 FPS table; integer index maths reworked.
     ('ff7_opengl.cpp', '\t\t\tbattle_frame_multiplier = (ff7_fps_limiter == FPS_LIMITER_30FPS) ? 2 : 4;\n',
      '\t\t\tbattle_frame_multiplier = (ff7_fps_limiter == FPS_LIMITER_30FPS) ? 2 : (ff7_fps_limiter >= FPS_LIMITER_120FPS ? 8 : 4);   // FF7Recomp: 120 FPS battles\n'),
+    # The battle loop runs the menu step 4x per 15 FPS frame and its LAST pass draws the battle
+    # windows; stepped to 0/1 per frame at x8, every other frame drew no windows (they flicker,
+    # and screenshots caught them gone). Keep one pass per frame, as at 60.
+    ('ff7_opengl.cpp',
+     '\t\t\tpatch_divide_code<byte>(ff7_externals.battle_fps_menu_multiplier, battle_frame_multiplier); // Works perfectly only in 30 FPS',
+     '\t\t\tpatch_divide_code<byte>(ff7_externals.battle_fps_menu_multiplier, battle_frame_multiplier >= 8 ? 4 : battle_frame_multiplier); // Works perfectly only in 30 FPS (FF7Recomp: x8 keeps one pass per frame)'),
     ('ff7/misc.cpp', '\t\t\tbreak;\n\t\tcase MODE_BATTLE:\n\t\tcase MODE_SWIRL:',
      '\t\t\tbreak;\n\t\tcase MODE_BATTLE:\n'
      '\t\t\tframerate = 15.0f * battle_frame_multiplier;   // FF7Recomp: 60, or 120 in the 120 FPS mode\n'
@@ -282,11 +288,11 @@ EDITS = [
      '        patch_multiply_code<byte>(ff7_externals.battle_sub_429D8A + 0x1D8, battle_frame_multiplier);\n',
      '        if (battle_frame_multiplier >= 8)\n        {\n'
      '            // FF7Recomp: the battle-enter wait is a byte (61 * 8 > 255): keep the x4 count and\n'
-     '            // count it down every other tick (battle_sub_42D992: sub cl, 1).\n'
+     '            // count it down every other tick (battle_sub_42D992 + 0x1A: sub cl, 1 = 80 E9 01).\n'
      '            patch_multiply_code<byte>(ff7_externals.battle_sub_429AC0 + 0x152, battle_frame_multiplier / 2);\n'
      '            patch_multiply_code<byte>(ff7_externals.battle_sub_429D8A + 0x1D8, battle_frame_multiplier / 2);\n'
      '            static const byte one = 1, zero = 0;\n'
-     '            ffnx_recomp::step_alternate(ff7_externals.battle_sub_42D992 + 0x1B, &one, &zero, 1);\n'
+     '            ffnx_recomp::step_alternate(ff7_externals.battle_sub_42D992 + 0x1C, &one, &zero, 1);   // the imm8\n'
      '        }\n        else\n        {\n'
      '            patch_multiply_code<byte>(ff7_externals.battle_sub_429AC0 + 0x152, battle_frame_multiplier);\n'
      '            patch_multiply_code<byte>(ff7_externals.battle_sub_429D8A + 0x1D8, battle_frame_multiplier);\n'

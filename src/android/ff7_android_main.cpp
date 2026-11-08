@@ -90,13 +90,25 @@ extern "C" void *ff7_platform_companion_window(int *width, int *height) {
 namespace {
 std::mutex g_pad_lock;
 ff7_pad_state g_pad{};
+unsigned short g_inject;               // buttons src/ffnx_port/quickboot.cpp presses
 }
 
 extern "C" int ff7_platform_pad_state(unsigned index, ff7_pad_state *out) {
     if (index != 0) return 0;          // the Thor's built-in controls (and any paired pad) are pad 0
     std::lock_guard<std::mutex> lk(g_pad_lock);
     *out = g_pad;
+    out->buttons |= g_inject;
     return 1;
+}
+
+extern "C" void ff7_platform_pad_inject(unsigned short buttons) {
+    std::lock_guard<std::mutex> lk(g_pad_lock);
+    g_inject = buttons;
+}
+
+extern "C" int ff7_platform_pad_buttons(void) {
+    std::lock_guard<std::mutex> lk(g_pad_lock);
+    return g_pad.buttons;
 }
 
 extern "C" void ff7_platform_pad_rumble(unsigned, unsigned short, unsigned short) {}

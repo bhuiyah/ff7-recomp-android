@@ -132,7 +132,38 @@ static void *watchdog(void *arg) {
     return NULL;
 }
 
+/* ---- FF7_MEMDIFF=1: a research aid for finding game variables. Every 2 s, the bytes of the
+ * exe's .data/.bss that changed between two small values (0..3) since the last look, so a
+ * menu cursor or a flag shows up as the input that moves it is pressed. */
+#define MD_LO 0x007BA000u
+#define MD_HI 0x00F51000u
+static void *memdiff(void *arg) {
+    (void)arg;
+    static uint8_t prev[MD_HI - MD_LO];
+    sleep(10);                       /* started at boot: the exe is mapped a moment later */
+    memcpy(prev, (const void *)(uintptr_t)MD_LO, sizeof prev);
+    for (int round = 0;; round++) {
+        sleep(2);
+        const uint8_t *cur = (const uint8_t *)(uintptr_t)MD_LO;
+        int shown = 0;
+        for (uint32_t i = 0; i < sizeof prev; i++) {
+            uint8_t a = prev[i], b = cur[i];
+            if (a != b && a <= 3 && b <= 3 && shown < 40) {
+                fprintf(stderr, "[memdiff] %d 0x%08X %u -> %u\n", round, MD_LO + i, a, b);
+                shown++;
+            }
+            prev[i] = b;
+        }
+    }
+    return NULL;
+}
+
 void ff7_start_watchdog(void) {
+    if (getenv("FF7_MEMDIFF") && getenv("FF7_MEMDIFF")[0] == '1') {
+        pthread_t m;
+        pthread_create(&m, NULL, memdiff, NULL);
+        pthread_detach(m);
+    }
     const char *e = getenv("FF7_WATCHDOG");
     int period = e ? atoi(e) : 0;
     if (period <= 0) return;

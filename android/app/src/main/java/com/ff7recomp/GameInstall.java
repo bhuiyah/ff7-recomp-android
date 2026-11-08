@@ -232,6 +232,13 @@ final class GameInstall {
         try (OutputStream o = new FileOutputStream(out)) { o.write(toml.getBytes(StandardCharsets.UTF_8)); }
     }
 
+    /** files/quickboot.txt for src/ffnx_port/quickboot.cpp: "newgame", "continue", or none. */
+    void writeQuickboot(String mode) throws IOException {
+        File f = new File(files, "quickboot.txt");
+        if (mode == null || mode.isEmpty()) { if (f.exists() && !f.delete()) throw new IOException("cannot remove " + f); return; }
+        try (OutputStream o = new FileOutputStream(f)) { o.write(mode.getBytes(StandardCharsets.UTF_8)); }
+    }
+
     private static final Pattern NUMBER = Pattern.compile("-?\\d+(\\.\\d+)?");
 
     private static String tomlValue(String v) {

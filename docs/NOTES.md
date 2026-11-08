@@ -222,3 +222,31 @@
   code lifted / interpreted / without effect); the launcher shows a line per mod from it
   ("2 hext patches: 3 data, 1 code interpreted (last run)"), flagged when a file stopped
   early or a code patch had no effect.
+
+## 2026-11-07: on the Thor -- speed, 120 FPS battles, quick start
+- 60 FPS cap gone: the opening field runs at 119 FPS with vsync (fps_probe.sh).
+- "The game looks sped up": the APK was lifted from manifests that predate the 120 FPS battle
+  work and widescreen, and patched code with no lifted variant runs the ORIGINAL 15/30 FPS
+  instructions. refresh_manifests.sh (modes 1-4 x aspect 0/2): 578 variants at 275 sites
+  (was 384 at 240). tools/speed_probe.sh times the scripted opening scene: 16.4 / 16.1 /
+  16.2 s at 30 / 60 / 120 FPS -- field speed is right in every mode.
+- Safety net (patch_recomp.cpp): each FFNx code write is checked against the lift's variant
+  table (ff7_code_runnable in ff7_overrides.c); a function whose patched bytes the lift
+  cannot run is switched to the x86 interpreter instead of silently running the original
+  code. 0 fallbacks after the refresh. FF7_INTERP_FALLBACK=0 turns it off.
+- Two 120 FPS battle bugs of mine, found on the device:
+  - the battle-enter countdown's step_alternate wrote the ModRM byte (+0x1B) instead of the
+    imm8 (+0x1C) of `sub cl, 1`: `add byte [eax], 1`, a crash as the battle opened.
+  - stepping the battle menu loop count to 0/1 left every other frame without the battle
+    windows (the loop's last pass draws them). x8 keeps one pass per frame, as at 60.
+- Open: ATB fills in 6.5 / 5.8 / 13.4 s at 30 / 60 / 120 FPS (tools/battle_speed_probe.sh):
+  120 FPS battles run ~2.3x slow.
+- Quick start (src/ffnx_port/quickboot.cpp; launcher Settings > Start; files/quickboot.txt
+  or FF7_QUICKBOOT): skips the credits, picks New Game (or Continue, falling back to New
+  Game without saves) and skips the opening FMV, driven off the game's mode; in the field
+  7.2 s after launch. The title cursor (0x00DD6F24: 0 New Game, 1 Continue) was found
+  with FF7_MEMDIFF=1, a watchdog-thread diff of .data/.bss. Continue with a real save is
+  not tested yet (no saves on the device).
+- Snapshot save states: not yet. FFNx keeps C++ objects with host pointers (gl_texture_set's
+  std::maps, GPU texture handles) inside guest memory, so a memory image cannot simply be
+  restored; see ROADMAP M5.

@@ -154,6 +154,25 @@ int ff7_code_match(uint32_t va, const char *bytes, const char *mask, uint32_t n)
     return 1;
 }
 
+/* The lift's variants (generated/recomp/recomp_variants.c, run_lift.py). */
+typedef struct { uint32_t start, end; const char *bytes, *mask; } ff7_code_variant_t;
+extern const ff7_code_variant_t ff7_code_variants[];
+extern const uint32_t ff7_code_variant_count;
+
+/* Can the lift run the code now in memory at [va, va+n)?  1: a variant covering it matches
+ * the bytes; 0: variants cover it but none matches; -1: no variant covers it. (Unchanged
+ * original bytes are the caller's to rule out: the lift runs those anyway.) */
+int ff7_code_runnable(uint32_t va, uint32_t n) {
+    int covered = 0;
+    for (uint32_t i = 0; i < ff7_code_variant_count; i++) {
+        const ff7_code_variant_t *v = &ff7_code_variants[i];
+        if (v->end <= va || v->start >= va + n) continue;
+        covered = 1;
+        if (ff7_code_match(v->start, v->bytes, v->mask, v->end - v->start)) return 1;
+    }
+    return covered ? 0 : -1;
+}
+
 void ff7_interp_run(uint32_t va);    /* src/interp/x86_interp.c */
 #define FF7_INTERP_TARGET 0xFFFFFFFEu    /* ff7_interp_mark: run this function interpreted */
 
