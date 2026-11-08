@@ -32,6 +32,7 @@ void ff7_savestate_register(const ff7_savestate_hook *h);
 int ff7_ss_driver_mode(void);                 /* the game's current mode, for compatibility */
 int ff7_ss_can_save(const char **why);        /* 0 + reason when the game cannot be saved now */
 void ff7_ss_notify(const char *msg);          /* an on-screen note */
+void ff7_ss_location(char *out, unsigned n, uint32_t *play_seconds);   /* where in the game, play time */
 
 #ifdef __cplusplus
 }

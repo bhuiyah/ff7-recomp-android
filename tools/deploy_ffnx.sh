@@ -26,4 +26,6 @@ sed -e 's/^renderer_backend = .*/renderer_backend = 5/' \
 # adb cannot create directories under Android/data: the shell makes them first.
 MSYS_NO_PATHCONV=1 "$ADB" shell mkdir -p "$DEV/shaders" "$DEV/save"
 MSYS_NO_PATHCONV=1 "$ADB" push "$(cygpath -w "$STAGE")/." "$DEV/" > /dev/null
+# adb-pushed files belong to the shell user: let the app (the launcher rewrites FFNx.toml) write them
+MSYS_NO_PATHCONV=1 "$ADB" shell "chmod -R a+rwX $DEV" > /dev/null 2>&1 || true
 echo "pushed $(ls "$STAGE" | wc -l) entries + $(ls "$STAGE/shaders" | wc -l) shaders to $DEV"

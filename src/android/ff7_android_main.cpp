@@ -97,9 +97,9 @@ extern "C" int ff7_platform_pad_state(unsigned index, ff7_pad_state *out) {
     if (index != 0) return 0;          // the Thor's built-in controls (and any paired pad) are pad 0
     std::lock_guard<std::mutex> lk(g_pad_lock);
     *out = g_pad;
-    // Select+L1 / Select+R1 are the save-state buttons (src/host/ff7_savestate.c): the game
-    // does not see that combination.
-    if ((out->buttons & 0x0020) && (out->buttons & 0x0300)) out->buttons &= (unsigned short)~0x0320;
+    // Select+L1 / Select+R1 / Select+Left / Select+Right are the save-state buttons
+    // (src/host/ff7_savestate.c): the game does not see those combinations.
+    if ((out->buttons & 0x0020) && (out->buttons & 0x030C)) out->buttons &= (unsigned short)~0x032C;
     out->buttons |= g_inject;
     return 1;
 }

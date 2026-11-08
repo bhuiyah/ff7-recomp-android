@@ -173,6 +173,36 @@ extern "C" int ff7_ss_can_save(const char **why) {
     }
 }
 
+// Where the game is, for slot lists: the savemap's location text (FF7's charset is ASCII
+// shifted by 0x20, 0xFF ends it) in a field, else the field's own name; "Battle" / "World map"
+// in those modes. And the game's play-time counter.
+extern "C" void ff7_ss_location(char *out, unsigned n, uint32_t *play_seconds) {
+    struct savemap *sm = ff7_externals.savemap;
+    *play_seconds = sm ? sm->seconds : 0;
+    if (!n) return;
+    out[0] = 0;
+    char loc[40] = "";
+    if (sm) {
+        unsigned k = 0;
+        for (unsigned i = 0; i < sizeof sm->preview_location && k + 1 < sizeof loc; i++) {
+            uint8_t c = (uint8_t)sm->preview_location[i];
+            if (c == 0xFF) break;
+            if (c > 0x5E) { k = 0; break; }                // not plain text: do not guess
+            loc[k++] = (char)(c + 0x20);
+        }
+        while (k && loc[k - 1] == ' ') k--;
+        loc[k] = 0;
+    }
+    switch (ff7_ss_driver_mode()) {
+    case MODE_BATTLE: std::snprintf(out, n, "Battle%s%s", loc[0] ? " - " : "", loc); return;
+    case MODE_WORLDMAP: std::snprintf(out, n, "World map"); return;
+    case MODE_MENU: case MODE_MAIN_MENU: std::snprintf(out, n, "Menu%s%s", loc[0] ? " - " : "", loc); return;
+    default: break;
+    }
+    if (loc[0]) std::snprintf(out, n, "%s", loc);
+    else if (const char *f = get_current_field_name()) std::snprintf(out, n, "%s", f);
+}
+
 extern "C" void ff7_ss_notify(const char *msg) {
     ffnx_info("savestate: %s\n", msg);
     show_popup_msg(TEXTCOLOR_LIGHT_BLUE, "%s", msg);

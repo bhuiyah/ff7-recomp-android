@@ -4,7 +4,8 @@
 // fixed delays. Off unless asked for:
 //   files/quickboot.txt  (the launcher's Start setting)  "newgame", "continue" or "resume"
 //   FF7_QUICKBOOT=newgame|continue|resume                (env.txt, tests)
-// "resume" loads the quick save state (src/host/ff7_savestate.c) as soon as the game is up.
+// "resume [N]" loads save-state slot N (default: the current slot, savestates/current.txt;
+// src/host/ff7_savestate.c) as soon as the game is up.
 // Ticked once per frame from ffnx_recomp::step_code (ff7_limit_fps). Stops for good once the
 // field is reached, after 40 s, or at the first real press of a button.
 #include <chrono>
@@ -33,6 +34,7 @@ bool g_done;
 uint32_t g_mode = ~0u;
 int64_t g_mode_since, g_started, g_last_press, g_last_skip;
 int g_title_presses;
+char g_resume_slot[8] = "current";
 
 int64_t now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -51,11 +53,19 @@ bool have_saves() {
     return any;
 }
 
-// The quick save state (files/savestates/quick.ff7s)?
-bool have_state() {
+// Save-state slot `slot` ("3", or "current": savestates/current.txt) exists?
+bool have_state(const char *slot) {
     char cwd[1024], path[1100];
     if (!getcwd(cwd, sizeof cwd)) return false;
-    std::snprintf(path, sizeof path, "%s/../savestates/quick.ff7s", cwd);
+    int k = std::atoi(slot);
+    if (!k) {
+        std::snprintf(path, sizeof path, "%s/../savestates/current.txt", cwd);
+        k = 1;
+        if (std::FILE *f = (std::fopen)(path, "rb")) { if (std::fscanf(f, "%d", &k) != 1) k = 1; std::fclose(f); }
+        std::snprintf(path, sizeof path, "%s/../savestates/quick.ff7s", cwd);
+        if (k == 1 && access(path, R_OK) == 0) return true;   // not migrated to slot 1 yet
+    }
+    std::snprintf(path, sizeof path, "%s/../savestates/slot%02d.ff7s", cwd, k);
     return access(path, R_OK) == 0;
 }
 
@@ -78,7 +88,9 @@ int read_target() {
     }
     if (!std::strncmp(buf, "newgame", 7)) return 0;
     if (!std::strncmp(buf, "resume", 6)) {
-        if (have_state()) return 2;
+        int k = std::atoi(buf + 6);
+        if (k > 0) std::snprintf(g_resume_slot, sizeof g_resume_slot, "%d", k);
+        if (have_state(g_resume_slot)) return 2;
         ffnx_info("quickboot: no save state yet, starting a new game instead\n");
         return 0;
     }
@@ -124,7 +136,7 @@ void quickboot_frame() {
 
     if (g_target == 2) {                                     // resume: load as soon as the game is up
         if (mode == MODE_CREDITS && in_mode > 1000) {
-            ff7_savestate_request(1, "quick");
+            ff7_savestate_request(1, g_resume_slot);
             finish("loading the save state");
         }
         return;

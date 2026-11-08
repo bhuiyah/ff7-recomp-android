@@ -36,7 +36,7 @@
 #include "ff7_savestate.h"
 
 #define SS_MAGIC   "FF7RSS\x1a\x01"
-#define SS_VERSION 1
+#define SS_VERSION 2
 #define IMG_DATA_LO 0x007BA000u          /* ff7_en .data/.bss */
 #define IMG_DATA_HI 0x00F51000u
 #define FFNX_STATIC_LO 0x6B000000u       /* src/ffnx_port/ffnx_guest_static.cpp */
@@ -80,7 +80,9 @@ typedef struct {
     int64_t saved_at;
     int32_t mode;
     uint32_t raw_size;                   /* the uncompressed record stream */
-    char label[64];
+    char label[64];                      /* the slot ("slot3") */
+    char location[48];                   /* where in the game, for the slot lists */
+    uint32_t play_seconds;               /* the game's play-time counter */
 } ss_header;
 
 /* ---- a growing byte buffer ---------------------------------------------------------------- */
@@ -117,6 +119,7 @@ void ff7_savestate_register(const ff7_savestate_hook *h) { if (g_nhooks < MAX_HO
 __attribute__((weak)) int ff7_ss_driver_mode(void) { return -1; }
 __attribute__((weak)) int ff7_ss_can_save(const char **why) { (void)why; return 1; }
 __attribute__((weak)) void ff7_ss_notify(const char *msg) { (void)msg; }
+__attribute__((weak)) void ff7_ss_location(char *out, unsigned n, uint32_t *play_seconds) { if (n) out[0] = 0; *play_seconds = 0; }
 static void notify(const char *msg) { fprintf(stderr, "[savestate] %s\n", msg); fflush(stderr); ff7_ss_notify(msg); }
 
 /* ---- paths --------------------------------------------------------------------------------- */
@@ -130,7 +133,41 @@ static void ss_paths(void) {
     snprintf(g_dir, sizeof g_dir, "%s/savestates", cwd);
     mkdir(g_dir, 0775);
 }
-static void slot_path(const char *slot, char *out, size_t n) { ss_paths(); snprintf(out, n, "%s/%s.ff7s", g_dir, slot); }
+#define SS_SLOTS 10
+static int g_cur = 1;                     /* the slot the buttons use (savestates/current.txt) */
+static int slot_number(const char *slot) {
+    if (!slot || !*slot || !strcmp(slot, "quick") || !strcmp(slot, "current")) return g_cur;
+    if (!strncmp(slot, "slot", 4)) slot += 4;
+    int n = atoi(slot);
+    return n >= 1 && n <= SS_SLOTS ? n : 0;
+}
+static void slot_path(const char *slot, char *out, size_t n) {
+    ss_paths();
+    int k = slot_number(slot);
+    if (k) snprintf(out, n, "%s/slot%02d.ff7s", g_dir, k);
+    else snprintf(out, n, "%s/%s.ff7s", g_dir, slot);   /* a named slot (scripts) */
+}
+static void save_current(void) {
+    char p[1100];
+    ss_paths();
+    snprintf(p, sizeof p, "%s/current.txt", g_dir);
+    FILE *f = fopen(p, "wb");
+    if (f) { fprintf(f, "%d\n", g_cur); fclose(f); }
+}
+/* Once: the current slot, and the old single quick state becomes slot 1. */
+static void slots_init(void) {
+    static int done;
+    if (done) return;
+    done = 1;
+    ss_paths();
+    char p[1100], q[1100];
+    snprintf(p, sizeof p, "%s/current.txt", g_dir);
+    FILE *f = fopen(p, "rb");
+    if (f) { int k = 0; if (fscanf(f, "%d", &k) == 1 && k >= 1 && k <= SS_SLOTS) g_cur = k; fclose(f); }
+    snprintf(p, sizeof p, "%s/quick.ff7s", g_dir);
+    snprintf(q, sizeof q, "%s/slot01.ff7s", g_dir);
+    if (access(p, F_OK) == 0 && access(q, F_OK) != 0) rename(p, q);
+}
 
 /* ---- capture -------------------------------------------------------------------------------- */
 static int capture(buf_t *b) {
@@ -444,10 +481,28 @@ static void start(void *(*fn)(void *), job_t *j) {
     pthread_detach(t);
 }
 
+static void slot_note(int k) {
+    char path[1100], msg[256], when[32] = "";
+    snprintf(path, sizeof path, "%s/slot%02d.ff7s", g_dir, k);
+    ss_header h;
+    FILE *f = fopen(path, "rb");
+    int ok = f && fread(&h, sizeof h, 1, f) == 1 && !memcmp(h.magic, SS_MAGIC, 8) && h.version == SS_VERSION;
+    if (f) fclose(f);
+    if (!ok) { snprintf(msg, sizeof msg, "Slot %d: %s", k, f ? "from an older version" : "empty"); notify(msg); return; }
+    time_t t = (time_t)h.saved_at;
+    struct tm tm;
+    localtime_r(&t, &tm);
+    strftime(when, sizeof when, "%d %b %H:%M", &tm);
+    snprintf(msg, sizeof msg, "Slot %d: %s - %u:%02u:%02u - saved %s", k, h.location[0] ? h.location : "?",
+             h.play_seconds / 3600, h.play_seconds / 60 % 60, h.play_seconds % 60, when);
+    notify(msg);
+}
+
 void ff7_savestate_request(int load, const char *slot) {
     pthread_mutex_lock(&g_lock);
     if (g_busy) { pthread_mutex_unlock(&g_lock); notify("A save or load is still working"); return; }
     g_busy = 1;
+    slots_init();
     snprintf(g_slot, sizeof g_slot, "%s", slot ? slot : "quick");
     if (!load) { g_want_save = 1; pthread_mutex_unlock(&g_lock); return; }
     pthread_mutex_unlock(&g_lock);
@@ -457,16 +512,25 @@ void ff7_savestate_request(int load, const char *slot) {
     start(load_worker, j);
 }
 
-/* Buttons: Select+L1 save, Select+R1 load (XInput BACK 0x20, LB 0x100, RB 0x200). */
+/* Buttons: Select+L1 save, Select+R1 load, Select+Left / Select+Right the previous / next slot
+ * (XInput BACK 0x20, LB 0x100, RB 0x200, DPAD_LEFT 0x4, DPAD_RIGHT 0x8). */
 extern int ff7_platform_pad_buttons(void);
 static void poll_buttons(void) {
     static int prev;
     int b = ff7_platform_pad_buttons();
-    int save = (b & 0x0120) == 0x0120, load = (b & 0x0220) == 0x0220;
-    int prev_save = (prev & 0x0120) == 0x0120, prev_load = (prev & 0x0220) == 0x0220;
+    int pressed = b & ~prev;
     prev = b;
-    if (save && !prev_save) ff7_savestate_request(0, "quick");
-    else if (load && !prev_load) ff7_savestate_request(1, "quick");
+    if (!(b & 0x0020)) return;
+    slots_init();
+    if (pressed & 0x0100) ff7_savestate_request(0, "current");
+    else if (pressed & 0x0200) ff7_savestate_request(1, "current");
+    else if (pressed & (0x0004 | 0x0008)) {
+        g_cur += (pressed & 0x0008) ? 1 : -1;
+        if (g_cur < 1) g_cur = SS_SLOTS;
+        if (g_cur > SS_SLOTS) g_cur = 1;
+        save_current();
+        slot_note(g_cur);
+    }
 }
 
 /* Tests and scripts: <files>/savestates/cmd holding "save <slot>" or "load <slot>" is done
@@ -525,7 +589,8 @@ void ff7_savestate_frame(void) {
         j->h.saved_at = (int64_t)time(NULL);
         j->h.mode = ff7_ss_driver_mode();
         j->h.raw_size = (uint32_t)b.n;
-        snprintf(j->h.label, sizeof j->h.label, "%s", g_slot);
+        snprintf(j->h.label, sizeof j->h.label, "slot%d", slot_number(g_slot));
+        ff7_ss_location(j->h.location, sizeof j->h.location, &j->h.play_seconds);
         slot_path(g_slot, j->path, sizeof j->path);
         j->raw = b.p; j->n = b.n;
         notify("Saving state...");

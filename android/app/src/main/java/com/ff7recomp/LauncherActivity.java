@@ -37,6 +37,7 @@ public class LauncherActivity extends Activity {
 
     private GameInstall install;
     private ModLibrary library;
+    private SaveStates states;
     private SharedPreferences prefs;
     private FrameLayout content;
     private TextView status;
@@ -71,6 +72,7 @@ public class LauncherActivity extends Activity {
         side.addView(playButton, new LinearLayout.LayoutParams(dp(280), dp(72)));
         side.addView(space(16));
         side.addView(button("Mods", v -> show("mods")), navParams());
+        side.addView(button("Save states", v -> show("states")), navParams());
         side.addView(button("Settings", v -> show("settings")), navParams());
         side.addView(button("Game files", v -> show("game")), navParams());
         root.addView(side, new LinearLayout.LayoutParams(dp(300), ViewGroup.LayoutParams.MATCH_PARENT));
@@ -107,6 +109,7 @@ public class LauncherActivity extends Activity {
         content.removeAllViews();
         switch (page) {
             case "settings": content.addView(settingsPage()); break;
+            case "states": content.addView(statesPage()); break;
             case "game": content.addView(gamePage()); break;
             default: content.addView(modsPage()); break;
         }
@@ -242,7 +245,7 @@ public class LauncherActivity extends Activity {
             { "", "Normal", "Credits, title screen and opening movie, as the game plays them" },
             { "newgame", "Straight into a new game", "Skips the credits, picks New Game and skips the opening movie" },
             { "continue", "Continue straight away", "Skips the credits and loads the first save of the first save file" },
-            { "resume", "Resume the save state", "Loads the quick save state (Select+L1 saves it in game) as soon as the game starts" },
+            { "resume", "Resume the current save-state slot", "Starts the game at the moment saved in the current slot (see Save states)" },
         };
         String curStart = prefs.getString("quickboot", "");
         for (String[] s : starts) {
@@ -259,8 +262,8 @@ public class LauncherActivity extends Activity {
         col.addView(st);
         col.addView(text("Any button stops the automatic start.", 14, DIM));
         col.addView(space(16));
-        col.addView(text("In game: press Start during a movie to skip it. Select+L1 saves the game's whole state, "
-                + "Select+R1 loads it back.", 14, DIM));
+        col.addView(text("In game: press Start during a movie to skip it. Select+L1 / Select+R1 save and load the game's whole state, "
+                + "Select+Left / Right change the slot.", 14, DIM));
         return scroll(col);
     }
 
@@ -342,7 +345,50 @@ public class LauncherActivity extends Activity {
         });
     }
 
-    private void play() {
+    // ------------------------------------------------------------------- save states
+    private View statesPage() {
+        if (states == null) states = new SaveStates(install.files);
+        LinearLayout col = column();
+        col.addView(heading("Save states"));
+        col.addView(text("In game: Select+L1 saves to the current slot, Select+R1 loads it, Select+Left / Right "
+                + "picks another slot. \"Play from here\" starts the game at that moment.", 14, DIM));
+        int cur = states.current();
+        for (int n = 1; n <= SaveStates.SLOTS; n++) {
+            SaveStates.Slot sl = states.read(n);
+            LinearLayout r = row();
+            r.setPadding(0, dp(6), 0, dp(6));
+            LinearLayout info = column();
+            info.addView(text("Slot " + n + (n == cur ? "  (current)" : ""), 18, TEXT));
+            String sub;
+            if (!sl.exists) sub = "Empty";
+            else if (!sl.readable) sub = "From an older version of the app (cannot be loaded)";
+            else sub = (sl.location.isEmpty() ? "?" : sl.location) + "  ·  " + sl.playTime() + "  ·  saved " + sl.when;
+            info.addView(text(sub, 13, DIM));
+            r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            final int k = n;
+            if (sl.readable && install.hasGame()) r.addView(small("Play from here", v -> playFrom(k)));
+            if (n != cur) r.addView(small("Make current", v -> {
+                try { states.setCurrent(k); } catch (Exception e) { toastDialog("Could not set the slot: " + e); }
+                refresh();
+            }));
+            if (sl.exists) r.addView(small("Delete", v -> new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setMessage("Delete save state slot " + k + "? This cannot be undone.")
+                    .setPositiveButton("Delete", (d, w) -> { states.delete(k); refresh(); })
+                    .setNegativeButton("Cancel", null)
+                    .show()));
+            col.addView(r);
+        }
+        return scroll(col);
+    }
+
+    /** Play, resuming save-state slot n (this launch only; the Start setting is unchanged). */
+    private void playFrom(int n) {
+        play("resume " + n);
+    }
+
+    private void play() { play(null); }
+
+    private void play(String quickbootOverride) {
         if (busy || !install.hasGame()) return;
         background(() -> {
             progress("Preparing");
@@ -350,7 +396,7 @@ public class LauncherActivity extends Activity {
             library.save();
             install.installRuntime();
             install.writeFfnxToml(prefs.getInt("fps", 3), prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods);
-            install.writeQuickboot(prefs.getString("quickboot", ""));
+            install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)));
             return null;
         });

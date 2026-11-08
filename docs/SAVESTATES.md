@@ -5,28 +5,45 @@ states: mid-battle, mid-scene, in a menu. They are separate from the game's own 
 
 ## Using them
 
+There are 10 slots. The in-game buttons use the *current* slot.
+
 | | Thor buttons | Launcher |
 |---|---|---|
-| Save the quick state | **Select + L1** | |
-| Load the quick state | **Select + R1** | |
-| Start the game at the quick state | | Settings > Start > *Resume the save state* |
+| Save to the current slot | **Select + L1** | |
+| Load the current slot | **Select + R1** | |
+| Pick the previous / next slot | **Select + Left / Right** | *Save states* > Make current |
+| Start the game at a slot | | *Save states* > Play from here |
+| Start every launch at the current slot | | Settings > Start > *Resume the save state* |
+| Delete a slot | | *Save states* > Delete |
 
-- A note on screen says `Saving state...`, then `State saved (26 MB, 0.1 s)`; `State loaded`.
-- Saving pauses the game for about a tenth of a second; the file is written in the
-  background. Loading takes effect at the next frame the game can be swapped at -- usually the
-  next one; during a loading screen or transition it waits for the game's own frame loop (up
-  to 10 s) and then says why it could not.
-- *Resume the save state* loads it about 1.5 s after the app starts (no credits, title or
-  opening). Without a state it starts a new game instead.
-- The game does not see Select+L1 / Select+R1 (they are taken for save states).
+- Picking a slot shows what it holds, e.g. `Slot 2: md1stin - 0:00:07 - saved 08 Nov 00:54`
+  (where, the game's play time, when), or `Slot 3: empty`.
+- Saving shows `Saving state...`, then `State saved (31 MB, 0.1 s)`. Loading shows `State loaded`.
+- Saving pauses the game for about a tenth of a second, and the file is written in the
+  background.
+- A load takes effect at the next frame where the game can be swapped, which is usually the
+  next frame. During a loading screen or transition it waits up to 10 s for the game's own
+  frame loop. If it still cannot load, it says why.
+- *Play from here* and *Resume* load the slot about 1.5 s after the app starts, which skips
+  the credits, title and opening. If the slot is empty, a new game starts instead.
+- The launcher's *Save states* page lists every slot with its location, play time and save
+  date.
+- The game does not see Select+L1 / R1 / Left / Right. Those combinations are reserved for
+  save states.
 - Saving is refused while a movie plays and between scenes (`Cannot save now: ...`).
 
-Files: `files/savestates/quick.ff7s` (about 3 MB, deflated), the previous one kept as
-`quick.ff7s.bak`. Save states are game data -- personal and copyrighted like the game itself;
-never share or commit them.
+Files:
+- Slots are `files/savestates/slot01.ff7s` .. `slot10.ff7s`, about 3 MB each (deflated).
+- The previous version of a slot is kept as `slotNN.ff7s.bak`.
+- `current.txt` holds the current slot number.
+- A `quick.ff7s` from before slots existed becomes slot 1.
+- Save states are game data, as personal and copyrighted as the game itself: never share or
+  commit them.
 
-Scripts and tests: `bash tools/ss_cmd.sh save|load [slot]` asks the running game (any slot
-name: `save battle`, `load battle`); `FF7_QUICKBOOT=resume` in env.txt is the launcher option.
+Scripts and tests:
+- `bash tools/ss_cmd.sh save|load [slot]` asks the running game to save or load. The slot can
+  be a number, `current`, or any name (`save battle`).
+- `FF7_QUICKBOOT=resume [N]` in env.txt does the same as the launcher's start options.
 
 ## What has been checked (on the Thor)
 
@@ -34,8 +51,13 @@ name: `save battle`, `load battle`); `FF7_QUICKBOOT=resume` in env.txt is the la
 - Another launch: save, restart the app, load -- 39 texture sets rebuilt, picture right.
 - Another mode: load a field state from the opening credits -- field, widescreen layout and
   field music come back (music 95 -> 2).
-- Battle: save mid-battle, win a turn, load -- both enemies back, the battle plays on with
-  its effects and damage numbers.
+- Battle: save mid-battle, win a turn, then load. Both enemies come back, and the battle plays
+  on with its effects and damage numbers.
+- Slots:
+  - The launcher page lists them (an old v1 slot shows as "from an older version").
+  - *Play from here* opened slot 2 in 16:9.
+  - Select+Right moved to slot 2 and showed its note.
+  - Select+L1 saved there, and Select+R1 loaded it.
 
 ## How it works
 
@@ -56,13 +78,17 @@ name: `save battle`, `load battle`); `FF7_QUICKBOOT=resume` in env.txt is the la
   maps and uploads each palette it had again from the image data in guest memory
   (`common_load_texture`). The music track and FFNx's per-field caches and widescreen layout
   (set on scene entry, which a load skips) are put back too.
-- **Format**: a header (version, build, time, mode) and deflated tagged records. A state from
+- **Format**: a header and deflated tagged records. The header (version 2, 216 bytes) holds the
+  version, build, time, mode, label, location and play time. The launcher reads it in
+  `SaveStates.java`. A state from
   another build loads with a note; one whose layout differs is refused before anything is
   touched.
 
 ## Not done yet
 
-- One quick slot (+ named slots through `ss_cmd.sh`); no slot menu, thumbnails or undo.
+- No thumbnails or undo.
+- The location is the field's internal name (`md1stin`) until the game sets its own location
+  text.
 - Checked in fields and battles; world map, menus and the minigames are untested.
 - Mid-effect battle states: FFNx keeps per-effect interpolation state on the host side; a load
   in the middle of a spell may show its first frames oddly.
