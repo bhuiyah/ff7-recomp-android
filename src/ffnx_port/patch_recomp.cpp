@@ -18,6 +18,7 @@
 #include <vector>
 #include "patch.h"
 #include "log.h"
+#include "cfg.h"
 
 namespace {
 
@@ -111,6 +112,75 @@ void note_code_write(uint32_t offset, uint32_t size, const char *what) {
     std::lock_guard<std::mutex> lk(g_lock);
     if (in_text(offset)) g_code_writes.push_back({ what, offset, size });
     else g_data_writes++;
+}
+
+// ------------------------------------------------------------------ per-frame stepping
+namespace {
+struct variant_rec { uint32_t offset, size; uint8_t bytes[8]; };
+struct step_rec {
+    uint32_t offset, size;
+    bool alternate;
+    long long numer; int denom;        // fraction: numer/denom per frame
+    uint8_t even[8], odd[8];           // alternate: bytes on even / odd frames
+};
+std::vector<variant_rec> g_variants;
+std::vector<step_rec> g_steps;
+uint64_t g_step_frame;
+
+long long floor_div(long long a, long long b) { long long q = a / b; return (a % b != 0 && ((a < 0) != (b < 0))) ? q - 1 : q; }
+void put_le(uint8_t *out, long long v, uint32_t size) { for (uint32_t i = 0; i < size; i++) out[i] = (uint8_t)(v >> (8 * i)); }
+}  // namespace
+
+bool fractional_steps() { return ff7_fps_limiter >= FPS_LIMITER_120FPS; }
+
+void declare_code_variant(uint32_t offset, const void *bytes, uint32_t size) {
+    if (!in_text(offset) || size > 8) return;
+    std::lock_guard<std::mutex> lk(g_lock);
+    variant_rec v{ offset, size, {} };
+    std::memcpy(v.bytes, bytes, size);
+    for (const variant_rec &o : g_variants)
+        if (o.offset == offset && o.size == size && !std::memcmp(o.bytes, v.bytes, size)) return;
+    g_variants.push_back(v);
+}
+
+void step_fraction(uint32_t offset, uint32_t size, long long numer, int denom, const char *what) {
+    if (size > 8 || denom <= 0) return;
+    note_code_write(offset, size, what);
+    step_rec s{ offset, size, false, numer, denom, {}, {} };
+    long long q = floor_div(numer, denom);
+    uint8_t b[8];
+    put_le(b, q, size); declare_code_variant(offset, b, size);
+    put_le(b, q + 1, size); declare_code_variant(offset, b, size);
+    put_le(b, q, size); std::memcpy((void *)(uintptr_t)offset, b, size);
+    std::lock_guard<std::mutex> lk(g_lock);
+    g_steps.push_back(s);
+}
+
+void step_alternate(uint32_t offset, const void *even, const void *odd, uint32_t size) {
+    if (size > 8) return;
+    note_code_write(offset, size, "step_alternate");
+    declare_code_variant(offset, even, size);
+    declare_code_variant(offset, odd, size);
+    step_rec s{ offset, size, true, 0, 1, {}, {} };
+    std::memcpy(s.even, even, size);
+    std::memcpy(s.odd, odd, size);
+    std::memcpy((void *)(uintptr_t)offset, even, size);
+    std::lock_guard<std::mutex> lk(g_lock);
+    g_steps.push_back(s);
+}
+
+void step_code() {
+    std::lock_guard<std::mutex> lk(g_lock);
+    const uint64_t k = g_step_frame++;
+    for (const step_rec &s : g_steps) {
+        uint8_t *p = (uint8_t *)(uintptr_t)s.offset;
+        if (s.alternate) { std::memcpy(p, (k & 1) ? s.odd : s.even, s.size); continue; }
+        // The step for tick k: floor((k+1)n/d) - floor(kn/d); k cycles over d ticks.
+        const long long kk = (long long)(k % (uint64_t)s.denom);
+        uint8_t b[8];
+        put_le(b, floor_div((kk + 1) * s.numer, s.denom) - floor_div(kk * s.numer, s.denom), s.size);
+        std::memcpy(p, b, s.size);
+    }
 }
 
 }  // namespace ffnx_recomp
@@ -211,6 +281,13 @@ extern "C" int ffnx_recomp_write_manifest(const char *path) {
         std::fprintf(f, "  {\"kind\": \"%s\", \"offset\": \"0x%08X\", \"bytes\": \"", w.what, w.offset);
         for (uint32_t b = 0; b < w.size; b++) std::fprintf(f, "%02X", ((uint8_t *)(uintptr_t)w.offset)[b]);
         std::fprintf(f, "\"}%s\n", i + 1 < g_code_writes.size() ? "," : "");
+    }
+    std::fprintf(f, " ],\n \"code_variants\": [\n");
+    for (size_t i = 0; i < ffnx_recomp::g_variants.size(); i++) {
+        const ffnx_recomp::variant_rec &v = ffnx_recomp::g_variants[i];
+        std::fprintf(f, "  {\"offset\": \"0x%08X\", \"bytes\": \"", v.offset);
+        for (uint32_t b = 0; b < v.size; b++) std::fprintf(f, "%02X", v.bytes[b]);
+        std::fprintf(f, "\"}%s\n", i + 1 < ffnx_recomp::g_variants.size() ? "," : "");
     }
     std::fprintf(f, " ],\n \"data_writes\": %u\n}\n", g_data_writes);
     std::fclose(f);

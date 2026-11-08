@@ -127,22 +127,7 @@ def manifest_patches(manifest_paths, img, base, md, fds):
             return ins
         return None
 
-    for path in manifest_paths:
-        m = json.load(open(path))
-        overlay, dyn, struct = {}, set(), set()
-        for w in m.get("code_writes", []):
-            off = int(w["offset"], 16)
-            data = bytes.fromhex(w["bytes"])
-            for k, b in enumerate(data):
-                overlay[off + k] = b
-            if w["kind"] in DWORD_VALUE_KINDS and len(data) == 4:
-                patch_sites.add(off)
-                dyn.update(range(off, off + 4))
-            elif w["kind"] == "replace_call_function" and len(data) == 5:
-                struct.add(off)                      # the E8; its rel32 is the hook's business
-                dyn.update(range(off + 1, off + 5))
-            else:
-                struct.update(range(off, off + len(data)))
+    def add_regions(overlay, struct, dyn):
         orig = lambda a: img[a - base]
         patched = lambda a: overlay.get(a, img[a - base])
         todo = sorted(struct)
@@ -186,6 +171,34 @@ def manifest_patches(manifest_paths, img, base, md, fds):
             lst = variants.setdefault(s, [])
             if not any(x["bytes"] == pbytes and x["mask"] == mask and x["end"] == e for x in lst):
                 lst.append(v)
+
+    for path in manifest_paths:
+        m = json.load(open(path))
+        overlay, dyn, struct = {}, set(), set()
+        for w in m.get("code_writes", []):
+            off = int(w["offset"], 16)
+            data = bytes.fromhex(w["bytes"])
+            for k, b in enumerate(data):
+                overlay[off + k] = b
+            if w["kind"] in DWORD_VALUE_KINDS and len(data) == 4:
+                patch_sites.add(off)
+                dyn.update(range(off, off + 4))
+            elif w["kind"] == "replace_call_function" and len(data) == 5:
+                struct.add(off)                      # the E8; its rel32 is the hook's business
+                dyn.update(range(off + 1, off + 5))
+            else:
+                struct.update(range(off, off + len(data)))
+        add_regions(overlay, struct, dyn)
+        # Per-frame stepped values (patch_recomp.cpp step_fraction / step_alternate): each
+        # value a site can hold, lifted as the manifest's patched code plus that one write.
+        for cv in m.get("code_variants", []):
+            off = int(cv["offset"], 16)
+            data = bytes.fromhex(cv["bytes"])
+            ov = dict(overlay)
+            for k, b in enumerate(data):
+                ov[off + k] = b
+            add_regions(ov, set(range(off, off + len(data))), dyn)
+
     nv = sum(len(v) for v in variants.values())
     print(f"[*] FFNx manifests: {len(patch_sites)} live dword operands, {nv} patched-code variants at {len(variants)} sites")
     return patch_sites, variants

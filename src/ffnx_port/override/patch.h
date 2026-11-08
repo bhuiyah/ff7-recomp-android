@@ -19,6 +19,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <type_traits>
 #include <windows.h>
 #include "ffnx_guest.h"
 
@@ -83,6 +84,18 @@ void memset_code(uint32_t offset, uint32_t val, uint32_t size);
 namespace ffnx_recomp {
 void note_code_write(uint32_t offset, uint32_t size, const char *what);
 void note_divide_floor(uint32_t offset, int before, int divisor, int kept);
+
+// FF7Recomp: per-frame code stepping (the 120 FPS mode, where battle runs 8 ticks per
+// original one). A per-frame step with no whole value at the frame multiplier (6/8 per tick)
+// is rewritten every frame to floor or floor+1 so that it adds up exactly; a choice between two
+// instructions of the same length alternates frame by frame. Every value a site can take is
+// declared in the re-lift manifest ("code_variants"), so the lifted code has each one and picks
+// it by the bytes in memory.
+bool fractional_steps();      // on in the 120 FPS mode
+void declare_code_variant(uint32_t offset, const void *bytes, uint32_t size);
+void step_fraction(uint32_t offset, uint32_t size, long long numer, int denom, const char *what);
+void step_alternate(uint32_t offset, const void *even, const void *odd, uint32_t size);
+void step_code();             // once per game frame (ff7_limit_fps)
 }
 
 template <typename T>
@@ -93,8 +106,16 @@ void patch_multiply_code(uint32_t offset, int multiplier) {
 
 template <typename T>
 void patch_divide_code(uint32_t offset, int multiplier) {
-    ffnx_recomp::note_code_write(offset, sizeof(T), "patch_divide_code");
     const T before = *(T *)(uintptr_t)offset;
+    if constexpr (std::is_integral_v<T>) {
+        // FF7Recomp: an inexact quotient is stepped (floor / floor+1 per frame) in the
+        // 120 FPS mode instead of truncated.
+        if (ffnx_recomp::fractional_steps() && before % (T)multiplier != 0) {
+            ffnx_recomp::step_fraction(offset, sizeof(T), (long long)before, multiplier, "patch_divide_code");
+            return;
+        }
+    }
+    ffnx_recomp::note_code_write(offset, sizeof(T), "patch_divide_code");
     T after = before / (T)multiplier;
     // FF7Recomp: a per-frame step divided past zero freezes what it steps (a text box at x4
     // in the 120 FPS mode). Keep the smallest step instead, and name the site: those want

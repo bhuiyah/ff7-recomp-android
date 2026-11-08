@@ -197,8 +197,7 @@ EDITS = [
     # 120 FPS mode (ff7_fps_limiter = 4) for 120 Hz screens such as the Thor's: field and
     # world map run 4 game ticks per original one (30 -> 120 FPS) through FFNx's own 60 FPS
     # machinery, whose shift-count patches (m/2 standing for log2 m) stay exact at x4.
-    # Battle (x4 of its native 15), swirl, menus and minigames keep their 60 FPS settings:
-    # battle at x8 needs FFNx's battle maths reworked first.
+    # Battle runs x8 (below); swirl, menus and minigames keep their 60 FPS settings.
     ('cfg.h', '#define FPS_LIMITER_60FPS 3\n',
      '#define FPS_LIMITER_60FPS 3\n#define FPS_LIMITER_120FPS 4   // FF7Recomp: field/world at 120, the rest as 60\n'),
     ('cfg.cpp', '\telse if (ff7_fps_limiter > FPS_LIMITER_60FPS) ff7_fps_limiter = FPS_LIMITER_60FPS;',
@@ -209,6 +208,89 @@ EDITS = [
      '\t\tswitch (mode->driver_mode)\n\t\t{\n\t\tcase MODE_FIELD:\n\t\tcase MODE_WORLDMAP:\n'
      '\t\t\tframerate = 30.0f * common_frame_multiplier;   // FF7Recomp: 60, or 120 in the 120 FPS mode\n'
      '\t\t\tbreak;\n\t\tcase MODE_BATTLE:'),
+    # 120 FPS battles (docs/ROADMAP.md M5b): battle runs 8 ticks per original 15 FPS one.
+    # FFNx's battle maths is written for x2/x4; at x8:
+    #   - inexact per-frame steps (6/8) are stepped frame by frame (patch.h patch_divide_code,
+    #     ffnx_recomp::step_fraction), including the battle menu's sub-step count (4/8);
+    #   - shift counts written as `c -/+ m/2` (m/2 standing for log2 m) use log2 m;
+    #   - 0x5BD22A/0x5BD251 `shl reg, 2` would need a shift of -1 (x0.5): they alternate
+    #     between `shl reg, 0` (x1) and `and reg, 0` (x0), both 3 bytes;
+    #   - the battle-enter camera wait (a byte the game counts down) would overflow at 61*8:
+    #     it keeps the x4 count and its decrement alternates 1 / 0;
+    #   - a summon wait multiplied as a byte is a 16-bit immediate: multiplied as a word;
+    #   - display-damage bounce: a 120 FPS table; integer index maths reworked.
+    ('ff7_opengl.cpp', '\t\t\tbattle_frame_multiplier = (ff7_fps_limiter == FPS_LIMITER_30FPS) ? 2 : 4;\n',
+     '\t\t\tbattle_frame_multiplier = (ff7_fps_limiter == FPS_LIMITER_30FPS) ? 2 : (ff7_fps_limiter >= FPS_LIMITER_120FPS ? 8 : 4);   // FF7Recomp: 120 FPS battles\n'),
+    ('ff7/misc.cpp', '\t\t\tbreak;\n\t\tcase MODE_BATTLE:\n\t\tcase MODE_SWIRL:',
+     '\t\t\tbreak;\n\t\tcase MODE_BATTLE:\n'
+     '\t\t\tframerate = 15.0f * battle_frame_multiplier;   // FF7Recomp: 60, or 120 in the 120 FPS mode\n'
+     '\t\t\tbreak;\n\t\tcase MODE_SWIRL:'),
+    ('ff7/misc.cpp', 'void ff7_limit_fps()\n{\n\tstatic time_t last_gametime;\n',
+     'namespace ffnx_recomp { void step_code(); }   // FF7Recomp: src/ffnx_port/patch_recomp.cpp\n\n'
+     'void ff7_limit_fps()\n{\n\tffnx_recomp::step_code();   // FF7Recomp: per-frame stepped code values (120 FPS mode)\n'
+     '\tstatic time_t last_gametime;\n'),
+    ('ff7/battle/animations.cpp', '    WORD &ff7_odin_steel_frames_AEEC14 = ffnx_guest_static<WORD>();\n',
+     '    WORD &ff7_odin_steel_frames_AEEC14 = ffnx_guest_static<WORD>();\n'
+     '    // FF7Recomp: 120 FPS battles; the 60 FPS bounce with every entry held for two frames.\n'
+     '    static const byte y_pos_offset_display_damage_120_init[] = {0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, '
+     '7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 4, 4, 4, 3, 3, 2, 2, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0};\n'
+     '    auto &y_pos_offset_display_damage_120 = ffnx_guest_static_copy(y_pos_offset_display_damage_120_init);\n'
+     '    static int ffnx_frame_shift(int m) { int s = 0; while (m > 1) { m >>= 1; s++; } return s; }   // log2\n'),
+    ('ff7/battle/animations.cpp', 'int index = ((fn_data.n_frames * (4 / battle_frame_multiplier)) % offset_z_position.size());',
+     'int index = ((fn_data.n_frames * 4 / battle_frame_multiplier) % offset_z_position.size());   // FF7Recomp: exact at x8'),
+    ('ff7/battle/animations.cpp',
+     '        int shiftValue = 2 - battle_frame_multiplier / 2;\n'
+     '        return ((int)*ff7_externals.field_byte_DC0E11 >> shiftValue) + 4 * battle_frame_multiplier;',
+     '        // FF7Recomp: x * m / 4 (the shift `2 - m/2` goes negative at x8)\n'
+     '        return ((int)*ff7_externals.field_byte_DC0E11 * battle_frame_multiplier / 4) + 4 * battle_frame_multiplier;'),
+    ('ff7/battle/animations.cpp',
+     '        else if(battle_frame_multiplier == 4)\n        {\n'
+     '            patch_code_dword(ff7_externals.display_battle_damage_5BB410 + 0x1E2, ffnx_guest_va(y_pos_offset_display_damage_60));\n'
+     '            patch_code_dword(ff7_externals.display_battle_damage_5BB410 + 0x2D7, ffnx_guest_va(y_pos_offset_display_damage_60));\n'
+     '        }\n',
+     '        else if(battle_frame_multiplier == 4)\n        {\n'
+     '            patch_code_dword(ff7_externals.display_battle_damage_5BB410 + 0x1E2, ffnx_guest_va(y_pos_offset_display_damage_60));\n'
+     '            patch_code_dword(ff7_externals.display_battle_damage_5BB410 + 0x2D7, ffnx_guest_va(y_pos_offset_display_damage_60));\n'
+     '        }\n'
+     '        else if(battle_frame_multiplier == 8)   // FF7Recomp: 120 FPS battles\n        {\n'
+     '            patch_code_dword(ff7_externals.display_battle_damage_5BB410 + 0x1E2, ffnx_guest_va(y_pos_offset_display_damage_120));\n'
+     '            patch_code_dword(ff7_externals.display_battle_damage_5BB410 + 0x2D7, ffnx_guest_va(y_pos_offset_display_damage_120));\n'
+     '        }\n'),
+    ('ff7/battle/animations.cpp', ' - battle_frame_multiplier / 2)', ' - ffnx_frame_shift(battle_frame_multiplier))', 'all'),
+    ('ff7/battle/animations.cpp', ' + battle_frame_multiplier / 2)', ' + ffnx_frame_shift(battle_frame_multiplier))', 'all'),
+    ('ff7/battle/animations.cpp',
+     '        patch_code_byte(ff7_externals.battle_sub_5BD050 + 0x1DC, 0x2 - ffnx_frame_shift(battle_frame_multiplier));\n'
+     '        patch_code_byte(ff7_externals.battle_sub_5BD050 + 0x203, 0x2 - ffnx_frame_shift(battle_frame_multiplier));\n',
+     '        if (battle_frame_multiplier >= 8)\n        {\n'
+     '            // FF7Recomp: x0.5 per tick = x1 and x0 on alternate ticks\n'
+     '            static const byte shl_edx_0[] = {0xC1, 0xE2, 0x00}, and_edx_0[] = {0x83, 0xE2, 0x00};\n'
+     '            static const byte shl_eax_0[] = {0xC1, 0xE0, 0x00}, and_eax_0[] = {0x83, 0xE0, 0x00};\n'
+     '            ffnx_recomp::step_alternate(ff7_externals.battle_sub_5BD050 + 0x1DA, shl_edx_0, and_edx_0, 3);\n'
+     '            ffnx_recomp::step_alternate(ff7_externals.battle_sub_5BD050 + 0x201, shl_eax_0, and_eax_0, 3);\n'
+     '        }\n        else\n        {\n'
+     '            patch_code_byte(ff7_externals.battle_sub_5BD050 + 0x1DC, 0x2 - ffnx_frame_shift(battle_frame_multiplier));\n'
+     '            patch_code_byte(ff7_externals.battle_sub_5BD050 + 0x203, 0x2 - ffnx_frame_shift(battle_frame_multiplier));\n'
+     '        }\n'),
+    ('ff7/battle/animations.cpp',
+     '        patch_multiply_code<byte>(ff7_externals.run_summon_animations_5C0E4B + 0x15B, battle_frame_multiplier);\n',
+     '        if (battle_frame_multiplier >= 8)   // FF7Recomp: a 16-bit immediate (45 * 8 > 255)\n'
+     '            patch_multiply_code<WORD>(ff7_externals.run_summon_animations_5C0E4B + 0x15B, battle_frame_multiplier);\n'
+     '        else\n'
+     '            patch_multiply_code<byte>(ff7_externals.run_summon_animations_5C0E4B + 0x15B, battle_frame_multiplier);\n'),
+    ('ff7/battle/camera.cpp',
+     '        patch_multiply_code<byte>(ff7_externals.battle_sub_429AC0 + 0x152, battle_frame_multiplier);\n'
+     '        patch_multiply_code<byte>(ff7_externals.battle_sub_429D8A + 0x1D8, battle_frame_multiplier);\n',
+     '        if (battle_frame_multiplier >= 8)\n        {\n'
+     '            // FF7Recomp: the battle-enter wait is a byte (61 * 8 > 255): keep the x4 count and\n'
+     '            // count it down every other tick (battle_sub_42D992: sub cl, 1).\n'
+     '            patch_multiply_code<byte>(ff7_externals.battle_sub_429AC0 + 0x152, battle_frame_multiplier / 2);\n'
+     '            patch_multiply_code<byte>(ff7_externals.battle_sub_429D8A + 0x1D8, battle_frame_multiplier / 2);\n'
+     '            static const byte one = 1, zero = 0;\n'
+     '            ffnx_recomp::step_alternate(ff7_externals.battle_sub_42D992 + 0x1B, &one, &zero, 1);\n'
+     '        }\n        else\n        {\n'
+     '            patch_multiply_code<byte>(ff7_externals.battle_sub_429AC0 + 0x152, battle_frame_multiplier);\n'
+     '            patch_multiply_code<byte>(ff7_externals.battle_sub_429D8A + 0x1D8, battle_frame_multiplier);\n'
+     '        }\n'),
     # One-button movie skip on the Thor: Start while an FMV plays (FFNx's own skipMovies,
     # with its exclusions for scenes that must not be skipped). FFNx's L3-then-Square
     # shortcut stays as well.

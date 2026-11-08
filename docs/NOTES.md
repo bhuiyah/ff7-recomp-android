@@ -164,3 +164,8 @@
   each frame-rate mode with aspect 0 and 2 (ffnx_manifest_l{n}[_ar2].json). Needs the Thor to
   collect the widescreen manifests and re-lift.
 - 120 FPS battles: not feasible as constant patches. See ROADMAP M5b; mode 4 keeps battles at 60.
+- 120 FPS battles implemented (ROADMAP M5b): battle multiplier 8 in mode 4, with per-frame
+  code stepping for the inexact steps (patch_recomp.cpp step_fraction/step_alternate, manifest
+  "code_variants" lifted by run_lift.py). Refactored run_lift's manifest handling gives the
+  same 384 variants at 240 sites on the existing manifests. APK builds. Needs the mode-4
+  manifest from the Thor, a re-lift and a side-by-side check against 60 FPS.

@@ -51,20 +51,26 @@ Order:
 5. Launcher: import IROs through the Android file picker (scoped storage) into app storage,
    later the Qhimm catalog; each mod shows a status: works / runs interpreted / unsupported.
 
-## M5b: 120 FPS battles (not started; needs code rewrites)
-Mode 4 runs field and world at 120 FPS and battles at 60 (battle multiplier 4). Battles at
-120 need multiplier 8. Comparing FFNx's battle patches at x2 and x4 (analysis/ffnx_manifests,
-136 differing sites) shows that x8 cannot be reached by patching constants alone:
-- 10 shift counts go down by one with each doubling (`2 - m/2`, `0x9 - m/2`, ...). At x4,
-  0x5BD22C and 0x5BD253 are already 0, so x8 would need a shift of -1. Each of these
-  functions has to be replaced (multiply instead of shift).
-- 2 byte multiplies overflow past 255 at x8.
-- divides that reach 1 at x4 (0x42EDF5, 0x5D66F9) would reach 0 at x8, which the clamp turns
-  back into 1 (wrong speed).
-- the display-damage y-offset tables exist only for 30 and 60 FPS; a 120 table is needed.
-- index maths such as `4 / battle_frame_multiplier` evaluates to 0 at x8.
+## M5b: 120 FPS battles (implemented; needs the Thor to verify)
+Mode 4 runs battles at 120 FPS (battle multiplier 8). FFNx's battle maths is written for
+x2/x4. Comparing its battle patches at x2 and x4 (analysis/ffnx_manifests) showed what breaks
+at x8; each case is handled in tools/ffnx_edit_android.py and src/ffnx_port:
+- inexact per-frame steps (6/8, the battle menu's 4/8 sub-step count, ...): stepped every
+  frame to floor or floor+1 so that they add up exactly (patch.h patch_divide_code ->
+  ffnx_recomp::step_fraction, ticked from ff7_limit_fps). The values a site can hold go to
+  the manifest as "code_variants", and run_lift.py lifts each one.
+- shift counts `c -/+ m/2` use log2 m. 0x5BD22A/0x5BD251 (`shl reg, 2`, a shift of -1 at
+  x8) alternate between `shl reg, 0` and `and reg, 0`.
+- the battle-enter camera wait (byte, 61*8 overflows) keeps the x4 count and its
+  decrement (battle_sub_42D992 + 0x1B) alternates 1 / 0.
+- a summon wait multiplied as a byte is a 16-bit immediate: multiplied as a word at x8.
+- display-damage bounce: a 120 FPS table. Index maths (`4 / m`, the action-string shift)
+  is rewritten.
+- left at FFNx's rounding: `20 / m` in Ifrit's movement, camera divides of script values.
+Needs on the Thor: refresh_manifests.sh with mode 4 (collects the stepped variants), re-lift.
+Until then a stepped site whose bytes have no lifted variant runs its original instruction.
 Exit test: every battle animation runs at the same wall-clock speed at 60 and 120 FPS,
-checked side by side.
+checked side by side (attack, magic, summon, limit, enemy deaths, damage numbers, ATB).
 
 ## M5w: Widescreen (Thor and other 16:9 handhelds)
 The Thor's top screen is 1920x1080 (16:9); FF7 renders 4:3 (pillarboxed today).

@@ -253,7 +253,7 @@ public class LauncherActivity extends Activity {
             case 0: return "The game's own limiter, as shipped";
             case 1: return "Original speeds with FFNx's limiter fixes";
             case 2: return "Battles at 30 instead of 15, the rest original";
-            case 4: return "Field and world map at 120, battles at 60";
+            case 4: return "Field, world map and battles at 120; menus at 60";
             default: return "The whole game at 60 (FFNx's 60 FPS mode)";
         }
     }
