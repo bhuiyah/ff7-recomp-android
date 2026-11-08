@@ -346,3 +346,28 @@
   not a reason to rebuild; a size change still comes as OUT_OF_DATE.
 - Note for later checks: /proc/uptime counts suspend time, SurfaceFlinger's --latency times
   do not; compare frame times with each other, not with uptime.
+
+## 2026-11-08: scenery over text boxes (nmkin_1); float results across the guest bridge
+- Report: in the reactor entrance (nmkin_1, field 120) the stairs, railing and pipes were drawn
+  over every text box. All 400 layer-2 tiles had depth 0.0 (the nearest).
+- Cause: FFNx rebuilds the baked layer-2 depths for fields whose near plane is over 50
+  (ff7/field/field.cpp, field_initialize_background_depths) with the game's
+  field_layer_sub_623C0F, called through the guest bridge. The bridge read a float result as
+  `g_st[g_fp_top & 7]`, but in the lifted x87 model st(0) is always `g_st[0]` (g_fp_top only
+  counts pushes): every float/double a game function returned to FFNx read as a stale slot,
+  usually 0. FFNx's layer 3/4 depths came from the same call. The other direction was wrong too:
+  a native function returning a float to the game wrote a slot instead of pushing.
+  Fix (src/ffnx_bridge/guest_abi.h): results read g_st[0]; native float results use the lifted
+  code's own fp_push_impl.
+- Checked on the Thor: the depth function now returns 0.001 / 0.87 / 0.976 / 0.995 for ids
+  1 / 100 / 500 / 2000; nmkin_1 reloaded has no zero-depth tile and Biggs's box is drawn whole.
+  Fields without the rebuild (station, md1_1) had correct depths with or without the fix.
+- Found on the way: finishing a battle after loading a state aborted ("free of a pointer outside
+  the guest arena"). FFNx's button-prompt list (ff7/universal_buttons.cpp, prompt_resources)
+  is host state pointing at game objects; after a load it still named the old session's
+  objects and the menu reload freed whatever was there now. A third save-state hook
+  ("ffnx-prompts") keeps the list in the state and renews the restored prompt texture sets'
+  host parts (gl_set, atlas texture) after the texture rebuild. States saved before this have
+  no record: the list is cleared, and their prompt objects keep stale host pointers (save again).
+- Note: "quick" in tools/ss_cmd.sh and Select+L1/R1 mean the current numbered slot
+  (savestates/current.txt), not quick.ff7s.

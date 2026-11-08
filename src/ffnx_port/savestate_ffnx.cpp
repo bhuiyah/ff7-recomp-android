@@ -26,6 +26,9 @@
 #include "ff7_savestate.h"
 
 void stop_music_for_channel(int channel);   // music.cpp
+extern "C" uint32_t universal_buttons_ss_count();          // ff7/universal_buttons.cpp
+extern "C" void universal_buttons_ss_get(uint32_t *out);
+extern "C" void universal_buttons_ss_set(const uint32_t *in);
 
 namespace {
 std::set<uint32_t> g_sets;                 // live texture sets (guest addresses)
@@ -153,7 +156,29 @@ void scene_after_load(void *) {
 }
 const ff7_savestate_hook g_scene_hook = { "ffnx-scene", nullptr, scene_save, nullptr, scene_restore, scene_after_load };
 
-struct Register { Register() { ff7_savestate_register(&g_hook); ff7_savestate_register(&g_scene_hook); } } g_register;
+// ---- button prompts: which game objects FFNx swapped the controller-button atlas into ------
+// (ff7/universal_buttons.cpp). Registered after the texture sets: their rebuild comes first.
+std::vector<uint32_t> g_prompts;
+bool g_prompts_have;
+int prompts_save(void *, ff7_ss_writer put, void *buf) {
+    std::vector<uint32_t> v(3 * universal_buttons_ss_count());
+    universal_buttons_ss_get(v.data());
+    return put(buf, v.data(), v.size() * 4);
+}
+void prompts_restore(void *, const void *data, size_t n) {
+    g_prompts.assign(3 * universal_buttons_ss_count(), 0);
+    g_prompts_have = n == g_prompts.size() * 4;
+    if (g_prompts_have) std::memcpy(g_prompts.data(), data, n);
+}
+void prompts_after_load(void *) {
+    universal_buttons_ss_set(g_prompts_have ? g_prompts.data() : nullptr);
+    g_prompts_have = false;
+}
+const ff7_savestate_hook g_prompts_hook = { "ffnx-prompts", nullptr, prompts_save, nullptr, prompts_restore, prompts_after_load };
+
+struct Register {
+    Register() { ff7_savestate_register(&g_hook); ff7_savestate_register(&g_scene_hook); ff7_savestate_register(&g_prompts_hook); }
+} g_register;
 
 }  // namespace
 

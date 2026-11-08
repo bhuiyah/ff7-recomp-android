@@ -143,7 +143,9 @@ inline result call_va(uint32_t va, int n, const uint32_t *words) {
     for (int i = n - 1; i >= 0; i--) PUSH32(g_esp, words[i]);
     PUSH32(g_esp, RECOMP_RETADDR);
     f();
-    result r{ g_eax, g_edx, g_st[g_fp_top & 7] };
+    // st(0) is g_st[0] in the lifted x87 model (a shifting stack, or with RECOMP_X87_WINDOW a
+    // window whose index 0 is the top); g_fp_top only counts pushes for fnstsw.
+    result r{ g_eax, g_edx, g_st[0] };
     g_eax = s_eax; g_ecx = s_ecx; g_edx = s_edx; g_esp = s_esp;
     g_ebx = s_ebx; g_esi = s_esi; g_edi = s_edi; g_ebp = s_ebp;
     std::memcpy(g_st, s_st, sizeof s_st); g_fp_top = s_top;
@@ -329,7 +331,8 @@ template <typename A> inline A get_arg(uint32_t &off) {
 
 template <typename R> inline void set_result(R v) {
     if constexpr (std::is_pointer_v<R>) g_eax = to_va(v);
-    else if constexpr (std::is_floating_point_v<R>) { g_fp_top = (g_fp_top - 1) & 7; g_st[g_fp_top & 7] = (double)v; }
+    // a float result is pushed on the x87 stack, exactly as lifted code pushes (fld)
+    else if constexpr (std::is_floating_point_v<R>) fp_push_impl(g_st, &g_fp_top, (double)v);
     else if constexpr (std::is_class_v<R>) {
         static_assert(sizeof(R) <= 8, "structs over 8 bytes return through a hidden pointer: not supported");
         uint64_t u = 0; std::memcpy(&u, &v, sizeof(R)); g_eax = (uint32_t)u; g_edx = (uint32_t)(u >> 32);
