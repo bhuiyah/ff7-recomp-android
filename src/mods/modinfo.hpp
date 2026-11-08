@@ -72,6 +72,10 @@ struct ModInfo {
     std::vector<std::pair<std::string, std::string>> ffnx_config;   // key, value (lists joined by ',')
     std::vector<std::pair<std::string, std::string>> variables;     // name, value
     std::vector<std::string> windows_code;               // LoadLibrary/Assembly/Plugin/Programs: unsupported
+    // <Compatibility> <Require ModID="guid">why</Require> <Forbid ModID="guid">why</Forbid>
+    // (Profile.cs Compatibility): other mods this one needs / does not work with.
+    struct CompatRef { std::string mod_id, description; };
+    std::vector<CompatRef> compat_requires, compat_forbids;
 
     // Option values with each option's default, overridden by `chosen`.
     OptionValues values(const OptionValues &chosen) const;

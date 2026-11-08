@@ -194,6 +194,14 @@ bool parse_mod_xml(const std::string &xml, ModInfo &m, std::string &error) {
                 if (!list) v = trim(c.text().get());
                 m.ffnx_config.emplace_back(c.name(), v);
             }
+        } else if (ieq(k, "Compatibility")) {
+            for (pugi::xml_node c : n.children()) {
+                if (c.type() != pugi::node_element) continue;
+                ModInfo::CompatRef r{ lower(trim(c.attribute("ModID").value())), trim(c.text().get()) };
+                if (r.mod_id.empty()) continue;
+                if (ieq(c.name(), "Require")) m.compat_requires.push_back(r);
+                else if (ieq(c.name(), "Forbid")) m.compat_forbids.push_back(r);
+            }
         } else if (ieq(k, "Variable")) {
             m.variables.emplace_back(n.attribute("Name").value(), trim(n.text().get()));
         } else if (ieq(k, "LoadLibrary") || ieq(k, "LoadAssembly") || ieq(k, "LoadPlugin") || ieq(k, "LoadPrograms")) {

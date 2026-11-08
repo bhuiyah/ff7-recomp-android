@@ -182,6 +182,26 @@ public class LauncherActivity extends Activity {
         java.util.List<ModCatalog.Mod> ups = catalog.updates();
         if (!ups.isEmpty()) actions.addView(button("Update all (" + ups.size() + ")", v -> installMods(ups, true)));
         col.addView(actions);
+        // what the enabled mods share (computed in the background: archives are read)
+        ensureConflicts();
+        if (library.enabledCount() > 1) {
+            LinearLayout box = column();
+            box.setPadding(0, dp(8), 0, dp(4));
+            ConflictChecker.Report r = conflictReport;
+            if (r == null || conflictBusy) box.addView(text("Checking which files the enabled mods share…", 14, DIM));
+            if (r != null && r.lines.isEmpty() && !conflictBusy) box.addView(text("✓ No conflicts: the enabled mods replace different game files.", 14, 0xFF80D090));
+            if (r != null && !r.lines.isEmpty()) {
+                String head = (r.problems > 0 ? "⚠ " + r.problems + (r.problems == 1 ? " problem" : " problems") : "")
+                        + (r.problems > 0 && r.overlaps > 0 ? ", " : "")
+                        + (r.overlaps > 0 ? r.overlaps + (r.overlaps == 1 ? " overlap" : " overlaps") + " between mods" : "");
+                box.addView(text(head, 15, r.problems > 0 ? 0xFFFFC060 : 0xFFE0C080));
+                for (int i = 0; i < Math.min(2, r.lines.size()); i++) box.addView(text(r.lines.get(i).text, 13, DIM));
+                LinearLayout b = row();
+                b.addView(small("All details", v -> showConflicts()));
+                box.addView(b);
+            }
+            col.addView(box);
+        }
         if (library.mods.isEmpty()) col.addView(text("\nNo mods yet.", 16, DIM));
         for (int i = 0; i < library.mods.size(); i++) col.addView(modRow(i));
         return scroll(col);
@@ -195,7 +215,7 @@ public class LauncherActivity extends Activity {
         cb.setText(m.title() + (m.version != null && !m.version.isEmpty() ? "  " + m.version : ""));
         cb.setChecked(m.enabled && m.error == null);
         cb.setEnabled(m.error == null);
-        cb.setOnCheckedChangeListener((b, on) -> { m.enabled = on; saveProfile(); });
+        cb.setOnCheckedChangeListener((b, on) -> { m.enabled = on; saveProfile(); ensureConflicts(); });
         LinearLayout info = column();
         info.addView(cb);
         StringBuilder sub = new StringBuilder();
@@ -212,6 +232,8 @@ public class LauncherActivity extends Activity {
         ModCatalog.Mod catMod = fromCat == null ? null : catalog.byId(fromCat.id);
         if (catMod != null && catalog.updateAvailable(catMod))
             info.addView(text("Update available: " + fromCat.versionText + " → " + catMod.versionText, 13, ACCENT));
+        java.util.List<String> notes = conflictReport == null || !m.enabled ? null : conflictReport.perMod.get(m.file.toLowerCase(java.util.Locale.ROOT));
+        if (notes != null) for (int i = 0; i < Math.min(3, notes.size()); i++) info.addView(text("↕ " + notes.get(i), 13, 0xFFE0C080));
         // the mod's details, then its buttons on a line of their own (side by side, the
         // buttons left the details no width)
         LinearLayout whole = column();
@@ -226,6 +248,51 @@ public class LauncherActivity extends Activity {
         if (catMod != null) buttons.addView(small("Info", v -> modPage(catMod)));
         whole.addView(buttons);
         return whole;
+    }
+
+    // ---- conflicts between the enabled mods (ConflictChecker.report, src/mods) ------------------
+    private ConflictChecker.Report conflictReport;
+    private String conflictKey = "", conflictWanted = "";
+    private boolean conflictBusy;
+
+    /** Recompute when the profile or a mod file changed (a background thread; then refresh). */
+    private void ensureConflicts() {
+        StringBuilder k = new StringBuilder().append(library.profile.lastModified());
+        for (ModLibrary.Mod m : library.mods) {
+            if (!m.enabled) continue;
+            File f = new File(library.dir, m.file);
+            k.append('|').append(m.file).append(':').append(f.length()).append(':').append(f.lastModified());
+        }
+        final String key = k.toString();
+        conflictWanted = key;
+        if (key.equals(conflictKey) || conflictBusy) return;
+        conflictBusy = true;
+        new Thread(() -> {
+            org.json.JSONObject j = library.conflicts();
+            ConflictChecker.Report r = ConflictChecker.report(j, catalog);
+            runOnUiThread(() -> {
+                int before = conflictReport == null ? -1 : conflictReport.overlaps + conflictReport.problems;
+                conflictReport = r;
+                conflictKey = key;
+                conflictBusy = false;
+                if (!conflictWanted.equals(key)) { ensureConflicts(); return; }   // changed meanwhile
+                if (before >= 0 && r.overlaps + r.problems > before && !"mods".equals(page))
+                    android.widget.Toast.makeText(this, "Some mods now share files: see Mods", android.widget.Toast.LENGTH_LONG).show();
+                if ("mods".equals(page)) refresh();
+            });
+        }, "mod-conflicts").start();
+    }
+
+    private void showConflicts() {
+        ConflictChecker.Report r = conflictReport;
+        if (r == null) return;
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Mod conflicts")
+                .setView(scroll(warningList(r.lines, "Where two mods replace the same game file, the one higher in the Mods list is used "
+                        + "(use ▲ ▼ to change it). Overlaps are often fine, such as a texture pack over a model pack; "
+                        + "a ⚠ means a mod itself says something is wrong.")))
+                .setPositiveButton("OK", null)
+                .show();
     }
 
     private void options(ModLibrary.Mod m) {
@@ -449,7 +516,7 @@ public class LauncherActivity extends Activity {
         boolean structural = !sig.equals(queueSig);
         boolean installedOne = structural && countDone(sig) > countDone(queueSig);
         queueSig = sig;
-        if (installedOne) { library.load(); catalog.prune(library.dir); }
+        if (installedOne) { library.load(); catalog.prune(library.dir); ensureConflicts(); }
         updateStatus();
         switch (page) {
             case "downloads":
@@ -532,6 +599,15 @@ public class LauncherActivity extends Activity {
             boolean have = rm != null && catalog.installedOf(rm) != null;
             col.addView(text("Needs: " + what + (have ? " (installed)" : rm != null ? " (installed with it)" : " (not in your catalogs)"), 14, have ? DIM : 0xFFFFC060));
         }
+        if (in == null) {
+            java.util.List<ModCatalog.Mod> batch = new java.util.ArrayList<>();
+            addWithRequirements(m, batch, 0);
+            for (ConflictChecker.Warning w : ConflictChecker.beforeInstall(catalog, library, batch))
+                col.addView(text((w.serious ? "⚠ " : "Possible conflict: ") + w.text, 14, w.serious ? 0xFFFFC060 : 0xFFE0C080));
+        } else {
+            java.util.List<String> notes = conflictReport == null ? null : conflictReport.perMod.get(in.file.toLowerCase(java.util.Locale.ROOT));
+            if (notes != null) for (String s : notes) col.addView(text("↕ " + s, 14, 0xFFE0C080));
+        }
         boolean browserOnly = !m.links.isEmpty();
         for (String l : m.links) if (ModDownloader.resolve(l) != null) browserOnly = false;
         if (browserOnly) col.addView(text("\nThis mod is downloaded from a web page: open it, download, then add the file under Mods.", 14, 0xFFFFC060));
@@ -588,12 +664,39 @@ public class LauncherActivity extends Activity {
     private void installMods(java.util.List<ModCatalog.Mod> wanted, boolean update) {
         java.util.List<ModCatalog.Mod> order = new java.util.ArrayList<>();
         for (ModCatalog.Mod m : wanted) addWithRequirements(m, order, 0);
-        int added = 0;
+        java.util.List<ModCatalog.Mod> todo = new java.util.ArrayList<>();
         for (ModCatalog.Mod m : order) {
             ModCatalog.Installed in = catalog.installedOf(m);
             if (in != null && !catalog.updateAvailable(m)) continue;
-            if (queue.add(m, in != null)) added++;
+            if (queue.pending(m) == null) todo.add(m);
         }
+        if (todo.isEmpty()) return;
+        // conflicts with the mods already enabled (and within this batch): ask first
+        java.util.List<ConflictChecker.Warning> warn = ConflictChecker.beforeInstall(catalog, library, todo);
+        if (warn.isEmpty()) { enqueue(todo); return; }
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Possible conflicts")
+                .setView(scroll(warningList(warn, "Catalogs do not list the files inside a mod, so this is a guess from what the mods are. "
+                        + "After the download, the Mods page shows the exact files they share.")))
+                .setPositiveButton(todo.size() == 1 ? "Install anyway" : "Install all anyway", (d, w) -> enqueue(todo))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private LinearLayout warningList(java.util.List<ConflictChecker.Warning> warn, String footer) {
+        LinearLayout col = column();
+        col.setPadding(dp(24), dp(8), dp(24), dp(8));
+        for (ConflictChecker.Warning w : warn) {
+            col.addView(text((w.serious ? "⚠ " : "• ") + w.text, 15, w.serious ? 0xFFFFC060 : TEXT));
+            col.addView(space(8));
+        }
+        if (footer != null) col.addView(text(footer, 13, DIM));
+        return col;
+    }
+
+    private void enqueue(java.util.List<ModCatalog.Mod> todo) {
+        int added = 0;
+        for (ModCatalog.Mod m : todo) if (queue.add(m, catalog.installedOf(m) != null)) added++;
         if (added > 0) {
             android.widget.Toast.makeText(this, added == 1 ? "Added to Downloads" : added + " mods added to Downloads",
                     android.widget.Toast.LENGTH_SHORT).show();

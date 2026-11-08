@@ -2,6 +2,7 @@
 // conditions, profile priority and the game-path mapping. Data from make_test_mods.py.
 // usage: test_mods <dir made by make_test_mods.py>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -92,6 +93,16 @@ int main(int argc, char **argv) {
     CHECK(redirect("direct/field/raw.bin") == "raw contents");
     CHECK(redirect("Music/FIELD/raw.bin") == "raw contents");
     CHECK(redirect("nothere/field/raw.bin") == "<none>");
+    // conflicts: the folder mod (first) and the iro both replace textures/shared.png
+    {
+        char *j = ff7_mods_conflicts_json((dir + "/profile_default.xml").c_str());
+        std::string s = j ? j : "";
+        std::free(j);
+        CHECK(s.find("\"overlaps\":[{\"winner\":") != std::string::npos);
+        CHECK(s.find("textures/shared.png") != std::string::npos);
+        CHECK(s.find("\"forbids\":[]") != std::string::npos);
+    }
+    CHECK(ff7_mods_load((dir + "/profile_default.xml").c_str(), cache.c_str()) == 0);
 
     // ---- profile, Style = 1: alt replaces raw.bin, the conditional folder drops out
     CHECK(ff7_mods_load((dir + "/profile_alt.xml").c_str(), cache.c_str()) == 0);

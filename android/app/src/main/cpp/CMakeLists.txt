@@ -18,6 +18,8 @@ add_library(ff7launcher SHARED
   "${FF7_ROOT}/src/mods/lzs.c"
   "${FF7_ROOT}/src/mods/iro.cpp"
   "${FF7_ROOT}/src/mods/modinfo.cpp"
+  "${FF7_ROOT}/src/mods/mods.cpp"
+  "${FF7_ROOT}/src/mods/runtimevar.cpp"
   "${FF7_DEPS}/lzma/LzmaDec.c"
   "${FF7_DEPS}/pugixml/src/pugixml.cpp")
 target_include_directories(ff7launcher PRIVATE "${FF7_ROOT}/src/mods" "${FF7_DEPS}/lzma" "${FF7_DEPS}/pugixml/src")

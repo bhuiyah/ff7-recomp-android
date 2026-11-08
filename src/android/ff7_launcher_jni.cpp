@@ -7,6 +7,8 @@
 #include <vector>
 #include "iro.hpp"
 #include "modinfo.hpp"
+#include "mods.h"
+#include <cstdlib>
 
 namespace {
 
@@ -77,6 +79,12 @@ std::string mod_json(const std::string &path) {
     j += "],\"ffnx\":[";
     for (size_t i = 0; i < m.ffnx_config.size(); i++)
         j += std::string(i ? "," : "") + "{\"key\":\"" + esc(m.ffnx_config[i].first) + "\",\"value\":\"" + esc(m.ffnx_config[i].second) + "\"}";
+    j += "],\"requires\":[";
+    for (size_t i = 0; i < m.compat_requires.size(); i++)
+        j += std::string(i ? "," : "") + "{\"id\":\"" + esc(m.compat_requires[i].mod_id) + "\",\"why\":\"" + esc(m.compat_requires[i].description) + "\"}";
+    j += "],\"forbids\":[";
+    for (size_t i = 0; i < m.compat_forbids.size(); i++)
+        j += std::string(i ? "," : "") + "{\"id\":\"" + esc(m.compat_forbids[i].mod_id) + "\",\"why\":\"" + esc(m.compat_forbids[i].description) + "\"}";
     j += "],\"unsupported\":[";
     for (size_t i = 0; i < m.windows_code.size(); i++) j += std::string(i ? "," : "") + "\"" + esc(m.windows_code[i]) + "\"";
     j += "]}";
@@ -91,4 +99,16 @@ Java_com_ff7recomp_ModLibrary_nativeModInfo(JNIEnv *env, jclass, jstring jpath) 
     std::string json = mod_json(p);
     env->ReleaseStringUTFChars(jpath, p);
     return env->NewStringUTF(json.c_str());
+}
+
+// The enabled mods of a profile as the game would load them, and where they collide
+// (src/mods/mods.h ff7_mods_conflicts_json).
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_ff7recomp_ModLibrary_nativeConflicts(JNIEnv *env, jclass, jstring jprofile) {
+    const char *p = env->GetStringUTFChars(jprofile, nullptr);
+    char *json = ff7_mods_conflicts_json(p);
+    env->ReleaseStringUTFChars(jprofile, p);
+    jstring r = env->NewStringUTF(json ? json : "{}");
+    std::free(json);
+    return r;
 }

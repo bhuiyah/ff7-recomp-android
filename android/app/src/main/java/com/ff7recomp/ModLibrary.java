@@ -29,6 +29,7 @@ final class ModLibrary {
 
     static { System.loadLibrary("ff7launcher"); }
     private static native String nativeModInfo(String path);
+    private static native String nativeConflicts(String profilePath);
 
     static final class Option {
         String id, name, type, description;
@@ -46,6 +47,9 @@ final class ModLibrary {
         final List<Option> options = new ArrayList<>();
         final List<String> unsupported = new ArrayList<>();
         final List<String[]> ffnx = new ArrayList<>();        // [key, value]
+        String id = "";                                        // mod.xml ID (lower case)
+        final List<String[]> requires = new ArrayList<>();    // <Compatibility>: [mod id, why]
+        final List<String[]> forbids = new ArrayList<>();
         // hext patches as the last game run applied them (mods/hext_status.txt, written by
         // src/host/ff7_hext.cpp); null if the mod had none or the game has not run with it
         String hext;
@@ -163,6 +167,13 @@ final class ModLibrary {
             m.version = j.optString("version");
             m.category = j.optString("category");
             m.description = j.optString("description");
+            m.id = j.optString("id").toLowerCase(Locale.ROOT);
+            JSONArray rq = j.optJSONArray("requires");
+            for (int i = 0; rq != null && i < rq.length(); i++)
+                m.requires.add(new String[] { rq.getJSONObject(i).optString("id"), rq.getJSONObject(i).optString("why") });
+            JSONArray fb = j.optJSONArray("forbids");
+            for (int i = 0; fb != null && i < fb.length(); i++)
+                m.forbids.add(new String[] { fb.getJSONObject(i).optString("id"), fb.getJSONObject(i).optString("why") });
             JSONArray opts = j.optJSONArray("options");
             for (int i = 0; opts != null && i < opts.length(); i++) {
                 JSONObject o = opts.getJSONObject(i);
@@ -187,6 +198,13 @@ final class ModLibrary {
         } catch (Exception ex) {
             m.error = ex.toString();
         }
+    }
+
+    /** The saved profile's enabled mods loaded as the game loads them: the game files two of
+     *  them both replace, and their Compatibility declarations (src/mods ff7_mods_conflicts_json). */
+    JSONObject conflicts() {
+        try { return new JSONObject(nativeConflicts(profile.getAbsolutePath())); }
+        catch (Exception e) { Log.w(TAG, "conflict check failed: " + e); return null; }
     }
 
     void move(int index, int delta) {

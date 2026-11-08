@@ -6,6 +6,9 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
+#include <cstdlib>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -366,6 +369,108 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
     g.map.erase("mod.xml");
     std::fprintf(stderr, "[mods] %zu mod(s), %zu game paths replaced\n", g.mods.size(), g.map.size());
     return 0;
+}
+
+namespace {
+std::string jesc(const std::string &s) {
+    std::string o;
+    for (unsigned char c : s) {
+        if (c == '"' || c == '\\') { o += '\\'; o += (char)c; }
+        else if (c == '\n') o += "\\n";
+        else if (c < 0x20) continue;
+        else o += (char)c;
+    }
+    return o;
+}
+// Files in a mod's active folders that are not game files: its own metadata.
+bool is_game_file(const std::string &key) {
+    if (key == "mod.xml" || key.compare(0, 5, "hext/") == 0 || key.compare(0, 7, "preview") == 0) return false;
+    if (key.find('/') != std::string::npos) return true;
+    static const char *const meta[] = { ".png", ".jpg", ".jpeg", ".gif", ".txt", ".md", ".pdf", ".url", ".html", ".htm" };
+    for (const char *e : meta) {
+        size_t n = std::strlen(e);
+        if (key.size() > n && key.compare(key.size() - n, n, e) == 0) return false;
+    }
+    return true;
+}
+std::string area_of(const std::string &key) {
+    size_t s = key.find('/');
+    return s == std::string::npos ? std::string("(root)") : key.substr(0, s);
+}
+}  // namespace
+
+// The enabled mods of a profile, loaded as the game loads them, and where they collide:
+// game files two mods both replace (the first in the profile wins, as in the game), and the
+// mods' own <Compatibility> declarations. JSON; the caller frees it.
+extern "C" char *ff7_mods_conflicts_json(const char *profile_path) {
+    ff7_mods_load(profile_path, "");
+    std::lock_guard<std::mutex> lk(g.lock);
+    struct Pair { int files = 0; std::map<std::string, int> areas; std::vector<std::string> examples; bool conditional = false; };
+    std::map<std::pair<int, int>, Pair> pairs;               // (winner, loser)
+    for (const auto &kv : g.map) {
+        if (!is_game_file(kv.first) || kv.second.size() < 2) continue;
+        const int w = kv.second[0].mod;
+        std::vector<int> seen{ w };
+        for (size_t i = 1; i < kv.second.size(); i++) {
+            const int l = kv.second[i].mod;
+            if (std::find(seen.begin(), seen.end(), l) != seen.end()) continue;
+            seen.push_back(l);
+            Pair &p = pairs[{ w, l }];
+            p.files++;
+            p.areas[area_of(kv.first)]++;
+            if (p.examples.size() < 6) p.examples.push_back(kv.first);
+            if (kv.second[0].cond && kv.second[0].cond->has_runtime_conditions) p.conditional = true;
+        }
+    }
+    std::string j = "{\"mods\":[";
+    for (size_t i = 0; i < g.mods.size(); i++) {
+        const Mod &m = *g.mods[i];
+        j += std::string(i ? "," : "") + "{\"file\":\"" + jesc(m.name) + "\",\"id\":\"" + jesc(lower(m.info.id)) +
+             "\",\"name\":\"" + jesc(m.info.name.empty() ? m.name : m.info.name) + "\"}";
+    }
+    j += "],\"overlaps\":[";
+    bool first = true;
+    for (const auto &kv : pairs) {
+        const Pair &p = kv.second;
+        std::vector<std::pair<int, std::string>> areas;
+        for (const auto &a : p.areas) areas.push_back({ a.second, a.first });
+        std::sort(areas.rbegin(), areas.rend());
+        j += std::string(first ? "" : ",") + "{\"winner\":" + std::to_string(kv.first.first) + ",\"loser\":" +
+             std::to_string(kv.first.second) + ",\"files\":" + std::to_string(p.files) + ",\"conditional\":" +
+             (p.conditional ? "true" : "false") + ",\"areas\":[";
+        for (size_t i = 0; i < areas.size() && i < 5; i++)
+            j += std::string(i ? "," : "") + "{\"area\":\"" + jesc(areas[i].second) + "\",\"files\":" + std::to_string(areas[i].first) + "}";
+        j += "],\"examples\":[";
+        for (size_t i = 0; i < p.examples.size(); i++) j += std::string(i ? "," : "") + "\"" + jesc(p.examples[i]) + "\"";
+        j += "]}";
+        first = false;
+    }
+    // <Compatibility>: Forbid against another enabled mod; Require of a mod not enabled
+    j += "],\"forbids\":[";
+    first = true;
+    for (size_t i = 0; i < g.mods.size(); i++)
+        for (const auto &f : g.mods[i]->info.compat_forbids)
+            for (size_t k = 0; k < g.mods.size(); k++)
+                if (k != i && lower(g.mods[k]->info.id) == f.mod_id) {
+                    j += std::string(first ? "" : ",") + "{\"mod\":" + std::to_string(i) + ",\"other\":" + std::to_string(k) +
+                         ",\"why\":\"" + jesc(f.description) + "\"}";
+                    first = false;
+                }
+    j += "],\"requires\":[";
+    first = true;
+    for (size_t i = 0; i < g.mods.size(); i++)
+        for (const auto &r : g.mods[i]->info.compat_requires) {
+            bool have = false;
+            for (const auto &o : g.mods) if (lower(o->info.id) == r.mod_id) have = true;
+            if (have) continue;
+            j += std::string(first ? "" : ",") + "{\"mod\":" + std::to_string(i) + ",\"id\":\"" + jesc(r.mod_id) +
+                 "\",\"why\":\"" + jesc(r.description) + "\"}";
+            first = false;
+        }
+    j += "]}";
+    char *out = (char *)std::malloc(j.size() + 1);
+    if (out) std::memcpy(out, j.c_str(), j.size() + 1);
+    return out;
 }
 
 extern "C" unsigned ff7_mods_count(void) {

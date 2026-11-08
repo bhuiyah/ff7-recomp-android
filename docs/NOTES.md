@@ -486,3 +486,13 @@
   export); toml configs inside mods ("music/vgmstream/config.toml") still fail to parse
   (toml++ opens them with std::ifstream, not routed); the bottom screen shows "MP" instead of
   enemy names with Echo-S.
+- Mod conflict checker (ConflictChecker.java; src/mods ff7_mods_conflicts_json, also in
+  libff7launcher). Before a download (catalogs list no files): the same kind of replacement as
+  an enabled mod (two field model packs, two soundtracks / FMV / voice packs, two gameplay
+  overhauls, ...) from category, tags and name, and Forbid entries in installed mods' mod.xml
+  -> a "Possible conflicts" dialog (Install anyway / Cancel); mod pages list them too. After a
+  download: the profile loaded exactly as the game loads it, every game file two enabled mods
+  both replace (winner = higher in the list), grouped by area, plus <Compatibility>
+  Forbid/Require -> a summary on the Mods page, notes on each row, "All details". Checked on
+  the Thor: Arranged Soundtrack vs Echo-S share 93 music/movie files, vs Cosmo Memory 2 movies;
+  installing FFNx FF7Music warns about the Arranged Soundtrack. Unit test: 75 passed.
