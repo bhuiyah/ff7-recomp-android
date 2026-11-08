@@ -181,3 +181,28 @@
 - tools/hext_manifest.sh: the code writes of given mods/profiles as re-lift manifests,
   read through the same src/mods code. A test mod patching 0x41BDE5 gives one more lifted
   variant (384 -> 385). tests/mods: 68/68.
+
+## 2026-11-07: x86 interpreter for hext code patches
+- src/interp/x86_interp.c: every instruction form in ff7_en (148 mnemonics, integer +
+  string + x87; no MMX/SSE in the exe) plus pushad/popad, cmovcc, xadd, cmpxchg, bswap,
+  bsf/bsr. Runs on g_eax.., the lazy flags (in: recomp_eflags, out: FK_EFLAGS), g_st and
+  g_fpu_cw. A marked function is an entry override (target 0xFFFFFFFE in
+  ff7_overrides.c); calls go to lifted code (call-site hooks and overrides honoured) or
+  recurse into the interpreter for marked / never-lifted targets; ret ends the activation.
+  Where the lift deliberately differs from hardware (div by zero -> 0, fdivp by 0.0 keeps
+  the dividend, its pow/log formulas) the interpreter follows the lift, so a function
+  behaves the same whether a mod made it interpreted or not.
+- ff7_hext.cpp marks the function of every code write without a lifted variant (all of them
+  until the next lift emits recomp_variants.c).
+- tools/interp_difftest.sh: straight-line runs from the catalog, lifted by lift32 and run
+  both ways from random states (exe mapped at its VAs, write-watch on all pages), plus
+  control-flow tests. 6000 runs x 4 states: 17070 agree, 0 differ (6926 both fault on
+  random pointers); control flow pass.
+- Found in the lift along the way:
+  - 8/16-bit sar shifted zero-extended values (`sar cx, 1` on a negative short gave a
+    large positive one; game code e.g. 0x5A5368). Fixed: patches/pcrecomp/0018. Takes
+    effect at the next lift.
+  - fdivp/fdivrp st(0) (DE F8 / DE F0, CRT code near 0x7B3A30) lifted as the st(1) form.
+    Not fixed yet.
+  - documented approximations the difftest masks: CF after inc/dec, OF/PF of shifts,
+    imul/mul flags, bt ZF, narrow cmps/sbb SF/OF, fcom kept in the integer flags.

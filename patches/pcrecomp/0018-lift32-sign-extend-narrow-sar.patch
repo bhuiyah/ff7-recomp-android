@@ -1,0 +1,26 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] lift32: sign-extend 8/16-bit operands for sar
+
+A narrow operand is read zero-extended (LO8/LO16), so `sar cx, 1` on a negative
+short shifted in a 0. Found by the FF7Recomp x86 interpreter difftest.
+---
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -1093,11 +1093,15 @@
+                 a = self._fmt_read(ops[0])
+                 b, bn = self._shift_count(ops[1])
+                 w = op_bits(ops[0])
+-                res = f"((uint32_t)((int32_t){a} >> {b}))"
++                # A narrow operand reads zero-extended (LO8/LO16): sign-extend it first, or
++                # `sar cx, 1` on a negative short shifts in a 0 (FF7 halves signed 16-bit
++                # velocities and offsets this way; found by the interpreter difftest).
++                sa = {8: f"(int32_t)(int8_t){a}", 16: f"(int32_t)(int16_t){a}"}.get(w, f"(int32_t){a}")
++                res = f"((uint32_t)({sa} >> {b}))"
+                 # sar must publish CF for a following rcr (the clip's `sar;rcr` lerp).
+                 lines.append(f"if ({b}) _cf = {self._shift_out_cf(a, b, bn, w, 'arith')}; {comment}")
+                 lines.append(self._shift_flags(res, b, w))
+-                lines.append(f"{self._fmt_write(ops[0], f'(uint32_t)((int32_t){a} >> {b})')};")
++                lines.append(f"{self._fmt_write(ops[0], f'(uint32_t)({sa} >> {b})')};")
+                 self._flag_state = None
+ 
+         # shld/shrd: double-precision shift (64-bit window across dst:src). Used pervasively

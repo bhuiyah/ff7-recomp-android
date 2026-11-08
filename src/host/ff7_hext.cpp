@@ -3,11 +3,11 @@
 // process before the driver loads). Delayed files are applied from a background thread
 // after their delay, as 7th Heaven does.
 //
-// Writes into data take effect as on Windows. Writes into .text only take effect where the
-// lift has the patched code (a code variant from a hext manifest, tools/hext_manifest.sh):
-// each code write is checked against the lift's variant table (recomp_variants.c, emitted by
-// run_lift.py) and one that has no lifted counterpart is reported -- its bytes are in memory
-// but the ARM64 code runs the original instructions.
+// Writes into data take effect as on Windows. Writes into .text take effect where the lift
+// has the patched code (a code variant from a hext manifest, tools/hext_manifest.sh); each
+// code write is checked against the lift's variant table (recomp_variants.c, emitted by
+// run_lift.py), and the function holding a write with no lifted counterpart is switched to
+// the x86 interpreter (src/interp), which runs the bytes in memory -- the patch included.
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -18,6 +18,7 @@
 #include <vector>
 #include "hext.hpp"
 #include "mods.h"
+#include "x86_interp.h"
 
 extern "C" {
 typedef struct { uint32_t start, end; const char *bytes, *mask; } ff7_code_variant_t;
@@ -62,7 +63,24 @@ const char *code_status(uint32_t va, const std::vector<uint8_t> &before, uint32_
     return covered ? "patched code differs from every lifted variant" : "patched code not lifted";
 }
 
-struct Ctx { int files = 0, writes = 0, data_writes = 0, code_ok = 0, code_bad = 0, errors = 0, delayed = 0; };
+struct Ctx { int files = 0, writes = 0, data_writes = 0, code_ok = 0, code_bad = 0, errors = 0, delayed = 0, interpreted = 0; };
+
+// The function holding [va, va+n) runs interpreted from now on.
+void interpret_at(const std::string &mod, const std::string &file, uint32_t va, uint32_t n, const char *why, Ctx &c) {
+    uint32_t fn = ff7_interp_function_of(va);
+    int rc = fn ? ff7_interp_mark(fn) : -1;
+    if (rc == 0) {
+        c.interpreted++;
+        std::fprintf(stderr, "[hext] %s %s: code write 0x%08X (%u bytes), %s: function 0x%08X runs interpreted\n",
+                     mod.c_str(), file.c_str(), va, n, why, fn);
+        return;
+    }
+    c.code_bad++;
+    std::fprintf(stderr, "[hext] %s %s: code write 0x%08X (%u bytes), %s: %s -- the patch has no effect\n",
+                 mod.c_str(), file.c_str(), va, n, why,
+                 rc == -2 ? "its function is replaced by FFNx (as on Windows, the replacement runs)"
+                          : rc == -3 ? "interpreter table full" : "not inside a lifted function");
+}
 
 void apply_one(const std::string &mod, const std::string &file, const std::string &text, bool honour_delay, Ctx &c) {
     ff7mods::HextResult r = ff7mods::hext_run(text, honour_delay, read32,
@@ -74,8 +92,7 @@ void apply_one(const std::string &mod, const std::string &file, const std::strin
             c.writes++;
             if (!code) { c.data_writes++; return; }
             if (const char *why = code_status(va, before, n)) {
-                c.code_bad++;
-                std::fprintf(stderr, "[hext] %s %s: code write 0x%08X (%u bytes): %s\n", mod.c_str(), file.c_str(), va, n, why);
+                interpret_at(mod, file, va, n, why, c);
             } else {
                 c.code_ok++;
             }
@@ -87,8 +104,8 @@ void apply_one(const std::string &mod, const std::string &file, const std::strin
             std::this_thread::sleep_for(std::chrono::milliseconds(ms));
             Ctx d;
             apply_one(mod, file, text, false, d);
-            std::fprintf(stderr, "[hext] delayed %s %s: %d writes (%d code, %d not runnable)\n",
-                         mod.c_str(), file.c_str(), d.writes, d.code_ok + d.code_bad, d.code_bad);
+            std::fprintf(stderr, "[hext] delayed %s %s: %d writes (code: %d lifted, %d interpreted, %d without effect)\n",
+                         mod.c_str(), file.c_str(), d.writes, d.code_ok, d.interpreted, d.code_bad);
         }).detach();
         return;
     }
@@ -107,6 +124,6 @@ extern "C" void ff7_hext_apply_mods(void) {
         apply_one(mod, file, std::string(text, len), true, *static_cast<Ctx *>(ctx));
     }, &c);
     if (c.files || c.delayed)
-        std::fprintf(stderr, "[hext] %d file(s) applied, %d delayed: %d writes (%d data, %d code runnable, %d code not runnable), %d error(s)\n",
-                     c.files, c.delayed, c.writes, c.data_writes, c.code_ok, c.code_bad, c.errors);
+        std::fprintf(stderr, "[hext] %d file(s) applied, %d delayed: %d writes (%d data; code: %d lifted, %d interpreted, %d without effect), %d error(s)\n",
+                     c.files, c.delayed, c.writes, c.data_writes, c.code_ok, c.interpreted, c.code_bad, c.errors);
 }

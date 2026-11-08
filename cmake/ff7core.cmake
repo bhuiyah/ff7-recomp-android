@@ -68,6 +68,7 @@ add_library(ff7_core STATIC
   "${MODS}/runtimevar.cpp"
   "${MODS}/hext.cpp"
   "${HOST}/ff7_hext.cpp"
+  "${FF7_ROOT}/src/interp/x86_interp.c"
   "${FF7_DEPS}/lzma/LzmaDec.c"
   "${FF7_DEPS}/pugixml/src/pugixml.cpp"
   $<TARGET_OBJECTS:ff7_guest>)
@@ -75,6 +76,10 @@ target_include_directories(ff7_core PUBLIC "${RT}/recomp32" "${RT}/win32hle" "${
   PRIVATE "${FF7_DEPS}/lzma" "${FF7_DEPS}/pugixml/src")
 target_compile_definitions(ff7_core PUBLIC ${FF7_GUEST_DEFS})
 target_compile_options(ff7_core PRIVATE -O1 -g -Wall -Wno-unused-function -Wno-unused-but-set-variable)
+target_include_directories(ff7_core PRIVATE "${FF7_ROOT}/src/interp")
+# The interpreter runs on the lifted code's machine state: same aliasing and x87 rounding
+# rules as the generated code (ff7_guest above).
+set_source_files_properties("${FF7_ROOT}/src/interp/x86_interp.c" PROPERTIES COMPILE_OPTIONS "-fno-strict-aliasing;-ffp-contract=off;-O2")
 target_compile_features(ff7_core PUBLIC cxx_std_17)
 set_target_properties(ff7_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(ff7_core PUBLIC m)

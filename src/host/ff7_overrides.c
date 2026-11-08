@@ -154,10 +154,14 @@ int ff7_code_match(uint32_t va, const char *bytes, const char *mask, uint32_t n)
     return 1;
 }
 
+void ff7_interp_run(uint32_t va);    /* src/interp/x86_interp.c */
+#define FF7_INTERP_TARGET 0xFFFFFFFEu    /* ff7_interp_mark: run this function interpreted */
+
 void ff7_run_override(uint32_t va) {
     int s = slot_of(va, 0);
     if (s < 0) { fprintf(stderr, "[override] bit set for 0x%08X but no target\n", va); abort(); }
     uint32_t target = g_ovr[s].target;
+    if (target == FF7_INTERP_TARGET) { ff7_interp_run(va); return; }
     recomp_func_t f = recomp_lookup(target);
     int native = 0;
     if (!f) { f = recomp_lookup_import(target); native = f != NULL; }

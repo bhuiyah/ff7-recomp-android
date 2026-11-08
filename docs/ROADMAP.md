@@ -59,9 +59,12 @@ Order:
      (`[hext] ... patched code not lifted`).
    - FFNx's own hext folder (game/hext/ff7/en) works through FFNx (its code writes are in
      the FFNx manifests when the folder is on the device at refresh_manifests time).
-   - Still to do: an x86 interpreter for code patches nobody lifted, so any mod's code
-     patch works on the device without a PC re-lift; and the launcher showing each mod's
-     hext status.
+   - code writes with no lifted variant: the function holding them runs in the x86
+     interpreter (src/interp/x86_interp.c), on the lifted code's own machine state, so any
+     mod's code patch works on the device without a PC re-lift (lifted variants stay the
+     fast path). Checked by tools/interp_difftest.sh against the lift on real FF7 code.
+   - Still to do: the launcher showing each mod's hext status (lifted / interpreted /
+     without effect).
 5. Launcher: import IROs through the Android file picker (scoped storage) into app storage,
    later the Qhimm catalog; each mod shows a status: works / runs interpreted / unsupported.
 
