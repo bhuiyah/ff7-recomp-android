@@ -124,7 +124,14 @@ Exit test: every battle animation runs at the same wall-clock speed at 60 and 12
 checked side by side (attack, magic, summon, limit, enemy deaths, damage numbers, ATB).
 
 ## M5w: Widescreen (Thor and other 16:9 handhelds)
-The Thor's top screen is 1920x1080 (16:9); FF7 renders 4:3 (pillarboxed today).
+Status 2026-11-08: on by default (launcher Settings, aspect 16:9 + uncrop; the 16:9 code
+variants are lifted). Checked on the Thor: the Sector 1 station field (a scrolling background)
+fills 16:9, battles fill 16:9 with unstretched models, the main menu is centred at 4:3, FMVs
+letterboxed. Left: fields whose background does not scroll keep side bars unless widescreen
+background art is installed (the catalog's Cosmos Limit Break, 3 GB, ships widescreen/
+config.toml and extended backgrounds; widescreen/ is now read through the mod overlay); the
+world map is not checked yet.
+The Thor's top screen is 1920x1080 (16:9); FF7 renders 4:3 (pillarboxed before this).
 - FFNx's widescreen mode (`aspect_ratio`, `enable_uncrop`, `widescreen.cpp`): 3D scenes
   (battle, world map, field models) render at 16:9 and the viewport is widened through
   code patches. Those patches are live now (pcrecomp patch 0017: patched-code variants and
