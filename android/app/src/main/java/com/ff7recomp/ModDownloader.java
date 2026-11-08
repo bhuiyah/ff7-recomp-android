@@ -53,8 +53,14 @@ final class ModDownloader {
         if (lower.startsWith("http://") || lower.startsWith("https://")) return l.replace(" ", "%20");
         if (lower.startsWith("iros://url/")) {
             String rest = l.substring("iros://url/".length());
-            int d = rest.indexOf('$');                       // scheme$host/path
-            String u = d > 0 ? rest.substring(0, d) + "://" + rest.substring(d + 1) : "https://" + rest;
+            // scheme$host/path, or (some catalog entries) a plain scheme://host/path
+            String rl = rest.toLowerCase(Locale.ROOT);
+            String u;
+            if (rl.startsWith("http://") || rl.startsWith("https://")) u = rest;
+            else if (rl.startsWith("http$") || rl.startsWith("https$")) {
+                int d = rest.indexOf('$');
+                u = rest.substring(0, d) + "://" + rest.substring(d + 1);
+            } else u = "https://" + rest;
             // catalog URLs can hold raw spaces and brackets
             return u.replace(" ", "%20").replace("[", "%5B").replace("]", "%5D").replace("&amp;", "&");
         }
@@ -71,8 +77,12 @@ final class ModDownloader {
         String l = link.trim();
         if (l.toLowerCase(Locale.ROOT).startsWith("iros://externalurl/")) {
             String rest = l.substring("iros://externalurl/".length());
-            int d = rest.indexOf('$');
-            return d > 0 ? rest.substring(0, d) + "://" + rest.substring(d + 1) : rest;
+            String rl = rest.toLowerCase(Locale.ROOT);
+            if (rl.startsWith("http$") || rl.startsWith("https$")) {
+                int d = rest.indexOf('$');
+                return rest.substring(0, d) + "://" + rest.substring(d + 1);
+            }
+            return rest;
         }
         return null;
     }
