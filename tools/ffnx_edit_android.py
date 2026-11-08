@@ -220,7 +220,7 @@ EDITS = [
     #   - a summon wait multiplied as a byte is a 16-bit immediate: multiplied as a word;
     #   - display-damage bounce: a 120 FPS table; integer index maths reworked.
     ('ff7_opengl.cpp', '\t\t\tbattle_frame_multiplier = (ff7_fps_limiter == FPS_LIMITER_30FPS) ? 2 : 4;\n',
-     '\t\t\tbattle_frame_multiplier = (ff7_fps_limiter == FPS_LIMITER_30FPS) ? 2 : (ff7_fps_limiter >= FPS_LIMITER_120FPS ? 8 : 4);   // FF7Recomp: 120 FPS battles\n'),
+     '\t\t\tbattle_frame_multiplier = (ff7_fps_limiter == FPS_LIMITER_30FPS) ? 2 : (ff7_fps_limiter >= FPS_LIMITER_120FPS && getenv("FF7_BATTLE120") && atoi(getenv("FF7_BATTLE120")) ? 8 : 4);   // FF7Recomp: 120 FPS battles are opt-in (ATB runs slow at x8)\n'),
     # The battle loop runs the menu step 4x per 15 FPS frame and its LAST pass draws the battle
     # windows; stepped to 0/1 per frame at x8, every other frame drew no windows (they flicker,
     # and screenshots caught them gone). Keep one pass per frame, as at 60.

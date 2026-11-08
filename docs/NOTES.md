@@ -250,3 +250,9 @@
 - Snapshot save states: not yet. FFNx keeps C++ objects with host pointers (gl_texture_set's
   std::maps, GPU texture handles) inside guest memory, so a memory image cannot simply be
   restored; see ROADMAP M5.
+- Battle speed, measured as a full ATB refill after Cloud's first attack (the first gauge starts
+  part-full from a seed that depends on the field frames, so it misleads): original 6.3 s;
+  before the fix 60 FPS 3.1 s (2x fast: FFNx's truncated divides plus my zero clamp). Per-frame
+  stepping now applies at every raised frame rate: 30 / 60 / 120 FPS = 5.7 / 6.2 / 6.2 s.
+  x8 battles 13.8 s: opt-in (FF7_BATTLE120=1) until that is found.
+- Test scripts default to 16:9 (deploy_ffnx.sh); the probes ask for 4:3 where they read pixels.

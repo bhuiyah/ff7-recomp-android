@@ -137,7 +137,14 @@ long long floor_div(long long a, long long b) { long long q = a / b; return (a %
 void put_le(uint8_t *out, long long v, uint32_t size) { for (uint32_t i = 0; i < size; i++) out[i] = (uint8_t)(v >> (8 * i)); }
 }  // namespace
 
-bool fractional_steps() { return ff7_fps_limiter >= FPS_LIMITER_120FPS; }
+// FF7_STEP=0 (A/B): no stepping, inexact quotients truncate as at x2/x4.
+bool fractional_steps() {
+    static int off = -1;
+    if (off < 0) { const char *e = std::getenv("FF7_STEP"); off = e && e[0] == '0'; }
+    // Every raised frame rate: truncated (and zero-clamped) quotients ran battle steps 10-100% fast
+    // at 30 and 60 FPS (ATB measured with tools/battle_speed_probe.sh against the original).
+    return !off && ff7_fps_limiter >= FPS_LIMITER_30FPS;
+}
 
 void declare_code_variant(uint32_t offset, const void *bytes, uint32_t size) {
     if (!in_text(offset) || size > 8) return;

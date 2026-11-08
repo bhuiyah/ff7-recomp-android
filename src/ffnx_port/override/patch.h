@@ -91,7 +91,7 @@ void note_divide_floor(uint32_t offset, int before, int divisor, int kept);
 // instructions of the same length alternates frame by frame. Every value a site can take is
 // declared in the re-lift manifest ("code_variants"), so the lifted code has each one and picks
 // it by the bytes in memory.
-bool fractional_steps();      // on in the 120 FPS mode
+bool fractional_steps();      // on at every raised frame rate (30/60/120 FPS modes)
 void declare_code_variant(uint32_t offset, const void *bytes, uint32_t size);
 void step_fraction(uint32_t offset, uint32_t size, long long numer, int denom, const char *what);
 void step_alternate(uint32_t offset, const void *even, const void *odd, uint32_t size);
