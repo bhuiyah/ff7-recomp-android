@@ -324,3 +324,25 @@
   (ff7_fps_limiter 3), which at 2x is shown at 120 FPS. In game, L3 then L2/R2 toggles it
   (FFNx's shortcut). Checked: 118 FPS shown, and opening-scene animations advance at twice the
   60 FPS rate.
+
+## 2026-11-08: field camera stuck in md1_1 ("freeze" after the station)
+- Report: after the station, walking up in the next area froze the game. It had not frozen: the
+  camera stayed put while Cloud walked off the visible part of md1_1 (field 117). Pressing down
+  brought him back and the next step started a random battle.
+- Cause: FFNx's smooth background scrolling projects the player with a float camera matrix
+  (ff7/field/utils.h, engine_apply_matrix_product_float_66307D). It hands a local
+  `float matrix[16]` to two game functions; through the guest bridge a `float *` is an
+  out-parameter of one float, so the game wrote 64 bytes into a 4-byte guest block (heap
+  overrun, every frame of a scrolling field) and the matrix came back uninitialized. The
+  projected player was (0.1, 8037) instead of (170, -20), so the camera sat clamped at the
+  field's bottom edge. Fix (tools/ffnx_edit_android.py): the matrix crosses as a 16-float struct.
+  This is the only FFNx call that passes a float array to the game.
+- Found with two save states of the frozen game: field id 0xCC15D0, the trigger header's camera
+  range, the md1_1 walkmesh/camera from flevel.lgp (Cloud on triangle 70; the hand projection
+  matched), then a one-off FFNx log of the raw and clipped camera point.
+- Also: bgfx rebuilt the swapchain after every present. Android answers VK_SUBOPTIMAL_KHR to
+  any swapchain whose preTransform is not the panel's rotation (bgfx asks IDENTITY; the Thor's
+  panel is ROTATE_90 and the compositor rotates). patches/bgfx/0001: on Android SUBOPTIMAL is
+  not a reason to rebuild; a size change still comes as OUT_OF_DATE.
+- Note for later checks: /proc/uptime counts suspend time, SurfaceFlinger's --latency times
+  do not; compare frame times with each other, not with uptime.

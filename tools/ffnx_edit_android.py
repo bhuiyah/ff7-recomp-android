@@ -543,6 +543,23 @@ EDITS = [
      '\tif(avformat_open_input(&format_ctx, name, NULL, NULL))'),
     ('common.cpp', '\t\t\t\tif (strstr(basedir, "workingdir") != NULL)',
      '\t\t\t\tif (FFNX_ANDROID || strstr(basedir, "workingdir") != NULL)   // FF7Recomp: 2026 rerelease exe'),
+    # The float camera projection (field background scrolling) hands a 16-float local matrix
+    # to two game functions. As a float* the guest bridge bounces one float: the game wrote
+    # 64 bytes into a 4-byte guest block and the matrix came back uninitialized, so the
+    # camera stopped following the player. As a struct the bridge copies all of it.
+    ('ff7/field/utils.h',
+     '        ff7_externals.engine_convert_psx_matrix_to_float_matrix_row_version_661465(&global_game_data->rot_matrix, matrix);\n'
+     '        ff7_externals.engine_apply_matrix_product_to_vector_66CF7E(matrix, &input_vector_copy, &output_temp);\n',
+     '#ifdef FFNX_ANDROID\n'
+     '        // FF7Recomp: the 16 floats as one struct, so the guest bridge copies all of them\n'
+     '        struct float_matrix16 { float m[16]; } guest_matrix;\n'
+     '        gfn<void(rotation_matrix *, float_matrix16 *)>::from_va(ff7_externals.engine_convert_psx_matrix_to_float_matrix_row_version_661465.va())(&global_game_data->rot_matrix, &guest_matrix);\n'
+     '        gfn<void(float_matrix16 *, vector3<float> *, vector3<float> *)>::from_va(ff7_externals.engine_apply_matrix_product_to_vector_66CF7E.va())(&guest_matrix, &input_vector_copy, &output_temp);\n'
+     '        std::memcpy(matrix, guest_matrix.m, sizeof(matrix));\n'
+     '#else\n'
+     '        ff7_externals.engine_convert_psx_matrix_to_float_matrix_row_version_661465(&global_game_data->rot_matrix, matrix);\n'
+     '        ff7_externals.engine_apply_matrix_product_to_vector_66CF7E(matrix, &input_vector_copy, &output_temp);\n'
+     '#endif\n'),
 ]
 
 

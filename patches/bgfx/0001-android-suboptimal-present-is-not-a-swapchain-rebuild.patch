@@ -1,0 +1,46 @@
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+index cc741e6c0..d8a8f28d0 100644
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -9625,8 +9625,20 @@ VK_DESTROY
+ 				m_needToRecreateSwapchain = true;
+ 				return false;
+ 
++#if BX_PLATFORM_ANDROID
++			case VK_SUBOPTIMAL_KHR:
++				// FF7Recomp: on Android a swapchain whose preTransform is not the display's
++				// rotation (bgfx always asks for IDENTITY) is SUBOPTIMAL on every present; the
++				// compositor rotates it. Rebuilding for that only makes another SUBOPTIMAL
++				// swapchain, and could rebuild every frame without presenting any. A size
++				// change still comes as VK_ERROR_OUT_OF_DATE_KHR.
++				break;
++#endif // BX_PLATFORM_ANDROID
++
+ 			case VK_ERROR_OUT_OF_DATE_KHR:
++#if !BX_PLATFORM_ANDROID
+ 			case VK_SUBOPTIMAL_KHR:
++#endif // !BX_PLATFORM_ANDROID
+ 				m_needToRecreateSwapchain = true;
+ 				return false;
+ 
+@@ -9737,8 +9749,20 @@ VK_DESTROY
+ 				m_needToRecreateSwapchain = true;
+ 				break;
+ 
++#if BX_PLATFORM_ANDROID
++			case VK_SUBOPTIMAL_KHR:
++				// FF7Recomp: on Android a swapchain whose preTransform is not the display's
++				// rotation (bgfx always asks for IDENTITY) is SUBOPTIMAL on every present; the
++				// compositor rotates it. Rebuilding for that only makes another SUBOPTIMAL
++				// swapchain, and could rebuild every frame without presenting any. A size
++				// change still comes as VK_ERROR_OUT_OF_DATE_KHR.
++				break;
++#endif // BX_PLATFORM_ANDROID
++
+ 			case VK_ERROR_OUT_OF_DATE_KHR:
++#if !BX_PLATFORM_ANDROID
+ 			case VK_SUBOPTIMAL_KHR:
++#endif // !BX_PLATFORM_ANDROID
+ 				m_needToRecreateSwapchain = true;
+ 				break;
+ 

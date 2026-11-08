@@ -12,7 +12,7 @@ $pins = @(
     # bgfx and its libraries: FFNx's forks at the commits FFNx pins (.vcpkg/ports/bgfx)
     @{ name = 'bx';               url = 'https://github.com/julianxhokaxhiu/bx.git';        rev = 'c99974204c15405b69647d5097af1102e6210c91'; patches = $null },
     @{ name = 'bimg';             url = 'https://github.com/julianxhokaxhiu/bimg.git';      rev = '671fe06dd7012a1ab85aa931019ed16112909756'; patches = $null },
-    @{ name = 'bgfx';             url = 'https://github.com/julianxhokaxhiu/bgfx.git';      rev = '1f93b90898dcc492587b617b397e2d2285dcd0ec'; patches = $null }
+    @{ name = 'bgfx';             url = 'https://github.com/julianxhokaxhiu/bgfx.git';      rev = '1f93b90898dcc492587b617b397e2d2285dcd0ec'; patches = 'patches/bgfx' }
 )
 
 foreach ($p in $pins) {
