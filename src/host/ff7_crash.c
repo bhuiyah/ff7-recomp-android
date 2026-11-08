@@ -196,12 +196,18 @@ static void *memdiff_counters(void *arg) {
  * of them changed -- a gauge's timeline. */
 static void *watch_words(void *arg) {
     (void)arg;
-    uint32_t addr[8];
-    int n = 0;
+    /* each entry: ADDR, or *ADDR+OFF (the dword at ADDR, plus OFF: a field in a struct the
+     * game points to) */
+    uint32_t addr[8], off[8];
+    int deref[8], n = 0;
     for (const char *p = getenv("FF7_WATCH"); p && *p && n < 8;) {
         char *end;
+        deref[n] = *p == '*';
+        if (deref[n]) p++;
         unsigned long v = strtoul(p, &end, 16);
         if (end == p) break;
+        off[n] = 0;
+        if (*end == '+') { const char *q = end + 1; off[n] = (uint32_t)strtoul(q, &end, 16); }
         addr[n++] = (uint32_t)v;
         p = *end ? end + 1 : end;
     }
@@ -214,7 +220,13 @@ static void *watch_words(void *arg) {
         int changed = 0;
         uint16_t v[8];
         for (int i = 0; i < n; i++) {
-            v[i] = *(volatile uint16_t *)(uintptr_t)addr[i];
+            uint32_t a = addr[i];
+            if (deref[i]) {
+                a = *(volatile uint32_t *)(uintptr_t)a;
+                if (a < 0x400000u) { v[i] = 0; continue; }
+                a += off[i];
+            }
+            v[i] = *(volatile uint16_t *)(uintptr_t)a;
             changed |= v[i] != last[i];
             last[i] = v[i];
         }

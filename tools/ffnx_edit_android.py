@@ -343,6 +343,75 @@ EDITS = [
      '\t\t\t\tstatic const byte add_speed[] = {0x03, 0x4D, 0xF4}, add_zero[] = {0x83, 0xC1, 0x00};\n'
      '\t\t\t\tffnx_recomp::step_alternate(0x4322AE, add_speed, add_zero, 3);\n'
      '\t\t\t}\n'),
+    # Field animations at 60 / 120 FPS: FFNx's field code takes the animation files to have
+    # common_frame_multiplier times the original frames (CANIM/CANMX frame numbers are scaled by
+    # it; PC players install 60 FPS animation mods), so with the game's own files every walk and
+    # run cycle played 2x / 4x fast. Field animations get the in-between frames as they load:
+    # original frame k becomes frame k * m, with interpolated poses (shortest-way angles) between.
+    ('ff7/loaders.cpp', '// load battle HRC file (does not save modpath name)\n',
+     '// FF7Recomp: in-between frames for field animations at raised frame rates\n'
+     'static float ffnx_lerp_angle(float a, float b, float t)\n'
+     '{\n'
+     '\tfloat d = fmodf(b - a + 540.0f, 360.0f) - 180.0f;\n'
+     '\treturn a + d * t;\n'
+     '}\n\n'
+     'static void ffnx_smooth_animation(struct anim_header *a, int m)\n'
+     '{\n'
+     '\tconst uint32_t n = a->num_frames, nb = a->num_bones;\n'
+     '\tif (m < 2 || n < 2 || a->use_matrix_array) return;\n'
+     '\tconst uint32_t total = n * m;\n'
+     '\tconst uint32_t per = sizeof(struct anim_frame_header) + nb * sizeof(vector3<float>);\n'
+     '\tbyte *data = (byte *)external_calloc(per, total);\n'
+     '\tstruct anim_frame *frames = (struct anim_frame *)external_calloc(sizeof(struct anim_frame), total);\n'
+     '\tif (!data || !frames) return;\n'
+     '\tstruct anim_frame *src = (struct anim_frame *)(uintptr_t)(uint32_t)a->anim_frames;\n'
+     '\tfor (uint32_t j = 0; j < total; j++)\n'
+     '\t{\n'
+     '\t\tuint32_t k = j / m;\n'
+     '\t\tfloat t = (float)(j % m) / (float)m;\n'
+     '\t\tif (k >= n - 1) { k = n - 1; t = 0.0f; }   // the last frame is held (one-shot animations end on it)\n'
+     '\t\tconst uint32_t k1 = k + 1 < n ? k + 1 : k;\n'
+     '\t\tconst struct anim_frame_header *h0 = (const struct anim_frame_header *)(uintptr_t)(uint32_t)src[k].header;\n'
+     '\t\tconst struct anim_frame_header *h1 = (const struct anim_frame_header *)(uintptr_t)(uint32_t)src[k1].header;\n'
+     '\t\tconst vector3<float> *b0 = (const vector3<float> *)(uintptr_t)(uint32_t)src[k].data;\n'
+     '\t\tconst vector3<float> *b1 = (const vector3<float> *)(uintptr_t)(uint32_t)src[k1].data;\n'
+     '\t\tstruct anim_frame_header *h = (struct anim_frame_header *)(data + per * j);\n'
+     '\t\tvector3<float> *b = (vector3<float> *)(data + per * j + sizeof(struct anim_frame_header));\n'
+     '\t\th->root_rotation.x = ffnx_lerp_angle(h0->root_rotation.x, h1->root_rotation.x, t);\n'
+     '\t\th->root_rotation.y = ffnx_lerp_angle(h0->root_rotation.y, h1->root_rotation.y, t);\n'
+     '\t\th->root_rotation.z = ffnx_lerp_angle(h0->root_rotation.z, h1->root_rotation.z, t);\n'
+     '\t\th->root_translation.x = h0->root_translation.x + (h1->root_translation.x - h0->root_translation.x) * t;\n'
+     '\t\th->root_translation.y = h0->root_translation.y + (h1->root_translation.y - h0->root_translation.y) * t;\n'
+     '\t\th->root_translation.z = h0->root_translation.z + (h1->root_translation.z - h0->root_translation.z) * t;\n'
+     '\t\tfor (uint32_t i = 0; i < nb; i++)\n'
+     '\t\t{\n'
+     '\t\t\tb[i].x = ffnx_lerp_angle(b0[i].x, b1[i].x, t);\n'
+     '\t\t\tb[i].y = ffnx_lerp_angle(b0[i].y, b1[i].y, t);\n'
+     '\t\t\tb[i].z = ffnx_lerp_angle(b0[i].z, b1[i].z, t);\n'
+     '\t\t}\n'
+     '\t\tframes[j].header = h;\n'
+     '\t\tframes[j].data = b;\n'
+     '\t}\n'
+     '\texternal_free((void *)(uintptr_t)(uint32_t)a->frame_data);\n'
+     '\texternal_free((void *)(uintptr_t)(uint32_t)a->anim_frames);\n'
+     '\ta->frame_data = data;\n'
+     '\ta->anim_frames = frames;\n'
+     '\ta->num_frames = total;\n'
+     '}\n\n'
+     'struct anim_header *field_load_animation_smooth(struct file_context *file_context, char *filename)\n'
+     '{\n'
+     '\tstruct anim_header *ret = load_animation(file_context, filename);\n'
+     '\tif (ret && ff7_fps_limiter >= FPS_LIMITER_60FPS && common_frame_multiplier > 1)\n'
+     '\t\tffnx_smooth_animation(ret, common_frame_multiplier);\n'
+     '\treturn ret;\n'
+     '}\n\n'
+     '// load battle HRC file (does not save modpath name)\n'),
+    ('ff7/defs.h', 'struct anim_header *load_animation(struct file_context *file_context, char *filename);\n',
+     'struct anim_header *load_animation(struct file_context *file_context, char *filename);\n'
+     'struct anim_header *field_load_animation_smooth(struct file_context *file_context, char *filename);   // FF7Recomp\n'),
+    ('ff7_opengl.cpp', '\treplace_function(ff7_externals.load_animation, load_animation);\n',
+     '\treplace_function(ff7_externals.load_animation, load_animation);\n'
+     '\treplace_call_function(ff7_externals.field_load_animation + 0x16D, field_load_animation_smooth);   // FF7Recomp: field animations at 60 / 120 FPS\n'),
     # One-button movie skip on the Thor: Start while an FMV plays (FFNx's own skipMovies,
     # with its exclusions for scenes that must not be skipped). FFNx's L3-then-Square
     # shortcut stays as well.

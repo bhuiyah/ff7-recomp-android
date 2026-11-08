@@ -285,3 +285,21 @@
 - Save states crash when loaded under other FFNx settings (a 60 FPS 16:9 state loaded at 120 FPS
   4:3 faulted at 0x660626). States now record the settings (R_CONFIG, format version 3), and a load
   under others is refused with a note. Older states are refused too.
+
+## 2026-11-08: field animations at 60 / 120 FPS
+- The user reported characters running too fast in the field above 30 FPS. FFNx's field code
+  assumes animation files with common_frame_multiplier times the original frames: CANIM/CANMX
+  frame numbers are scaled by it, and PC players install 60 FPS animation mods. With the game's
+  own char.lgp animations, every walk and run cycle played 2x (60) or 4x (120) fast. Movement
+  speed and scripted timing were right, which is why speed_probe.sh had passed.
+- Fix (tools/ffnx_edit_android.py, ff7/loaders.cpp): field_load_animation's call to
+  load_animation (+0x16D) goes through field_load_animation_smooth. At m = 2 / 4 it rebuilds
+  the animation with n * m frames: original frame k becomes frame k * m, with interpolated poses
+  in between (angles the shortest way round), and the last frame is held.
+- Checked with FF7_WATCH (now also `*ADDR+OFF`: a field the game points to). Opening-scene model
+  1 (field_event_data at *0xCC0B60, stride 0x88: currentFrame +0x68 in 1/16 frames, lastFrame
+  +0x6A): 40 / 80 / 160 frames at 30 / 60 / 120 FPS, advancing 30 / 60 / 120 frames a second.
+  The cycle takes 1.33 s in every mode.
+- Not done: the world map (its models use other loaders; FFNx scales its frame intervals
+  itself; no save that reaches it yet). A 60 FPS animation mod installed on top would be
+  doubled again.
