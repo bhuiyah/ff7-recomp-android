@@ -64,4 +64,27 @@ void ff7_run_override(uint32_t va);
         RECOMP_REGS_OUT(); ff7_run_override(va); RECOMP_REGS_IN(); RECOMP_RETURN(); \
     } \
 } while (0)
+
+/* ---- call-site hooks and patched-code variants (src/host/ff7_overrides.c) --------------
+ * Every direct call is RECOMP_CALL_AT(site, f) / RECOMP_ICALL_AT(site, va): one bit test
+ * for FFNx's replace_call / replace_call_function at that site. */
+extern uint32_t ff7_callsite_bits[];
+extern uint32_t ff7_callsite_cur;
+void ff7_run_callsite(void);
+int ff7_code_match(uint32_t va, const char *bytes, const char *mask, uint32_t n);
+#define FF7_CALLSITE_HOOKED(site) \
+    ((uint32_t)((site) - FF7_TEXT_LO) < (FF7_TEXT_HI - FF7_TEXT_LO) && \
+     (ff7_callsite_bits[((site) - FF7_TEXT_LO) >> 5] >> (((site) - FF7_TEXT_LO) & 31u) & 1u))
+#undef RECOMP_CALL_AT
+#define RECOMP_CALL_AT(site, func) do { \
+    if (__builtin_expect(FF7_CALLSITE_HOOKED(site), 0)) { ff7_callsite_cur = (site); RECOMP_CALL(ff7_run_callsite); } \
+    else { RECOMP_CALL(func); } \
+} while (0)
+#undef RECOMP_ICALL_AT
+#define RECOMP_ICALL_AT(site, target_va) do { \
+    if (__builtin_expect(FF7_CALLSITE_HOOKED(site), 0)) { ff7_callsite_cur = (site); RECOMP_CALL(ff7_run_callsite); } \
+    else { RECOMP_ICALL(target_va); } \
+} while (0)
+#undef RECOMP_CODE_MATCH
+#define RECOMP_CODE_MATCH(va, bytes, mask, n) ff7_code_match((va), (bytes), (mask), (n))
 #endif

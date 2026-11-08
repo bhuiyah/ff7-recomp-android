@@ -92,12 +92,21 @@ void ff7_install_crash_handler(void) {
 #include <stdlib.h>
 #include <time.h>
 
+/* FFNx's patch manifest (src/ffnx_port/patch_recomp.cpp), when FFNx is linked. */
+int ffnx_recomp_write_manifest(const char *path) __attribute__((weak));
+void ffnx_recomp_report(void) __attribute__((weak));
+
 static void *watchdog(void *arg) {
     int period = (int)(intptr_t)arg;
     enum { NS = 1000, TOP = 8 };
     uint32_t va[NS];
+    const char *manifest = getenv("FF7_FFNX_MANIFEST");
     for (;;) {
         sleep((unsigned)period);
+        if (manifest && ffnx_recomp_write_manifest) {
+            ffnx_recomp_write_manifest(manifest);
+            if (ffnx_recomp_report) ffnx_recomp_report();
+        }
         for (int i = 0; i < NS; i++) {
             va[i] = g_cur_func;
             struct timespec t = { 0, 1000000 };

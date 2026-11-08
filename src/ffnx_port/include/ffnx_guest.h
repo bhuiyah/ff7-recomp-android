@@ -2,6 +2,8 @@
 // Brings the guest-layout member types into FFNx's (global) namespace.
 #pragma once
 #include "guest_abi.h"
+#include <new>
+#include <utility>
 
 using guest::gptr;
 using guest::gfn;
@@ -31,4 +33,20 @@ template <typename T, int Site> inline T *ffnx_guest_scratch(const T *data, size
     }
     if (n) std::memcpy(buf, data, n * sizeof(T));
     return buf;
+}
+
+// FFNx globals that game code reads (through FFNx's code patches) live in a fixed guest
+// block (src/ffnx_port/ffnx_guest_static.cpp); tools/ffnx_edit_android.py turns their
+// definitions into references to these.
+void *ffnx_guest_static_alloc(size_t n, size_t align);
+template <typename T, typename... A> inline T &ffnx_guest_static(A &&...a) {
+    return *new (ffnx_guest_static_alloc(sizeof(T), alignof(T))) T(std::forward<A>(a)...);
+}
+template <typename T, size_t N> inline T (&ffnx_guest_static_copy(const T (&init)[N]))[N] {
+    auto *p = static_cast<T (*)[N]>(ffnx_guest_static_alloc(sizeof(T[N]), alignof(T)));
+    std::memcpy(*p, init, sizeof(T[N]));
+    return *p;
+}
+template <typename T, size_t N> inline T (&ffnx_guest_static_zero())[N] {
+    return *static_cast<T (*)[N]>(ffnx_guest_static_alloc(sizeof(T[N]), alignof(T)));
 }

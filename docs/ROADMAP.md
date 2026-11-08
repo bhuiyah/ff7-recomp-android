@@ -11,9 +11,10 @@ Each milestone ends with its exit test, a commit and a report. One milestone at 
 | M2 | Playable | New game to Sector 7, no divergence from original exe + FFNx |
 | M3 | Android polish | Same run on the Thor, steady frame rate, controller |
 | M4 | Mods + launcher APK | IFRIT + Ninostyle Chibi installed in launcher, visible in game on the Thor |
-| M5 | Polish | Frame pacing, widescreen, save states, controller-driven launcher |
+| M5 | Polish | Frame pacing, high frame rate (60, then 120 FPS on the Thor's 120 Hz screen), save states, controller-driven launcher |
+| M5w | Widescreen for 16:9 handhelds like the Thor (user request 2026-11-07) | Field, battle, world map and menus fill the Thor's 1920x1080 screen with no stretching; FMVs letterboxed or 16:9 |
 | M6 | RetroAchievements (user request 2026-11-07) | Local achievement set unlocks in game; then RA approval to go online |
-| M7 | Thor dual-screen companion (user request 2026-11-07) | Bottom screen shows live party/map panels and a touch command deck while the game runs on top |
+| M7 | Thor dual-screen companion (user request 2026-11-07) | Bottom screen shows live party/map panels and a touch command deck while the game runs on top; in battle the command window moves to the bottom screen and the top screen shows the battle full-frame |
 
 (M1–M3 changed order when the user chose the Thor as the test host: there is no
 Windows-host stage; everything runs on the device.)
@@ -50,6 +51,22 @@ Order:
 5. Launcher: import IROs through the Android file picker (scoped storage) into app storage,
    later the Qhimm catalog; each mod shows a status: works / runs interpreted / unsupported.
 
+## M5w: Widescreen (Thor and other 16:9 handhelds)
+The Thor's top screen is 1920x1080 (16:9); FF7 renders 4:3 (pillarboxed today).
+- FFNx's widescreen mode (`aspect_ratio`, `enable_uncrop`, `widescreen.cpp`): 3D scenes
+  (battle, world map, field models) render at 16:9 and the viewport is widened through
+  code patches. Those patches are live now (pcrecomp patch 0017: patched-code variants and
+  live dword operands; the viewport globals sit in the guest static block), so the work is
+  collecting a widescreen manifest, re-lifting, and testing each mode.
+- Field backgrounds are 4:3 pre-rendered art: FFNx's per-field widescreen config (scroll
+  limits, "uncrop") plus the community widescreen background packs (via the M4 mod system)
+  fill the sides; fields without either stay pillarboxed or zoom (option).
+- Menus and battle HUD: centred at 4:3 or stretched to 16:9 (FFNx option), per the user's
+  choice in the launcher.
+- FMVs: 4:3 letterboxed by default; 16:9 movie packs (mods) where installed.
+- Exit test: Sector 1 station, the first battle, the world map and the main menu at 16:9
+  on the Thor without stretched 3D.
+
 ## M7: Thor dual-screen companion
 The AYN Thor reports its top screen as the primary display and the 3.92" bottom touch
 screen as an external display. Dual-screen Thor projects use the bottom screen as a live
@@ -71,6 +88,17 @@ field/world state), so no memory scanning is needed.
   - Command deck: big touch buttons for Menu, PHS, Save (where allowed), fast-forward,
     screenshot; the game keeps all physical controls.
   - Materia/inventory summary; play time and gil.
+- Battle command screen (user request 2026-11-07): in battle the game's bottom command
+  window (the party list with HP/MP/Limit/ATB and the Attack/Magic/Materia/Item menus and
+  their sub-lists) is drawn on the bottom screen instead of over the battle, so the top
+  screen shows the battle and its animations full-frame. How: FFNx already draws the battle
+  menu through the game's own 2D window calls; those draw calls are tagged while the battle
+  menu is being drawn and routed to the companion frame buffer (its own view and ortho
+  projection at the bottom screen's 1240x1080), and the top screen's battle camera is
+  given the freed vertical space (the 3D viewport extends over where the window was).
+  Selections work with the pad as today, and by touch on the bottom screen (touch -> the
+  same menu-cursor input the pad drives). Falls back to the normal on-screen window with
+  one screen or when turned off.
 - Options in the launcher (M4): which panels, which screen the game uses, brightness of the
   bottom screen, "bottom screen off" for battery.
 

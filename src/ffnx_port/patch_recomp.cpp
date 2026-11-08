@@ -50,8 +50,13 @@ bool hooks_enabled() {
 
 extern "C" int ff7_override_install(uint32_t va, uint32_t target);
 extern "C" void ff7_override_remove(uint32_t va);
+extern "C" int ff7_callsite_install(uint32_t site, uint32_t target, uint32_t orig);
+extern "C" void ff7_callsite_remove(uint32_t site);
 
 namespace ffnx_recomp {
+
+void note_code_write(uint32_t offset, uint32_t size, const char *what);
+static bool is_callsite_hook(const hook_rec &h) { return std::strcmp(h.what, "replace_function") != 0; }
 
 uint32_t replace_function_va(uint32_t offset, uint32_t host_va, const char *what) {
     int installed = 0;
@@ -63,12 +68,39 @@ uint32_t replace_function_va(uint32_t offset, uint32_t host_va, const char *what
     }
     return record_hook(what, offset, host_va, installed);
 }
-// Call-site replacements need lift-time slots (docs/FFNX_PORT.md section 6): recorded.
+// Call-site replacements: every direct call of the lift is RECOMP_CALL_AT(site, f), so a
+// hook at a call instruction is a run-time table entry (src/host/ff7_overrides.c).
+// replace_call_function over a non-call instruction writes the call (E8 rel32) into the
+// image as FFNx does; the re-lift's patched-code variant for that site (from the manifest)
+// then reaches the same hook.
+static uint32_t call_target_at(uint32_t site) {
+    const uint8_t *p = reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(site));
+    if (p[0] != 0xE8) return 0;
+    int32_t rel; std::memcpy(&rel, p + 1, 4);
+    return site + 5 + static_cast<uint32_t>(rel);
+}
+static int install_callsite(uint32_t site, uint32_t target, const char *what, uint32_t orig) {
+    if (!hooks_enabled()) return 0;
+    int rc = ff7_callsite_install(site, target, orig);
+    if (rc != 0) ffnx_error("%s: cannot hook call site 0x%08X (%d)\n", what, site, rc);
+    return rc == 0;
+}
 void replace_call_va(uint32_t offset, uint32_t host_va, const char *what) {
-    record_hook(what, offset, host_va, 0);
+    const uint8_t op = *reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(offset));
+    if (op != 0xE8) ffnx_warning("%s: 0x%08X is not a call rel32 (0x%02X); hooked as a call site anyway\n", what, offset, op);
+    record_hook(what, offset, host_va, install_callsite(offset, host_va, what, call_target_at(offset)));
 }
 uint32_t replace_call_function_va(uint32_t offset, uint32_t host_va, const char *what) {
-    return record_hook(what, offset, host_va, 0);
+    uint8_t *p = reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(offset));
+    const uint32_t orig = call_target_at(offset);   // 0 over a non-call: nothing to pop for
+    if (p[0] != 0xE8) {
+        uint8_t call[5] = { 0xE8 };
+        int32_t rel = static_cast<int32_t>(host_va - offset - 5);
+        std::memcpy(call + 1, &rel, 4);
+        note_code_write(offset, 5, "replace_call_function");
+        std::memcpy(p, call, 5);
+    }
+    return record_hook(what, offset, host_va, install_callsite(offset, host_va, what, orig));
 }
 
 void note_code_write(uint32_t offset, uint32_t size, const char *what) {
@@ -84,15 +116,22 @@ using ffnx_recomp::note_code_write;
 // FFNx undoes/redoes a replacement by the index replace_function returned.
 void unreplace_function(uint32_t func) {
     std::lock_guard<std::mutex> lk(g_lock);
-    if (func < g_hooks.size() && g_hooks[func].installed) ff7_override_remove(g_hooks[func].site);
+    if (func >= g_hooks.size() || !g_hooks[func].installed) return;
+    if (ffnx_recomp::is_callsite_hook(g_hooks[func])) ff7_callsite_remove(g_hooks[func].site);
+    else ff7_override_remove(g_hooks[func].site);
 }
 void rereplace_function(uint32_t func) {
     std::lock_guard<std::mutex> lk(g_lock);
-    if (func < g_hooks.size() && g_hooks[func].installed) ff7_override_install(g_hooks[func].site, g_hooks[func].target);
+    if (func >= g_hooks.size() || !g_hooks[func].installed) return;
+    if (ffnx_recomp::is_callsite_hook(g_hooks[func])) ff7_callsite_install(g_hooks[func].site, g_hooks[func].target, 0);
+    else ff7_override_install(g_hooks[func].site, g_hooks[func].target);
 }
 void unreplace_functions() {
     std::lock_guard<std::mutex> lk(g_lock);
-    for (const hook_rec &h : g_hooks) if (h.installed) ff7_override_remove(h.site);
+    for (const hook_rec &h : g_hooks) {
+        if (!h.installed) continue;
+        if (ffnx_recomp::is_callsite_hook(h)) ff7_callsite_remove(h.site); else ff7_override_remove(h.site);
+    }
 }
 
 static uint8_t check_is_call(const char *name, uint32_t base, uint32_t offset, uint16_t instruction) {
@@ -149,7 +188,7 @@ extern "C" void ffnx_recomp_report(void) {
     size_t installed = 0;
     for (const hook_rec &h : g_hooks) installed += h.installed;
     std::fprintf(stderr, "[ffnx-patch] %zu hooks requested, %zu installed as entry overrides "
-                         "(the rest need call-site slots or are mid-function), "
+                         "(and call-site hooks; the rest are mid-function), "
                          "%zu code writes into .text (need a re-lift), %u data writes applied\n",
                  g_hooks.size(), installed, g_code_writes.size(), g_data_writes);
 }

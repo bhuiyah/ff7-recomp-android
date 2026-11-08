@@ -19,6 +19,7 @@ cp "$ROOT"/build/shaders/* "$STAGE/shaders/"
 sed -e 's/^renderer_backend = .*/renderer_backend = 5/' \
     -e 's/^fullscreen = .*/fullscreen = true/' \
     -e "s/^show_fps = .*/show_fps = ${SHOW_FPS:-false}/" \
+    -e "s/^ff7_fps_limiter = .*/ff7_fps_limiter = ${FPS_LIMITER:-1}/" \
     "$MISC/FFNx.toml" > "$STAGE/FFNx.toml"
 # adb cannot create directories under Android/data: the shell makes them first.
 MSYS_NO_PATHCONV=1 "$ADB" shell mkdir -p "$DEV/shaders" "$DEV/save"

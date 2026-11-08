@@ -115,8 +115,24 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         SurfaceView view = new SurfaceView(this);
         view.getHolder().addCallback(this);
         setContentView(view);
+        preferHighestRefreshRate(getWindow(), getDisplay());
         hideSystemBars(getWindow().getInsetsController());
         showCompanion();
+    }
+
+    /** The display's fastest mode at its current resolution (the Thor's screens: 120 Hz;
+     *  Android starts apps in the 60 Hz mode to save power). */
+    private static void preferHighestRefreshRate(android.view.Window w, Display d) {
+        if (w == null || d == null) return;
+        Display.Mode cur = d.getMode(), best = cur;
+        for (Display.Mode m : d.getSupportedModes()) {
+            if (m.getPhysicalWidth() == cur.getPhysicalWidth() && m.getPhysicalHeight() == cur.getPhysicalHeight()
+                    && m.getRefreshRate() > best.getRefreshRate()) best = m;
+        }
+        android.view.WindowManager.LayoutParams lp = w.getAttributes();
+        lp.preferredDisplayModeId = best.getModeId();
+        w.setAttributes(lp);
+        Log.i(TAG, "display " + d.getDisplayId() + ": mode " + best.getModeId() + " @ " + best.getRefreshRate() + " Hz");
     }
 
     private static void hideSystemBars(WindowInsetsController c) {
@@ -147,6 +163,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             @Override public void surfaceDestroyed(SurfaceHolder h) { nativeSetCompanionSurface(null, 0, 0); }
         });
         companion.setContentView(v);
+        preferHighestRefreshRate(companion.getWindow(), d);
         companion.show();
         hideSystemBars(companion.getWindow().getInsetsController());
     }

@@ -9,6 +9,7 @@ Adapted from codepdbh/nfsu2-recompiled scripts/run_lift.py (MIT License).
       for the whole discovery again (it takes ~12 minutes on SPEED2.EXE).
 
   run_lift.py lift  <analysis.exe> <catalog.json> <outdir> [--split N] [--names names.json] [--prefix P]
+                    [--manifests a.json,b.json]   FFNx patch manifests (see manifest_patches)
       Lift every catalogued function with lift32.Lifter and write:
         recomp_NNNN.c          the functions, N per file
         recomp_funcs.h         declarations
@@ -91,7 +92,106 @@ def read_va_list(path):
     return out
 
 
-def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix=""):
+DWORD_VALUE_KINDS = {"patch_code_uint", "patch_code_dword", "patch_code_int"}
+
+
+def manifest_patches(manifest_paths, img, base, md, fds):
+    """FFNx's code patches (src/ffnx_port/patch_recomp.cpp manifests, one per FFNx config)
+    -> (patch_sites, code_variants) for lift32.Lifter.
+
+    dword value writes become patch_sites: the instruction reads that operand from memory,
+    so whatever FFNx writes at run time takes effect. Every other write (opcodes, NOPs,
+    copied instruction sequences, a call written over a non-call) becomes a variant: the
+    patched instructions, lifted next to the original ones and chosen at run time by
+    comparing the bytes in memory (dword values masked out)."""
+    patch_sites, variants = set(), {}
+    if not manifest_paths:
+        return patch_sites, variants
+    # Original instruction boundaries of every catalogued function.
+    starts, ends = set(), set()
+    for fd in fds:
+        for s, e, _succ, _ex in fd["blocks"]:
+            for ins in md.disasm(img[s - base:e - base], s):
+                starts.add(ins.address)
+                ends.add(ins.address + ins.size)
+    sorted_starts = sorted(starts)
+    import bisect
+
+    def insn_start_containing(a):
+        i = bisect.bisect_right(sorted_starts, a) - 1
+        return sorted_starts[i] if i >= 0 else None
+
+    def decode_one(buf_get, a):
+        chunk = bytes(buf_get(a + k) for k in range(16))
+        for ins in md.disasm(chunk, a):
+            return ins
+        return None
+
+    for path in manifest_paths:
+        m = json.load(open(path))
+        overlay, dyn, struct = {}, set(), set()
+        for w in m.get("code_writes", []):
+            off = int(w["offset"], 16)
+            data = bytes.fromhex(w["bytes"])
+            for k, b in enumerate(data):
+                overlay[off + k] = b
+            if w["kind"] in DWORD_VALUE_KINDS and len(data) == 4:
+                patch_sites.add(off)
+                dyn.update(range(off, off + 4))
+            elif w["kind"] == "replace_call_function" and len(data) == 5:
+                struct.add(off)                      # the E8; its rel32 is the hook's business
+                dyn.update(range(off + 1, off + 5))
+            else:
+                struct.update(range(off, off + len(data)))
+        orig = lambda a: img[a - base]
+        patched = lambda a: overlay.get(a, img[a - base])
+        todo = sorted(struct)
+        done = set()
+        for a in todo:
+            if a in done:
+                continue
+            s = insn_start_containing(a)
+            if s is None:
+                print(f"[!] patch at 0x{a:08X}: not inside lifted code, skipped")
+                continue
+            hi = a                                   # last patched byte the region must cover
+            po = pp = s
+            ok = True
+            while not (po == pp and po > hi):
+                if po <= pp:
+                    i = decode_one(orig, po)
+                    if not i: ok = False; break
+                    po += i.size
+                else:
+                    i = decode_one(patched, pp)
+                    if not i: ok = False; break
+                    pp += i.size
+                # patched bytes further on within the region extend it
+                hi = max([hi] + [b for b in struct if s <= b < max(po, pp)])
+                if max(po, pp) - s > 256:
+                    ok = False; break
+            if not ok:
+                print(f"[!] patch at 0x{a:08X}: original and patched code do not resynchronise, skipped")
+                continue
+            e = po
+            done.update(b for b in struct if s <= b < e)
+            if e not in starts and e not in ends:
+                print(f"[!] patch region 0x{s:08X}-0x{e:08X} does not end on an instruction, skipped")
+                continue
+            pbytes = bytes(patched(x) for x in range(s, e))
+            mask = bytes(0 if x in dyn else 0xFF for x in range(s, e))
+            insns = [Instruction(i.address, i.size, i.mnemonic, i.op_str, bytes(i.bytes), list(i.operands))
+                     for i in md.disasm(pbytes, s)]
+            v = {"end": e, "insns": insns, "bytes": pbytes, "mask": mask}
+            lst = variants.setdefault(s, [])
+            if not any(x["bytes"] == pbytes and x["mask"] == mask and x["end"] == e for x in lst):
+                lst.append(v)
+    nv = sum(len(v) for v in variants.values())
+    print(f"[*] FFNx manifests: {len(patch_sites)} live dword operands, {nv} patched-code variants at {len(variants)} sites")
+    return patch_sites, variants
+
+
+def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manifests=None):
     import pefile
     from lift32 import Lifter
     info = analyze_pe(exe)
@@ -112,8 +212,9 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix=""):
     hooks = read_va_list(os.path.join(cfg, "hooks.txt"))
     md = Cs(CS_ARCH_X86, CS_MODE_32)
     md.detail = True
+    patch_sites, code_variants = manifest_patches(manifests, img, base, md, fds)
     lifter = Lifter(iat_map=iat, func_names={}, lifted=lifted, precise_carry=True,
-                    hook_sites=set(hooks))
+                    hook_sites=set(hooks), patch_sites=patch_sites, code_variants=code_variants)
     os.makedirs(outdir, exist_ok=True)
     for fn in os.listdir(outdir):
         if fn.startswith(prefix + "recomp_") and fn.endswith((".c", ".h")):
@@ -217,6 +318,7 @@ if __name__ == "__main__":
         split = int(a[a.index("--split") + 1]) if "--split" in a else 400
         names = a[a.index("--names") + 1] if "--names" in a else None
         prefix = a[a.index("--prefix") + 1] if "--prefix" in a else ""
-        cmd_lift(a[1], a[2], a[3], split, names, prefix)
+        manifests = a[a.index("--manifests") + 1].split(",") if "--manifests" in a else None
+        cmd_lift(a[1], a[2], a[3], split, names, prefix, manifests)
     else:
         sys.exit(__doc__)

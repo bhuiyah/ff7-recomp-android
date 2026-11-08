@@ -163,6 +163,37 @@ EDITS = [
      '#define driver_free(x) guest_free(x)\n#define driver_realloc(x, y) guest_realloc(x, y)\n'
      '#elif !defined(HEAP_DEBUG)\n#define driver_malloc(x) malloc(x)\n#define driver_calloc(x, y) calloc(x, y)\n'
      '#define driver_free(x) free(x)\n#define driver_realloc(x, y) realloc(x, y)\n'),
+    # FFNx globals that FFNx's code patches make the game read: in the fixed guest block
+    # (src/ffnx_port/ffnx_guest_static.cpp), so their addresses fit the patched operands.
+    ('ff7/battle/animations.cpp', '    byte y_pos_offset_display_damage_30[] = {',
+     '    static const byte y_pos_offset_display_damage_30_init[] = {'),
+    ('ff7/battle/animations.cpp', '    byte y_pos_offset_display_damage_60[] = {',
+     '    static const byte y_pos_offset_display_damage_60_init[] = {'),
+    ('ff7/battle/animations.cpp', '    WORD ff7_odin_steel_frames_AEEC14;\n',
+     '    auto &y_pos_offset_display_damage_30 = ffnx_guest_static_copy(y_pos_offset_display_damage_30_init);   // FF7Recomp: guest block\n'
+     '    auto &y_pos_offset_display_damage_60 = ffnx_guest_static_copy(y_pos_offset_display_damage_60_init);\n'
+     '    WORD &ff7_odin_steel_frames_AEEC14 = ffnx_guest_static<WORD>();\n'),
+    ('ff7_opengl.cpp', '\t\t\t\tstatic const double swirl_fps = 60.0;',
+     '\t\t\t\tstatic const double &swirl_fps = ffnx_guest_static<double>(60.0);   // FF7Recomp: guest block'),
+    ('sfx.cpp', 'uint32_t real_volume;\n',
+     'uint32_t &real_volume = ffnx_guest_static<uint32_t>();   // FF7Recomp: guest block\n'),
+    ('sfx.cpp', '\tstatic int32_t volume_table[128];',
+     '\tstatic int32_t (&volume_table)[128] = ffnx_guest_static_zero<int32_t, 128>();   // FF7Recomp: guest block'),
+    ('ff7/widescreen.cpp', 'int viewport_width_plus_x_widescreen_fix = 750;',
+     'int &viewport_width_plus_x_widescreen_fix = ffnx_guest_static<int>(750);   // FF7Recomp: guest block'),
+    ('widescreen.h', 'int wide_viewport_x = -107;\nint wide_viewport_y = 0;\nint wide_viewport_width = 854;\nint wide_viewport_height = 480;',
+     '// FF7Recomp: guest block (the game reads these through FFNx\'s code patches)\n'
+     'inline int &wide_viewport_x = ffnx_guest_static<int>(-107);\ninline int &wide_viewport_y = ffnx_guest_static<int>(0);\n'
+     'inline int &wide_viewport_width = ffnx_guest_static<int>(854);\ninline int &wide_viewport_height = ffnx_guest_static<int>(480);'),
+    ('ff7/battle/battle.cpp', '		effect100_data *(*pandora_box_native_main_loop)();',
+     '		guest::gfn<effect100_data *()> pandora_box_native_main_loop;   // FF7Recomp: a game function'),
+    ('ff7/battle/battle.cpp',
+     '		pandora_box_native_main_loop = reinterpret_cast<decltype(pandora_box_native_main_loop)>(get_absolute_value(ff7_externals.pandora_box_skill_init_566871, 0x1F));\n'
+     '		patch_code_dword(ff7_externals.pandora_box_skill_init_566871 + 0x1F, reinterpret_cast<uint32_t>(pandora_box_main_loop));',
+     '		pandora_box_native_main_loop = guest::gfn<effect100_data *()>::from_va(get_absolute_value(ff7_externals.pandora_box_skill_init_566871, 0x1F));\n'
+     '		patch_code_dword(ff7_externals.pandora_box_skill_init_566871 + 0x1F, ffnx_guest_va(&pandora_box_main_loop));'),
+    ('ff7/battle/battle.cpp', '		patch_code_dword(resource + 4, reinterpret_cast<uint32_t>("DOMU1.TIM"));',
+     '		patch_code_dword(resource + 4, guest::guest_string("DOMU1.TIM"));   // FF7Recomp: guest copy'),
     # One-button movie skip on the Thor: Start while an FMV plays (FFNx's own skipMovies,
     # with its exclusions for scenes that must not be skipped). FFNx's L3-then-Square
     # shortcut stays as well.
@@ -310,6 +341,89 @@ def rewrite_fnptr_globals():
     return n
 
 
+GAME_ADDR_MARKERS = ('ff7_externals.', 'common_externals.', 'get_relative_call', 'get_absolute_value',
+                     'data::', 'ff8_externals.')
+FNPTR_TYPE_RE = re.compile(r'^\s*(?P<ret>[A-Za-z_][\w:\s]*?\**)\s*\(\s*\*\s*\)\s*\((?P<args>[^()]*)\)\s*$')
+DECLTYPE_RE = re.compile(r'^\s*decltype\(\s*(?P<name>[A-Za-z_]\w*)\s*\)\s*$')
+
+
+def _balanced(s, i, open_c, close_c):
+    """Index just past the bracket matching s[i] (== open_c), or -1."""
+    depth = 0
+    for j in range(i, len(s)):
+        if s[j] == open_c:
+            depth += 1
+        elif s[j] == close_c:
+            depth -= 1
+            if depth == 0:
+                return j + 1
+    return -1
+
+
+def rewrite_game_fn_casts():
+    """reinterpret_cast<R (*)(A)>(game address) and reinterpret_cast<decltype(v)>(game address),
+    and `v = (decltype(v))game address;`: native calls into x86 code. They become guest
+    calls (guest::gfn), and each such variable v a guest::gfn (its declaration rewritten).
+    Only casts whose operand names a game address are touched (FFNx also casts its own
+    native callbacks)."""
+    n, names = 0, set()
+    files = []
+    for dirpath, _, fnames in os.walk(SRC):
+        rel_dir = os.path.relpath(dirpath, SRC).replace(os.sep, '/')
+        if rel_dir.startswith(FNPTR_SKIP_DIRS):
+            continue
+        files += [os.path.join(dirpath, f) for f in fnames if f.endswith(('.cpp', '.h')) and not f.startswith('ff8')]
+    text = {p: open(p, 'rb').read().decode('utf-8', errors='surrogateescape') for p in files}
+    cstyle = re.compile(r'(?P<name>[A-Za-z_]\w*)\s*=\s*\(\s*decltype\(\s*(?P=name)\s*\)\s*\)\s*(?P<expr>[^;]+);')
+    for p, raw in text.items():
+        out, i = [], 0
+        while True:
+            k = raw.find('reinterpret_cast<', i)
+            if k < 0:
+                out.append(raw[i:])
+                break
+            t0 = k + len('reinterpret_cast')
+            t1 = _balanced(raw, t0, '<', '>')
+            if t1 < 0 or t1 >= len(raw) or raw[t1] != '(':
+                out.append(raw[i:t0]); i = t0; continue
+            e1 = _balanced(raw, t1, '(', ')')
+            tmpl, expr = raw[t0 + 1:t1 - 1], raw[t1 + 1:e1 - 1]
+            fm, dm = FNPTR_TYPE_RE.match(tmpl), DECLTYPE_RE.match(tmpl)
+            if (fm or dm) and any(mk in expr for mk in GAME_ADDR_MARKERS):
+                gtype = f'guest::gfn<{fm.group("ret").strip()}({fm.group("args").strip()})>' if fm else f'decltype({dm.group("name")})'
+                if dm:
+                    names.add(dm.group('name'))
+                out.append(raw[i:k])
+                out.append(f'{gtype}::from_va((uint32_t)({expr.strip()}))')
+                n += 1
+            else:
+                out.append(raw[i:e1])
+            i = e1
+        new = ''.join(out)
+
+        def cs(m):
+            nonlocal n
+            if not any(mk in m.group('expr') for mk in GAME_ADDR_MARKERS):
+                return m.group(0)
+            names.add(m.group('name'))
+            n += 1
+            return f'{m.group("name")} = decltype({m.group("name")})::from_va((uint32_t)({m.group("expr").strip()}));'
+        text[p] = cstyle.sub(cs, new)
+    for name in names:
+        dre = fnptr_decl_re(name)
+        for p, raw in text.items():
+            def decl(m):
+                nonlocal n
+                n += 1
+                init = ' = 0' if m.group('init') else ''
+                return f'{m.group("lead")}guest::gfn<{m.group("ret").strip()}({m.group("args").strip()})> {name}{init};'
+            text[p] = dre.sub(decl, raw)
+    for p, raw in text.items():
+        if raw != open(p, 'rb').read().decode('utf-8', errors='surrogateescape'):
+            open(p, 'wb').write(raw.encode('utf-8', errors='surrogateescape'))
+    return n
+
+
 def main():
     changed = 0
     for edit in EDITS:
@@ -328,7 +442,8 @@ def main():
         else:
             sys.exit(f'{rel}: edit did not match exactly once:\n{old[:120]}')
     print(f'{changed} edits applied ({len(EDITS)} total); {rewrite_patch_values()} patch values made guest addresses; '
-          f'{rewrite_fnptr_globals()} game-function pointer variables made guest calls')
+          f'{rewrite_fnptr_globals()} game-function pointer variables made guest calls; '
+          f'{rewrite_game_fn_casts()} casts of game addresses to native functions made guest calls')
 
 
 if __name__ == '__main__':
