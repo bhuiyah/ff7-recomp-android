@@ -4,4 +4,4 @@
 ADB="/c/Users/%USERNAME%/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 export MSYS_NO_PATHCONV=1
 D=/sdcard/Android/data/com.ff7recomp/files/savestates
-"$ADB" shell "mkdir -p $D && echo '$1 ${2:-quick}' > $D/cmd"
+"$ADB" shell "mkdir -p $D && echo '$1 ${2:-quick}' > $D/cmd && chmod 666 $D/cmd"

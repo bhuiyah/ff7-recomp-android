@@ -16,8 +16,8 @@ There are 10 slots. The in-game buttons use the *current* slot.
 | Start every launch at the current slot | | Settings > Start > *Resume the save state* |
 | Delete a slot | | *Save states* > Delete |
 
-- Picking a slot shows what it holds, e.g. `Slot 2: md1stin - 0:00:07 - saved 08 Nov 00:54`
-  (where, the game's play time, when), or `Slot 3: empty`.
+- Picking a slot shows what it holds, e.g. `Slot 3: Platform - 0:00:07 - saved 08 Nov 01:03`
+  (the place name the game's menu shows, the play time, when), or `Slot 3: empty`.
 - Saving shows `Saving state...`, then `State saved (31 MB, 0.1 s)`. Loading shows `State loaded`.
 - Saving pauses the game for about a tenth of a second, and the file is written in the
   background.
@@ -87,8 +87,9 @@ Scripts and tests:
 ## Not done yet
 
 - No thumbnails or undo.
-- The location is the field's internal name (`md1stin`) until the game sets its own location
-  text.
+- The place name is the one the field script last set (opcode MPNAM, savemap +0xF0C). Before
+  the first one, and in fields that set none, the field's internal name is shown. On the world
+  map the slot says `World map`. States saved before this change keep the internal name.
 - Checked in fields and battles; world map, menus and the minigames are untested.
 - Mid-effect battle states: FFNx keeps per-effect interpolation state on the host side; a load
   in the middle of a spell may show its first frames oddly.
