@@ -271,3 +271,17 @@
   16:9 layout, music 95 -> 2.
 - Measured on the Thor: 26-30 MB per state, 3 MB on disk, saved in 0.1 s; resume at launch
   lands in the saved moment ~1.5 s after start.
+
+## 2026-11-08: 120 FPS battles (x8) -- animation speed and ATB
+- The user saw "character models shaking fast" in 120 FPS battles. A 118 FPS screen recording
+  (adb screenrecord; frames via imageio-ffmpeg) showed Cloud's idle pose changing every frame.
+  The keyframe counter in battle_update_3d_model_data (+0x13E / +0x316 imm8) advanced once per
+  frame, twice the 60 FPS rate. It now steps 1 / 0 on alternate frames.
+- ATB: FF7_MEMDIFF=2 (rising 16-bit words) found the actor gauges (0x9A8B14, stride 0x44).
+  At x8 they filled twice as fast (party and enemies, about 22 000 / s). The battle menu step
+  runs once per 120 FPS frame. The ATB tick at 0x4322AE now adds the speed on alternate frames.
+  Refill: x4 6.0 s, x8 6.1 s (FF7_WATCH timeline). The probe's "x8 ATB 13.8 s" was a pixel
+  misread of the pulsing full bar.
+- Save states crash when loaded under other FFNx settings (a 60 FPS 16:9 state loaded at 120 FPS
+  4:3 faulted at 0x660626). States now record the settings (R_CONFIG, format version 3), and a load
+  under others is refused with a note. Older states are refused too.

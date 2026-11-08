@@ -220,7 +220,7 @@ EDITS = [
     #   - a summon wait multiplied as a byte is a 16-bit immediate: multiplied as a word;
     #   - display-damage bounce: a 120 FPS table; integer index maths reworked.
     ('ff7_opengl.cpp', '\t\t\tbattle_frame_multiplier = (ff7_fps_limiter == FPS_LIMITER_30FPS) ? 2 : 4;\n',
-     '\t\t\tbattle_frame_multiplier = (ff7_fps_limiter == FPS_LIMITER_30FPS) ? 2 : (ff7_fps_limiter >= FPS_LIMITER_120FPS && getenv("FF7_BATTLE120") && atoi(getenv("FF7_BATTLE120")) ? 8 : 4);   // FF7Recomp: 120 FPS battles are opt-in (ATB runs slow at x8)\n'),
+     '\t\t\tbattle_frame_multiplier = (ff7_fps_limiter == FPS_LIMITER_30FPS) ? 2 : (ff7_fps_limiter >= FPS_LIMITER_120FPS && getenv("FF7_BATTLE120") && atoi(getenv("FF7_BATTLE120")) ? 8 : 4);   // FF7Recomp: 120 FPS battles are opt-in until every effect is checked at x8\n'),
     # The battle loop runs the menu step 4x per 15 FPS frame and its LAST pass draws the battle
     # windows; stepped to 0/1 per frame at x8, every other frame drew no windows (they flicker,
     # and screenshots caught them gone). Keep one pass per frame, as at 60.
@@ -315,6 +315,34 @@ EDITS = [
      '            patch_multiply_code<byte>(ff7_externals.battle_sub_429AC0 + 0x152, battle_frame_multiplier);\n'
      '            patch_multiply_code<byte>(ff7_externals.battle_sub_429D8A + 0x1D8, battle_frame_multiplier);\n'
      '        }\n'),
+    # 120 FPS battles: the battle models' keyframe counter (battle_update_3d_model_data,
+    # `add reg, 1` at +0x13C / +0x314) advances once per frame -- FFNx doubles it at 30 FPS and
+    # leaves it at 60, so at x8 every model animated twice as fast (idle stances looked like
+    # shaking). It advances +1 / +0 on alternate frames.
+    ('ff7/battle/animations.cpp',
+     '            patch_multiply_code<byte>(ff7_externals.battle_update_3d_model_data + 0x316, battle_frame_multiplier);\n'
+     '        }\n',
+     '            patch_multiply_code<byte>(ff7_externals.battle_update_3d_model_data + 0x316, battle_frame_multiplier);\n'
+     '        }\n'
+     '        else if (battle_frame_multiplier >= 8)\n'
+     '        {\n'
+     '            // FF7Recomp: model keyframes at the 60 FPS rate: +1 and +0 on alternate frames\n'
+     '            static const byte one = 1, zero = 0;\n'
+     '            ffnx_recomp::step_alternate(ff7_externals.battle_update_3d_model_data + 0x13E, &one, &zero, 1);\n'
+     '            ffnx_recomp::step_alternate(ff7_externals.battle_update_3d_model_data + 0x316, &one, &zero, 1);\n'
+     '        }\n'),
+    # ... and the ATB: the battle menu step runs once per frame at x8 as at 60 (fewer passes
+    # leave frames without the battle windows, which its last pass queues), so every gauge filled
+    # twice as fast. The ATB tick (1.02 US 0x4322AE, `add ecx, [ebp-0xC]`: gauge += speed) adds
+    # the speed and +0 on alternate frames (`add ecx, 0`, also 3 bytes).
+    ('ff7_opengl.cpp',
+     '(FF7Recomp: x8 keeps one pass per frame)\n',
+     '(FF7Recomp: x8 keeps one pass per frame)\n'
+     '\t\t\tif (battle_frame_multiplier >= 8 && !memcmp((const void *)(uintptr_t)0x4322AE, "\\x03\\x4D\\xF4", 3))   // FF7Recomp: ATB at the 60 FPS rate\n'
+     '\t\t\t{\n'
+     '\t\t\t\tstatic const byte add_speed[] = {0x03, 0x4D, 0xF4}, add_zero[] = {0x83, 0xC1, 0x00};\n'
+     '\t\t\t\tffnx_recomp::step_alternate(0x4322AE, add_speed, add_zero, 3);\n'
+     '\t\t\t}\n'),
     # One-button movie skip on the Thor: Start while an FMV plays (FFNx's own skipMovies,
     # with its exclusions for scenes that must not be skipped). FFNx's L3-then-Square
     # shortcut stays as well.

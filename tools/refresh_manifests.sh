@@ -5,26 +5,29 @@
 # patched-code variant whose bytes no longer match silently falls back to the original.
 # Each frame-rate mode is collected with widescreen off and on (aspect_ratio 0 and 2, uncrop
 # on with widescreen): those patches differ per combination.
-# usage: bash tools/refresh_manifests.sh [modes = "1 2 3 4"] [aspects = "0 2"]
+# Mode "4b" is the 120 FPS mode with 120 FPS battles (FF7_BATTLE120=1), whose x8 battle
+# patches differ from mode 4's x4 ones.
+# usage: bash tools/refresh_manifests.sh [modes = "1 2 3 4 4b"] [aspects = "0 2"]
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ADB="/c/Users/%USERNAME%/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 FILES=/sdcard/Android/data/com.ff7recomp/files
 M="$ROOT/analysis/ffnx_manifests"
-MODES="${1:-1 2 3 4}"
+MODES="${1:-1 2 3 4 4b}"
 ASPECTS="${2:-0 2}"
 export MSYS_NO_PATHCONV=1
 mkdir -p "$M"
 build() { (cd "$ROOT/android" && JAVA_HOME="/c/Program Files/Microsoft/jdk-17.0.21.21-hotspot" ./gradlew assembleDebug --console=plain > "$ROOT/build/gradle.log" 2>&1) \
           || { grep -E 'error:' "$ROOT/build/gradle.log" | sort -u | head; exit 1; }; }
 build
-printf 'FF7_WATCHDOG=15\nFF7_FFNX_MANIFEST=%s/ffnx_manifest.json\n' "$FILES" > "$ROOT/build/env.txt"
-"$ADB" push "$(cygpath -w "$ROOT/build/env.txt")" "$FILES/env.txt" > /dev/null
 install=""
 for mode in $MODES; do
+ b120=0; [ "${mode%b}" != "$mode" ] && b120=1
+ printf 'FF7_WATCHDOG=15\nFF7_FFNX_MANIFEST=%s/ffnx_manifest.json\nFF7_BATTLE120=%s\n' "$FILES" "$b120" > "$ROOT/build/env.txt"
+ "$ADB" push "$(cygpath -w "$ROOT/build/env.txt")" "$FILES/env.txt" > /dev/null
  for ar in $ASPECTS; do
   uncrop=false; [ "$ar" != 0 ] && uncrop=true
-  FPS_LIMITER=$mode ASPECT_RATIO=$ar UNCROP=$uncrop bash "$ROOT/tools/deploy_ffnx.sh" > /dev/null
+  FPS_LIMITER=${mode%b} ASPECT_RATIO=$ar UNCROP=$uncrop bash "$ROOT/tools/deploy_ffnx.sh" > /dev/null
   "$ADB" shell rm -f "$FILES/ffnx_manifest.json"
   bash "$ROOT/tools/run_app.sh" 40 $install > /dev/null 2>&1 || true
   install="--no-install"

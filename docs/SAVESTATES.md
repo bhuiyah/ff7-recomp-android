@@ -31,6 +31,11 @@ There are 10 slots. The in-game buttons use the *current* slot.
 - The game does not see Select+L1 / R1 / Left / Right. Those combinations are reserved for
   save states.
 - Saving is refused while a movie plays and between scenes (`Cannot save now: ...`).
+- A state only loads under the graphics settings it was saved with (frame rate, battle frame
+  rate, aspect ratio/widescreen): FFNx patches code and data differently for each, and a
+  mismatched load would crash. Otherwise the game says
+  `Cannot load the state: saved with other graphics settings (...)` and plays on.
+  States from before format version 3 are refused (save them again).
 
 Files:
 - Slots are `files/savestates/slot01.ff7s` .. `slot10.ff7s`, about 3 MB each (deflated).
@@ -78,7 +83,7 @@ Scripts and tests:
   maps and uploads each palette it had again from the image data in guest memory
   (`common_load_texture`). The music track and FFNx's per-field caches and widescreen layout
   (set on scene entry, which a load skips) are put back too.
-- **Format**: a header and deflated tagged records. The header (version 2, 216 bytes) holds the
+- **Format**: a header and deflated tagged records. The header (version 3, 216 bytes) holds the
   version, build, time, mode, label, location and play time. The launcher reads it in
   `SaveStates.java`. A state from
   another build loads with a note; one whose layout differs is refused before anything is

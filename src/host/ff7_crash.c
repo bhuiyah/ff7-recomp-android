@@ -158,7 +158,89 @@ static void *memdiff(void *arg) {
     return NULL;
 }
 
+/* FF7_MEMDIFF=2: counters. Every 2 s, the 16-bit words of .data/.bss that rose in at least 7 of
+ * the last 8 quarter-second looks (never falling), with how much they rose: a gauge or timer
+ * and its speed. */
+static void *memdiff_counters(void *arg) {
+    (void)arg;
+    enum { N = (MD_HI - MD_LO) / 2 };
+    static uint16_t prev[N], start[N];
+    static uint8_t ups[N], downs[N];
+    sleep(10);
+    memcpy(prev, (const void *)(uintptr_t)MD_LO, sizeof prev);
+    memcpy(start, prev, sizeof start);
+    for (int round = 0;; round++) {
+        for (int k = 0; k < 8; k++) {
+            usleep(250000);
+            const uint16_t *cur = (const uint16_t *)(uintptr_t)MD_LO;
+            for (uint32_t i = 0; i < N; i++) {
+                uint16_t a = prev[i], b = cur[i];
+                if (b > a) ups[i]++; else if (b < a) downs[i]++;
+                prev[i] = b;
+            }
+        }
+        int shown = 0;
+        for (uint32_t i = 0; i < N; i++) {
+            if (ups[i] >= 7 && !downs[i] && shown < 60) {
+                fprintf(stderr, "[counter] %d 0x%08X %u -> %u (+%u)\n", round, MD_LO + 2 * i, start[i], prev[i], (unsigned)(prev[i] - start[i]));
+                shown++;
+            }
+            ups[i] = downs[i] = 0;
+            start[i] = prev[i];
+        }
+    }
+    return NULL;
+}
+
+/* FF7_WATCH=9A8B14,9A8C24: those 16-bit words every 50 ms, with the time in ms, whenever one
+ * of them changed -- a gauge's timeline. */
+static void *watch_words(void *arg) {
+    (void)arg;
+    uint32_t addr[8];
+    int n = 0;
+    for (const char *p = getenv("FF7_WATCH"); p && *p && n < 8;) {
+        char *end;
+        unsigned long v = strtoul(p, &end, 16);
+        if (end == p) break;
+        addr[n++] = (uint32_t)v;
+        p = *end ? end + 1 : end;
+    }
+    uint16_t last[8] = {0};
+    struct timespec t0;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    sleep(10);
+    for (;;) {
+        usleep(50000);
+        int changed = 0;
+        uint16_t v[8];
+        for (int i = 0; i < n; i++) {
+            v[i] = *(volatile uint16_t *)(uintptr_t)addr[i];
+            changed |= v[i] != last[i];
+            last[i] = v[i];
+        }
+        if (!changed) continue;
+        struct timespec t;
+        clock_gettime(CLOCK_MONOTONIC, &t);
+        long ms = (long)(t.tv_sec - t0.tv_sec) * 1000 + (t.tv_nsec - t0.tv_nsec) / 1000000;
+        char line[160];
+        int k = snprintf(line, sizeof line, "[watch] %ld", ms);
+        for (int i = 0; i < n && k < (int)sizeof line; i++) k += snprintf(line + k, sizeof line - k, " %u", v[i]);
+        fprintf(stderr, "%s\n", line);
+    }
+    return NULL;
+}
+
 void ff7_start_watchdog(void) {
+    if (getenv("FF7_WATCH")) {
+        pthread_t w;
+        pthread_create(&w, NULL, watch_words, NULL);
+        pthread_detach(w);
+    }
+    if (getenv("FF7_MEMDIFF") && getenv("FF7_MEMDIFF")[0] == '2') {
+        pthread_t m;
+        pthread_create(&m, NULL, memdiff_counters, NULL);
+        pthread_detach(m);
+    }
     if (getenv("FF7_MEMDIFF") && getenv("FF7_MEMDIFF")[0] == '1') {
         pthread_t m;
         pthread_create(&m, NULL, memdiff, NULL);

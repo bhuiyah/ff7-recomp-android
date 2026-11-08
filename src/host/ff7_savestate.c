@@ -36,13 +36,13 @@
 #include "ff7_savestate.h"
 
 #define SS_MAGIC   "FF7RSS\x1a\x01"
-#define SS_VERSION 2
+#define SS_VERSION 3   /* 3: records the graphics settings (R_CONFIG) */
 #define IMG_DATA_LO 0x007BA000u          /* ff7_en .data/.bss */
 #define IMG_DATA_HI 0x00F51000u
 #define FFNX_STATIC_LO 0x6B000000u       /* src/ffnx_port/ffnx_guest_static.cpp */
 #define FFNX_STATIC_HI 0x6B010000u
 
-enum { R_CPU = 1, R_MEM, R_FREE, R_VREGIONS, R_DSOUND, R_FILES, R_CWD, R_HOOK, R_END = 0xFFFF };
+enum { R_CPU = 1, R_MEM, R_FREE, R_VREGIONS, R_DSOUND, R_FILES, R_CWD, R_HOOK, R_CONFIG, R_END = 0xFFFF };
 
 typedef struct {
     uint32_t eax, ecx, edx, ebx, esp, ebp, esi, edi;
@@ -119,6 +119,9 @@ void ff7_savestate_register(const ff7_savestate_hook *h) { if (g_nhooks < MAX_HO
 __attribute__((weak)) int ff7_ss_driver_mode(void) { return -1; }
 __attribute__((weak)) int ff7_ss_can_save(const char **why) { (void)why; return 1; }
 __attribute__((weak)) void ff7_ss_notify(const char *msg) { (void)msg; }
+/* The settings a state depends on (FFNx's frame-rate and widescreen patches change code and
+ * data layouts): a state is only loaded under the same ones. */
+__attribute__((weak)) void ff7_ss_config(char *out, unsigned n) { if (n) out[0] = 0; }
 __attribute__((weak)) void ff7_ss_location(char *out, unsigned n, uint32_t *play_seconds) { if (n) out[0] = 0; *play_seconds = 0; }
 static void notify(const char *msg) { fprintf(stderr, "[savestate] %s\n", msg); fflush(stderr); ff7_ss_notify(msg); }
 
@@ -179,6 +182,9 @@ static int capture(buf_t *b) {
     c.fp_top = g_fp_top; c.fpu_cw = g_fpu_cw; c.fs_base = g_fs_base; c.gs_base = g_gs_base;
     c.host_depth = host_depth();
     if (rec(b, R_CPU, &c, sizeof c)) return -1;
+    char cfg[64];
+    ff7_ss_config(cfg, sizeof cfg);
+    if (rec(b, R_CONFIG, cfg, (uint32_t)strlen(cfg))) return -1;
 
     if (rec_mem(b, IMG_DATA_LO, IMG_DATA_HI) || rec_mem(b, FFNX_STATIC_LO, FFNX_STATIC_HI)) return -1;
 
@@ -252,6 +258,7 @@ static int capture(buf_t *b) {
 static int check(const uint8_t *p, size_t n, const char **why) {
     /* everything this build must accept before anything is touched */
     size_t at = 0;
+    int have_config = 0;
     while (at + 8 <= n) {
         uint32_t id, len;
         memcpy(&id, p + at, 4); memcpy(&len, p + at + 4, 4);
@@ -264,7 +271,23 @@ static int check(const uint8_t *p, size_t n, const char **why) {
             if (c.host_depth != host_depth()) { *why = "the game is somewhere a state cannot be loaded (host stack differs)"; return -1; }
         }
         if (id == R_DSOUND && len != ff7_dsound_state_size()) { *why = "another build (sound layout changed)"; return -1; }
-        if (id == R_END) return 0;
+        if (id == R_CONFIG) {
+            have_config = 1;
+            /* loading under other frame-rate / widescreen settings crashes the game */
+            static char msg[200];
+            char now[64];
+            ff7_ss_config(now, sizeof now);
+            if (len != strlen(now) || memcmp(p + at + 8, now, len)) {
+                snprintf(msg, sizeof msg, "saved with other graphics settings (%.*s; now %s)", (int)(len < 64 ? len : 64), (const char *)(p + at + 8), now);
+                *why = msg;
+                return -1;
+            }
+        }
+        if (id == R_END) {
+            /* states from before the settings were recorded: their settings are unknown */
+            if (!have_config) { *why = "from an older version (save it again)"; return -1; }
+            return 0;
+        }
         at += 8 + len;
     }
     *why = "damaged (no end)";

@@ -35,7 +35,7 @@ final class SaveStates {
     File file(int n) { return new File(dir, String.format(java.util.Locale.ROOT, "slot%02d.ff7s", n)); }
 
     /* ss_header in ff7_savestate.c: magic[8], version u32, header_size u32, build[64],
-     * saved_at i64, mode i32, raw_size u32, label[64], location[48], play_seconds u32 (216 bytes). */
+     * saved_at i64, mode i32, raw_size u32, label[64], location[48], play_seconds u32 (216 bytes; version 3). */
     Slot read(int n) {
         Slot s = new Slot();
         s.number = n;
@@ -51,7 +51,7 @@ final class SaveStates {
             return s;
         }
         ByteBuffer b = ByteBuffer.wrap(h).order(ByteOrder.LITTLE_ENDIAN);
-        if (h[0] != 'F' || h[1] != 'F' || h[2] != '7' || b.getInt(8) != 2 || b.getInt(12) != 216) return s;
+        if (h[0] != 'F' || h[1] != 'F' || h[2] != '7' || b.getInt(8) != 3 || b.getInt(12) != 216) return s;
         s.readable = true;
         s.when = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(new Date(b.getLong(80) * 1000L));
         s.location = cstr(h, 160, 48);

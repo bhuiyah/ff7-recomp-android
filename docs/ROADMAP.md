@@ -68,11 +68,23 @@ Order:
 5. Launcher: import IROs through the Android file picker (scoped storage) into app storage,
    later the Qhimm catalog; each mod shows a status: works / runs interpreted / unsupported.
 
-## M5b: 120 FPS battles (opt-in: FF7_BATTLE120=1; ATB runs 2.2x slow at x8)
-Status 2026-11-07: mode 4 runs field/world at 120 and battles at 60 (x4), at the right speed.
-At x8 the ATB gauge refills in 13.8 s against the original's 6.3 s (battle_speed_probe.sh,
-empty -> full); stepping is not the cause (FF7_STEP=0 changes nothing). Next: find the ATB
-update and what in the x8 path slows it.
+## M5b: 120 FPS battles (opt-in: FF7_BATTLE120=1)
+Status 2026-11-08: mode 4 runs field/world at 120 and battles at 60 (x4) by default. With
+FF7_BATTLE120=1 battles run at 120 (x8). The ATB refills in 6.1 s (x4: 6.0 s; original
+6.3 s), and the models animate at the right speed. Still opt-in until every effect (magic,
+summons, limits, deaths) has been checked side by side with x4.
+- The ATB never ran slow. The engine gauge (actor ATB, 0x9A8B14 + 0x44 * actor) filled twice as
+  fast at x8: the battle menu step runs once per frame. The on-screen probe's 13 s came from
+  reading one pixel of the full TIME bar, which pulses. The ATB tick (0x4322AE,
+  `add ecx, [ebp-0xC]`, gauge += speed) now alternates with `add ecx, 0`.
+  battle_speed_probe.sh is not reliable at x8: use FF7_WATCH=9A8B14 (src/host/ff7_crash.c).
+- "Shaking" models: battle_update_3d_model_data advanced each model's keyframe counter `+1`
+  per frame (FFNx doubles it at 30 FPS and leaves it at 60). At x8 every animation ran at twice
+  the speed. It now alternates +1 / +0.
+- Running the whole menu step every other frame halved the ATB, but the step queues the battle
+  windows, so they flickered. Only the tick is stepped.
+- Manifests: mode "4b" (refresh_manifests.sh) collects the x8 patches, which mode 4 (x4) does
+  not have.
 Mode 4 runs battles at 120 FPS (battle multiplier 8). FFNx's battle maths is written for
 x2/x4. Comparing its battle patches at x2 and x4 (analysis/ffnx_manifests) showed what breaks
 at x8; each case is handled in tools/ffnx_edit_android.py and src/ffnx_port:

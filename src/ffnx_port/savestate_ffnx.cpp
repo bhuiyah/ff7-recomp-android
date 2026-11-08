@@ -205,6 +205,14 @@ extern "C" void ff7_ss_location(char *out, unsigned n, uint32_t *play_seconds) {
     else if (const char *f = get_current_field_name()) std::snprintf(out, n, "%s", f);
 }
 
+// The settings whose FFNx patches a state depends on: "120 FPS (x8 battles), 16:9".
+extern "C" void ff7_ss_config(char *out, unsigned n) {
+    static const char *const fps[] = { "original", "original", "30 FPS", "60 FPS", "120 FPS" };
+    const char *ar = aspect_ratio == 0 ? "4:3" : aspect_ratio == 2 ? "16:9" : aspect_ratio == 3 ? "16:10" : "other aspect";
+    std::snprintf(out, n, "%s (x%d battles), %s%s", ff7_fps_limiter >= 0 && ff7_fps_limiter <= 4 ? fps[ff7_fps_limiter] : "?",
+                  battle_frame_multiplier, ar, (widescreen_enabled || enable_uncrop) ? " widescreen" : "");
+}
+
 extern "C" void ff7_ss_notify(const char *msg) {
     ffnx_info("savestate: %s\n", msg);
     show_popup_msg(TEXTCOLOR_LIGHT_BLUE, "%s", msg);
