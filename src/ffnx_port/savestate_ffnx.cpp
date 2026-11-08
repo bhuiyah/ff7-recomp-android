@@ -1,11 +1,161 @@
 // savestate_ffnx.cpp - what the save states (src/host/ff7_savestate.c) need from FFNx: the
-// game's mode, whether this moment can be saved, and an on-screen note.
+// game's mode, whether this moment can be saved, an on-screen note, and FFNx's texture sets.
+//
+// Texture sets live in guest memory (the game holds them) but carry host state: GPU texture
+// handles, and gl_texture_set's std::maps whose nodes are host memory. A loaded state brings
+// back the guest bytes of the sets alive when it was saved, with handles and map pointers
+// from that moment (or another process). So: every set FFNx creates is registered here; the
+// list is part of the state; before a load the current sets' GPU textures are deleted, and
+// after it every saved set gets fresh maps and has each palette it had uploaded again from
+// the image data in (restored) guest memory -- FFNx's own common_load_texture.
 #include <cstdio>
+#include <cstring>
+#include <new>
+#include <set>
+#include <vector>
 #include "common.h"
 #include "globals.h"
+#include "gl.h"
 #include "log.h"
+#include "renderer.h"
 #include "ff7/defs.h"
+#include "ff7/field/enter.h"
+#include "ff7/widescreen.h"
+#include "audio.h"
+#include "music.h"
 #include "ff7_savestate.h"
+
+void stop_music_for_channel(int channel);   // music.cpp
+
+namespace {
+std::set<uint32_t> g_sets;                 // live texture sets (guest addresses)
+std::vector<uint32_t> g_restored;          // the sets of a state being loaded
+}
+
+extern "C" void ffnx_ss_texture_set_created(uint32_t ts) { g_sets.insert(ts); }
+extern "C" void ffnx_ss_texture_set_destroyed(uint32_t ts) { g_sets.erase(ts); }
+
+namespace {
+
+int ss_save(void *, ff7_ss_writer put, void *buf) {
+    uint32_t n = (uint32_t)g_sets.size();
+    if (put(buf, &n, 4)) return -1;
+    for (uint32_t ts : g_sets) if (put(buf, &ts, 4)) return -1;
+    return 0;
+}
+
+// The running game's sets are about to be replaced: free their GPU textures (their guest
+// bytes are about to be overwritten, so read the handles now).
+void ss_before_load(void *) {
+    for (uint32_t a : g_sets) {
+        struct ff7_texture_set *ts = (struct ff7_texture_set *)(uintptr_t)a;
+        struct gl_texture_set *gl = ts->ogl.gl_set;
+        uint32_t *handles = ts->texturehandle;
+        if (!gl || !handles) continue;
+        for (uint32_t i = 0; i < gl->textures; i++)
+            if (handles[i]) newRenderer.deleteTexture(handles[i]);
+        for (auto &kv : gl->additional_textures) if (kv.second) newRenderer.deleteTexture(kv.second);
+        for (auto &kv : gl->animated_textures) if (kv.second) newRenderer.deleteTexture(kv.second);
+    }
+    g_sets.clear();
+}
+
+void ss_restore(void *, const void *data, size_t n) {
+    g_restored.clear();
+    if (n < 4) return;
+    uint32_t count;
+    std::memcpy(&count, data, 4);
+    if (n < 4 + 4ull * count) return;
+    g_restored.resize(count);
+    std::memcpy(g_restored.data(), (const uint8_t *)data + 4, 4ull * count);
+}
+
+void ss_after_load(void *) {
+    int sets = 0, uploads = 0;
+    for (uint32_t a : g_restored) {
+        struct ff7_texture_set *ts = (struct ff7_texture_set *)(uintptr_t)a;
+        struct gl_texture_set *gl = ts->ogl.gl_set;
+        g_sets.insert(a);
+        if (!gl) continue;
+        // the maps' bytes are another moment's host pointers: start them afresh (leaking
+        // whatever they pointed at, which belongs to that moment)
+        new (&gl->animated_textures) std::map<std::string, uint32_t>();
+        new (&gl->additional_textures) std::map<uint16_t, uint32_t>();
+        for (short slot = RendererTextureSlot::TEX_NML; slot < RendererTextureSlot::COUNT; slot++) gl->additional_textures[slot] = 0;
+        uint32_t *handles = ts->texturehandle;
+        struct tex_header *generic = ts->tex_header;
+        if (!handles || !generic) continue;
+        struct ff7_tex_header *th = (struct ff7_tex_header *)generic;
+        const uint32_t keep = th->palette_index;
+        std::vector<uint32_t> had;
+        for (uint32_t i = 0; i < gl->textures; i++) if (handles[i]) { had.push_back(i); handles[i] = 0; }
+        for (uint32_t i : had) {
+            th->palette_index = i;
+            common_load_texture((struct texture_set *)ts, generic, ts->texture_format);
+            uploads++;
+        }
+        th->palette_index = keep;
+        sets++;
+    }
+    g_restored.clear();
+    ffnx_info("savestate: %d texture sets rebuilt (%d uploads)\n", sets, uploads);
+}
+
+const ff7_savestate_hook g_hook = { "ffnx-textures", nullptr, ss_save, ss_before_load, ss_restore, ss_after_load };
+
+// ---- the scene around the state: music, and FFNx's per-field host state ------------------
+// FFNx sets these up when a scene is entered (the game's own calls), which a load skips: the
+// music the state had, and the field caches and widescreen layout FFNx derives from the field.
+struct SceneState { uint32_t music_id; uint32_t music_playing; int32_t mode; };
+SceneState g_scene_loaded;
+bool g_scene_have;
+
+int scene_save(void *, ff7_ss_writer put, void *buf) {
+    SceneState s{ nxAudioEngine.currentMusicId(0), nxAudioEngine.isMusicPlaying(0) ? 1u : 0u, ff7_ss_driver_mode() };
+    return put(buf, &s, sizeof s);
+}
+void scene_restore(void *, const void *data, size_t n) {
+    g_scene_have = n >= sizeof(SceneState);
+    if (g_scene_have) std::memcpy(&g_scene_loaded, data, sizeof g_scene_loaded);
+}
+void scene_after_load(void *) {
+    // the mode the state was saved in: FFNx's cached mode only catches up next frame
+    const int mode = g_scene_have ? g_scene_loaded.mode : ff7_ss_driver_mode();
+    if (g_scene_have) {
+        const SceneState &s = g_scene_loaded;
+        const uint32_t was = nxAudioEngine.currentMusicId(0);
+        if (s.music_playing && (was != s.music_id || !nxAudioEngine.isMusicPlaying(0))) {
+            ff7_play_midi(s.music_id);
+            ffnx_info("savestate: music %u -> %u\n", was, s.music_id);
+        } else if (!s.music_playing && nxAudioEngine.isMusicPlaying(0)) {
+            stop_music_for_channel(0);
+            ffnx_info("savestate: music %u stopped\n", was);
+        }
+        g_scene_have = false;
+    }
+    if (mode == MODE_FIELD) {          // ff7/field/enter.h, without the game's part
+        using namespace ff7::field;
+        ff7_handle_KAWAI_reset();
+        field_3d_world_pos = {INVALID_VALUE, INVALID_VALUE};
+        bg_main_layer_pos = {INVALID_VALUE, INVALID_VALUE};
+        bg_layer3_pos = {INVALID_VALUE, INVALID_VALUE};
+        bg_layer4_pos = {INVALID_VALUE, INVALID_VALUE};
+        field_curr_delta_world_pos = {INVALID_VALUE, INVALID_VALUE};
+        cursor_position = {INVALID_VALUE, INVALID_VALUE};
+        for (auto &external_data : external_model_data) {
+            external_data.moveFrameIndex = 0;
+            external_data.rotationMoveFrameIndex = 0;
+            external_data.prevCollisionRadius = 0;
+        }
+        ff7_field_reset_blink_frames();
+        if (widescreen_enabled || enable_uncrop) widescreen.initParamsFromConfig();
+    }
+}
+const ff7_savestate_hook g_scene_hook = { "ffnx-scene", nullptr, scene_save, nullptr, scene_restore, scene_after_load };
+
+struct Register { Register() { ff7_savestate_register(&g_hook); ff7_savestate_register(&g_scene_hook); } } g_register;
+
+}  // namespace
 
 extern "C" int ff7_ss_driver_mode(void) {
     struct game_mode *m = getmode_cached();

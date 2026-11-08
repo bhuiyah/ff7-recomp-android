@@ -22,6 +22,7 @@ typedef struct {
     const char *name;
     void *ctx;
     int (*save)(void *ctx, ff7_ss_writer put, void *buf);
+    void (*before_load)(void *ctx);   /* the state is about to replace the running game */
     void (*restore)(void *ctx, const void *data, size_t n);
     void (*after_load)(void *ctx);
 } ff7_savestate_hook;

@@ -116,7 +116,8 @@ void ff7_savestate_register(const ff7_savestate_hook *h) { if (g_nhooks < MAX_HO
 /* Optional, from the FFNx port (weak: the headless runner has none). */
 __attribute__((weak)) int ff7_ss_driver_mode(void) { return -1; }
 __attribute__((weak)) int ff7_ss_can_save(const char **why) { (void)why; return 1; }
-__attribute__((weak)) void ff7_ss_notify(const char *msg) { fprintf(stderr, "[savestate] %s\n", msg); }
+__attribute__((weak)) void ff7_ss_notify(const char *msg) { (void)msg; }
+static void notify(const char *msg) { fprintf(stderr, "[savestate] %s\n", msg); fflush(stderr); ff7_ss_notify(msg); }
 
 /* ---- paths --------------------------------------------------------------------------------- */
 static char g_dir[1024];
@@ -234,6 +235,7 @@ static int check(const uint8_t *p, size_t n, const char **why) {
 }
 
 static void apply(const uint8_t *p, size_t n) {
+    for (int i = 0; i < g_nhooks; i++) if (g_hooks[i]->before_load) g_hooks[i]->before_load(g_hooks[i]->ctx);
     guest_alloc_lock();
     size_t at = 0;
     while (at + 8 <= n) {
@@ -258,6 +260,21 @@ static void apply(const uint8_t *p, size_t n) {
         }
         case R_FREE: {
             uint64_t live;
+            {   /* diagnostics: is this the heap layout the running game has? */
+                uint32_t ncur = guest_alloc_free_ranges(NULL, 0);
+                uint32_t *cur = malloc(sizeof(uint32_t) * 2 * (ncur + 1));
+                if (cur) {
+                    ncur = guest_alloc_free_ranges(cur, ncur);
+                    uint32_t nsav = (len - 8) / 8, same = 0;
+                    const uint32_t *sav = (const uint32_t *)(d + 8);
+                    for (uint32_t i = 0; i < nsav && i < ncur; i++) { if (sav[2*i] != cur[2*i] || sav[2*i+1] != cur[2*i+1]) break; same++; }
+                    fprintf(stderr, "[savestate] heap: %u free ranges saved, %u now, first %u identical", nsav, ncur, same);
+                    if (same < nsav && same < ncur)
+                        fprintf(stderr, " (first difference: saved 0x%08X+0x%X, now 0x%08X+0x%X)", sav[2*same], sav[2*same+1], cur[2*same], cur[2*same+1]);
+                    fprintf(stderr, "\n");
+                    free(cur);
+                }
+            }
             memcpy(&live, d, 8);
             uint32_t nf = (len - 8) / 8;
             uint32_t *fr = malloc(sizeof(uint32_t) * 2 * (nf + 1));
@@ -377,6 +394,7 @@ static int g_busy;                        /* a save or load is in flight */
 static int g_want_save, g_want_load;      /* requests for the next safe point */
 static char g_slot[32] = "quick";
 static uint8_t *g_loaded;                 /* a read state waiting for the safe point */
+static struct timespec g_wait_since;      /* a load waiting for the game's own frame loop */
 static size_t g_loaded_n;
 static ss_header g_loaded_h;
 
@@ -393,7 +411,7 @@ static void *save_worker(void *arg) {
     if (rc) snprintf(msg, sizeof msg, "Could not save the state: %s", why);
     else snprintf(msg, sizeof msg, "State saved (%.0f MB, %.1f s)", j->n / 1048576.0,
                   (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1e9);
-    ff7_ss_notify(msg);
+    notify(msg);
     free(j->raw);
     free(j);
     pthread_mutex_lock(&g_lock); g_busy = 0; pthread_mutex_unlock(&g_lock);
@@ -409,7 +427,7 @@ static void *load_worker(void *arg) {
     if (!raw) {
         char msg[256];
         snprintf(msg, sizeof msg, "Cannot load the state: %s", why);
-        ff7_ss_notify(msg);
+        notify(msg);
         pthread_mutex_lock(&g_lock); g_busy = 0; pthread_mutex_unlock(&g_lock);
     } else {
         pthread_mutex_lock(&g_lock);
@@ -428,14 +446,14 @@ static void start(void *(*fn)(void *), job_t *j) {
 
 void ff7_savestate_request(int load, const char *slot) {
     pthread_mutex_lock(&g_lock);
-    if (g_busy) { pthread_mutex_unlock(&g_lock); ff7_ss_notify("A save or load is still working"); return; }
+    if (g_busy) { pthread_mutex_unlock(&g_lock); notify("A save or load is still working"); return; }
     g_busy = 1;
     snprintf(g_slot, sizeof g_slot, "%s", slot ? slot : "quick");
     if (!load) { g_want_save = 1; pthread_mutex_unlock(&g_lock); return; }
     pthread_mutex_unlock(&g_lock);
     job_t *j = calloc(1, sizeof *j);
     slot_path(g_slot, j->path, sizeof j->path);
-    ff7_ss_notify("Loading state...");
+    notify("Loading state...");
     start(load_worker, j);
 }
 
@@ -485,7 +503,7 @@ void ff7_savestate_frame(void) {
         const char *why = NULL;
         if (!ff7_ss_can_save(&why)) {
             char msg[256]; snprintf(msg, sizeof msg, "Cannot save now: %s", why ? why : "busy");
-            ff7_ss_notify(msg);
+            notify(msg);
             pthread_mutex_lock(&g_lock); g_busy = 0; pthread_mutex_unlock(&g_lock);
             return;
         }
@@ -496,7 +514,7 @@ void ff7_savestate_frame(void) {
         guest_alloc_unlock();
         if (rc || !j) {
             free(b.p); free(j);
-            ff7_ss_notify("Could not save the state: not enough memory");
+            notify("Could not save the state: not enough memory");
             pthread_mutex_lock(&g_lock); g_busy = 0; pthread_mutex_unlock(&g_lock);
             return;
         }
@@ -510,7 +528,7 @@ void ff7_savestate_frame(void) {
         snprintf(j->h.label, sizeof j->h.label, "%s", g_slot);
         slot_path(g_slot, j->path, sizeof j->path);
         j->raw = b.p; j->n = b.n;
-        ff7_ss_notify("Saving state...");
+        notify("Saving state...");
         start(save_worker, j);
         return;
     }
@@ -521,16 +539,29 @@ void ff7_savestate_frame(void) {
         pthread_mutex_unlock(&g_lock);
         const char *why = NULL;
         char msg[256];
-        int mode = ff7_ss_driver_mode();
-        if (h.mode != mode) why = "it was saved in another part of the game (field / battle / menu); not supported yet";
-        else if (strcmp(h.build, build_id())) why = NULL;   /* another build: allowed, checked below */
+        /* any mode: the safe point is the same flip in every mode (the stack checks in check()
+           hold the rest), and the FFNx hooks rebuild what scene entry would have set up */
         if (!why) check(raw, n, &why);
+        if (why && strstr(why, "somewhere a state cannot be loaded")) {
+            /* a nested loop (a loading screen, a transition) is flipping: wait for the game's
+               own frame loop, up to 10 s */
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            if (!g_wait_since.tv_sec) g_wait_since = now;
+            if (now.tv_sec - g_wait_since.tv_sec < 10) {
+                pthread_mutex_lock(&g_lock);
+                g_loaded = raw; g_loaded_n = n; g_loaded_h = h; g_want_load = 1;
+                pthread_mutex_unlock(&g_lock);
+                return;
+            }
+        }
+        g_wait_since.tv_sec = 0;
         if (why) snprintf(msg, sizeof msg, "Cannot load the state: %s", why);
         else {
             apply(raw, n);
             snprintf(msg, sizeof msg, "State loaded%s", strcmp(h.build, build_id()) ? " (made by another build)" : "");
         }
-        ff7_ss_notify(msg);
+        notify(msg);
         free(raw);
         pthread_mutex_lock(&g_lock); g_busy = 0; pthread_mutex_unlock(&g_lock);
     }

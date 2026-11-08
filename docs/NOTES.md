@@ -256,3 +256,18 @@
   stepping now applies at every raised frame rate: 30 / 60 / 120 FPS = 5.7 / 6.2 / 6.2 s.
   x8 battles 13.8 s: opt-in (FF7_BATTLE120=1) until that is found.
 - Test scripts default to 16:9 (deploy_ffnx.sh); the probes ask for 4:3 where they read pixels.
+
+## 2026-11-08: save states (docs/SAVESTATES.md)
+- Safe point: common_flip (ff7_core_game_loop is not the per-frame path on this build). The
+  state records the host stack depth (from the thread's stack top) and the guest esp; loads
+  wait up to 10 s for a frame where both match (early in the credits a nested loop flips).
+- Cross-launch: FFNx's gl_texture_set lives in guest memory with std::map members (host
+  nodes): restoring it as-is crashed on 0xbe00000001. Texture sets are now registered and
+  rebuilt after a load (fresh maps, every loaded palette uploaded again). The heap layout is
+  close to identical across launches (21 vs 20-21 free ranges) but not exactly; nothing relies
+  on it.
+- Cross-mode: FFNx's field caches/widescreen (ff7/field/enter.h) and the music are put back by
+  the saved mode (FFNx's cached mode only updates next frame). Credits -> field load: field,
+  16:9 layout, music 95 -> 2.
+- Measured on the Thor: 26-30 MB per state, 3 MB on disk, saved in 0.1 s; resume at launch
+  lands in the saved moment ~1.5 s after start.

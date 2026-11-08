@@ -242,6 +242,7 @@ public class LauncherActivity extends Activity {
             { "", "Normal", "Credits, title screen and opening movie, as the game plays them" },
             { "newgame", "Straight into a new game", "Skips the credits, picks New Game and skips the opening movie" },
             { "continue", "Continue straight away", "Skips the credits and loads the first save of the first save file" },
+            { "resume", "Resume the save state", "Loads the quick save state (Select+L1 saves it in game) as soon as the game starts" },
         };
         String curStart = prefs.getString("quickboot", "");
         for (String[] s : starts) {
@@ -258,7 +259,8 @@ public class LauncherActivity extends Activity {
         col.addView(st);
         col.addView(text("Any button stops the automatic start.", 14, DIM));
         col.addView(space(16));
-        col.addView(text("In game: press Start during a movie to skip it.", 14, DIM));
+        col.addView(text("In game: press Start during a movie to skip it. Select+L1 saves the game's whole state, "
+                + "Select+R1 loads it back.", 14, DIM));
         return scroll(col);
     }
 

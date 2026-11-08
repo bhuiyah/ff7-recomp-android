@@ -231,6 +231,18 @@ EDITS = [
      '\t\t\tbreak;\n\t\tcase MODE_BATTLE:\n'
      '\t\t\tframerate = 15.0f * battle_frame_multiplier;   // FF7Recomp: 60, or 120 in the 120 FPS mode\n'
      '\t\t\tbreak;\n\t\tcase MODE_SWIRL:'),
+    # Save states: every texture set is registered (src/ffnx_port/savestate_ffnx.cpp), so a
+    # loaded state can give its sets fresh host state.
+    ('common.cpp', '\t\tVRASS(texture_set, ogl.gl_set, new gl_texture_set());\n',
+     '\t\tVRASS(texture_set, ogl.gl_set, new gl_texture_set());\n'
+     '\t\tffnx_ss_texture_set_created((uint32_t)(uintptr_t)VPTR(texture_set));   // FF7Recomp: save states\n'),
+    ('common.cpp', '\texternal_free(VREF(texture_set, texturehandle));\n\tdelete VREF(texture_set, ogl.gl_set);\n',
+     '\tffnx_ss_texture_set_destroyed((uint32_t)(uintptr_t)VPTR(texture_set));   // FF7Recomp: save states\n'
+     '\texternal_free(VREF(texture_set, texturehandle));\n\tdelete VREF(texture_set, ogl.gl_set);\n'),
+    ('common.cpp', 'void common_unload_texture(struct texture_set *texture_set)\n{\n',
+     'extern "C" void ffnx_ss_texture_set_created(uint32_t ts);     // FF7Recomp: src/ffnx_port/savestate_ffnx.cpp\n'
+     'extern "C" void ffnx_ss_texture_set_destroyed(uint32_t ts);\n\n'
+     'void common_unload_texture(struct texture_set *texture_set)\n{\n'),
     # Save states (src/host/ff7_savestate.c): taken and applied as the driver flips a frame --
     # once per frame, after the mode's loop has returned, so no game-mode code is on the host
     # stack (ff7_savestate.c also checks the host stack depth).

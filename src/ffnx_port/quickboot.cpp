@@ -2,8 +2,9 @@
 // Continue and the first save) on the title screen, and skips the opening FMV, by driving the
 // game's own flow -- the presses a player would make, timed off the game's mode instead of
 // fixed delays. Off unless asked for:
-//   files/quickboot.txt  (the launcher's Start setting)  "newgame" or "continue"
-//   FF7_QUICKBOOT=newgame|continue                       (env.txt, tests)
+//   files/quickboot.txt  (the launcher's Start setting)  "newgame", "continue" or "resume"
+//   FF7_QUICKBOOT=newgame|continue|resume                (env.txt, tests)
+// "resume" loads the quick save state (src/host/ff7_savestate.c) as soon as the game is up.
 // Ticked once per frame from ffnx_recomp::step_code (ff7_limit_fps). Stops for good once the
 // field is reached, after 40 s, or at the first real press of a button.
 #include <chrono>
@@ -17,6 +18,7 @@
 #include "globals.h"
 #include "log.h"
 #include "ff7/defs.h"
+#include "ff7_savestate.h"
 
 extern "C" void ff7_platform_pad_inject(unsigned short buttons);   // src/android (the pad the game reads)
 extern "C" int ff7_platform_pad_buttons(void);                    // the player's own buttons
@@ -26,7 +28,7 @@ namespace {
 constexpr unsigned short PAD_UP = 0x0001, PAD_START = 0x0010, PAD_OK = 0x2000;   // XInput (OK = Circle = B)
 constexpr uint32_t TITLE_CURSOR = 0x00DD6F24u;   // title menu: 0 New Game, 1 Continue (found with FF7_MEMDIFF)
 
-int g_target = -2;            // -2 not configured yet, -1 off, 0 new game, 1 continue
+int g_target = -2;            // -2 not configured yet, -1 off, 0 new game, 1 continue, 2 resume a state
 bool g_done;
 uint32_t g_mode = ~0u;
 int64_t g_mode_since, g_started, g_last_press, g_last_skip;
@@ -49,6 +51,14 @@ bool have_saves() {
     return any;
 }
 
+// The quick save state (files/savestates/quick.ff7s)?
+bool have_state() {
+    char cwd[1024], path[1100];
+    if (!getcwd(cwd, sizeof cwd)) return false;
+    std::snprintf(path, sizeof path, "%s/../savestates/quick.ff7s", cwd);
+    return access(path, R_OK) == 0;
+}
+
 int read_target() {
     const char *e = std::getenv("FF7_QUICKBOOT");
     char buf[32] = "";
@@ -67,6 +77,11 @@ int read_target() {
         }
     }
     if (!std::strncmp(buf, "newgame", 7)) return 0;
+    if (!std::strncmp(buf, "resume", 6)) {
+        if (have_state()) return 2;
+        ffnx_info("quickboot: no save state yet, starting a new game instead\n");
+        return 0;
+    }
     if (!std::strncmp(buf, "continue", 8)) {
         if (have_saves()) return 1;
         ffnx_info("quickboot: no save files yet, starting a new game instead\n");
@@ -95,7 +110,7 @@ void quickboot_frame() {
     if (g_target == -2) {
         g_target = read_target();
         g_started = now_ms();
-        if (g_target >= 0) ffnx_info("quickboot: %s\n", g_target ? "continue" : "new game");
+        if (g_target >= 0) ffnx_info("quickboot: %s\n", g_target == 2 ? "resume the save state" : g_target ? "continue" : "new game");
     }
     if (g_target < 0 || g_done) return;
     const int64_t t = now_ms();
@@ -106,6 +121,14 @@ void quickboot_frame() {
     const uint32_t mode = m ? m->driver_mode : ~0u;
     if (mode != g_mode) { g_mode = mode; g_mode_since = t; ff7_platform_pad_inject(0); }
     const int64_t in_mode = t - g_mode_since;
+
+    if (g_target == 2) {                                     // resume: load as soon as the game is up
+        if (mode == MODE_CREDITS && in_mode > 1000) {
+            ff7_savestate_request(1, "quick");
+            finish("loading the save state");
+        }
+        return;
+    }
 
     switch (mode) {
     case MODE_CREDITS:
