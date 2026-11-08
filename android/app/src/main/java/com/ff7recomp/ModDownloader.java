@@ -38,6 +38,9 @@ final class ModDownloader {
     }
 
     private final File modsDir, downloads;
+    /** Set (from any thread) to stop the running install; it returns error CANCELLED. */
+    volatile boolean cancel;
+    static final String CANCELLED = "cancelled";
 
     ModDownloader(File filesDir, File modsDir) {
         this.modsDir = modsDir;
@@ -95,6 +98,7 @@ final class ModDownloader {
     /** Download the first link that works, and install it as `baseName` (no extension). */
     Result install(String id, String baseName, String[] links, long expectedSize, Progress p) {
         Result r = new Result();
+        cancel = false;
         long free = modsDir.getUsableSpace();
         if (expectedSize > 0 && free < expectedSize * 2 + (64L << 20)) {
             r.error = "Not enough free space: needs about " + human(expectedSize * 2) + ", " + human(free) + " free";
@@ -112,6 +116,7 @@ final class ModDownloader {
                 part.delete();
                 return r;
             } catch (Exception e) {
+                if (cancel) { part.delete(); r.error = CANCELLED; return r; }
                 lastError = e.getMessage() != null ? e.getMessage() : e.toString();
             }
         }
@@ -157,6 +162,7 @@ final class ModDownloader {
                 long lastShown = 0;
                 int n;
                 while ((n = in.read(buf)) > 0) {
+                    if (cancel) throw new IOException(CANCELLED);
                     out.write(buf, 0, n);
                     done += n;
                     if (done - lastShown > (1 << 20)) { p.update("Downloading", done, total); lastShown = done; }

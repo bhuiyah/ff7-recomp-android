@@ -457,3 +457,13 @@
 - Checked on the Thor: catalogs fetched (113 mods); Jessie Mod (.7z, mod.xml + folders) and
   Curse Ring Challenge (Google Drive -> .iro) installed, enabled, loaded by the game
   ("2 mod(s), 61 game paths replaced"), then removed from their pages.
+- Fix: some catalog links are iros://Url/https://host/... (no `$`); they resolved to host
+  "https" (Arranged Soundtrack, Cosmos mods, Chthonic Harmony). Both forms are read now.
+- Download queue (DownloadQueue.java, one per process): catalog installs/updates queue up and
+  run one at a time on a worker while the launcher stays usable (Play too). A Downloads page
+  in the left menu shows each item (progress bar, sizes, %), reorders / cancels waiting ones,
+  cancels the running one (its .part is deleted), retries failed ones, clears finished ones.
+  Get mods rows and mod pages show "Queued" / "Downloading n%"; the status line shows the
+  running item and how many wait. Waiting items persist in files/downloads/queue.txt and
+  restart (the running download resumes from its .part) when the launcher opens again.
+  Not yet exercised on the Thor (the user was playing).

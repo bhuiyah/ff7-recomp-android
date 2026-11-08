@@ -43,6 +43,15 @@ public class LauncherActivity extends Activity {
     private SaveStates states;
     private ModCatalog catalog;
     private ModDownloader downloader;
+    private DownloadQueue queue;
+    // one catalog / downloader / queue per process: downloads outlive a recreated activity
+    private static ModCatalog sCatalog;
+    private static ModDownloader sDownloader;
+    private static DownloadQueue sQueue;
+    private Button downloadsButton;
+    private String queueSig = "";                            // ids+states the page was built with
+    private final java.util.Map<String, LinearLayout> actionSlots = new java.util.HashMap<>();   // Get mods rows
+    private final java.util.Map<DownloadQueue.Item, Object[]> progressViews = new java.util.HashMap<>(); // Downloads page
     private String catQuery = "", catCategory = null;      // the Get mods page's filters
     private boolean catInstalledOnly;
     private final java.util.Map<String, android.graphics.Bitmap> previews = new java.util.HashMap<>();
@@ -58,9 +67,25 @@ public class LauncherActivity extends Activity {
         super.onCreate(state);
         install = new GameInstall(this);
         library = new ModLibrary(install.files);
-        catalog = new ModCatalog(install.files);
-        downloader = new ModDownloader(install.files, library.dir);
-        catalog.rebuild();
+        if (sQueue == null) {
+            final File files = install.files;
+            sCatalog = new ModCatalog(files);
+            sCatalog.rebuild();
+            sDownloader = new ModDownloader(files, library.dir);
+            sQueue = new DownloadQueue(sCatalog, sDownloader, new File(files, "downloads"), (m, file, wasUpdate) -> {
+                // a new mod is switched on (the library lists new files last, off); an update
+                // keeps its place, state and options
+                if (wasUpdate) return;
+                ModLibrary l = new ModLibrary(files);
+                l.load();
+                for (ModLibrary.Mod lm : l.mods) if (lm.file.equalsIgnoreCase(file)) lm.enabled = true;
+                try { l.save(); } catch (Exception ignored) { }
+            });
+            sQueue.restore();
+        }
+        catalog = sCatalog;
+        downloader = sDownloader;
+        queue = sQueue;
         prefs = getSharedPreferences("launcher", MODE_PRIVATE);
 
         LinearLayout root = new LinearLayout(this);
@@ -84,6 +109,8 @@ public class LauncherActivity extends Activity {
         side.addView(space(16));
         side.addView(button("Mods", v -> show("mods")), navParams());
         side.addView(button("Get mods", v -> show("catalog")), navParams());
+        downloadsButton = button("Downloads", v -> show("downloads"));
+        side.addView(downloadsButton, navParams());
         side.addView(button("Save states", v -> show("states")), navParams());
         side.addView(button("Settings", v -> show("settings")), navParams());
         side.addView(button("Game files", v -> show("game")), navParams());
@@ -109,7 +136,14 @@ public class LauncherActivity extends Activity {
     protected void onResume() {
         super.onResume();
         hideSystemBars();
+        queue.setListener(this::queueChanged);
         refresh();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        queue.setListener(null);
     }
 
     // ------------------------------------------------------------------- pages
@@ -121,13 +155,14 @@ public class LauncherActivity extends Activity {
     private void refresh() {
         library.load();
         catalog.prune(library.dir);
-        status.setText((install.hasGame() ? "Game files: ready" : "Game files: not imported yet")
-                + "\nMods: " + library.enabledCount() + " of " + library.mods.size() + " enabled"
-                + (catalog.updates().isEmpty() ? "" : "\nMod updates: " + catalog.updates().size())
-                + "\nFrame rate: " + fpsName(prefs.getInt("fps", 3)) + (prefs.getBoolean("turbo", false) ? ", 2\u00d7 speed" : ""));
+        updateStatus();
         playButton.setEnabled(install.hasGame() && !busy);
         content.removeAllViews();
+        actionSlots.clear();
+        progressViews.clear();
+        queueSig = queueSignature();
         switch (page) {
+            case "downloads": content.addView(downloadsPage()); break;
             case "settings": content.addView(settingsPage()); break;
             case "states": content.addView(statesPage()); break;
             case "game": content.addView(gamePage()); break;
@@ -298,12 +333,164 @@ public class LauncherActivity extends Activity {
         info.addView(text(b.toString(), 13, DIM));
         r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         r.addView(small("Details", v -> modPage(m)));
-        ModCatalog.Installed in = catalog.installedOf(m);
-        if (in == null) r.addView(small("Install", v -> installMods(java.util.Collections.singletonList(m), false)));
-        else if (catalog.updateAvailable(m)) r.addView(small("Update to " + m.versionText, v -> installMods(java.util.Collections.singletonList(m), true)));
-        else r.addView(text("Installed  ", 15, ACCENT));
+        LinearLayout slot = row();
+        fillAction(slot, m);
+        actionSlots.put(m.id, slot);
+        r.addView(slot);
         r.setFocusable(false);
         return r;
+    }
+
+    /** A Get mods row's action: Install / Update / Installed, or its place in the queue. */
+    private void fillAction(LinearLayout slot, ModCatalog.Mod m) {
+        DownloadQueue.Item q = queue.pending(m);
+        ModCatalog.Installed in = catalog.installedOf(m);
+        String label = q != null ? queueLabel(q, false)
+                : in == null ? "\u0001install" : catalog.updateAvailable(m) ? "\u0001update" : "\u0001installed";
+        if (label.equals(slot.getTag())) return;                     // unchanged: keep the focus
+        boolean hadFocus = slot.hasFocus();
+        slot.setTag(label);
+        slot.removeAllViews();
+        if (q != null) {
+            Button b = small(label, v -> show("downloads"));
+            slot.addView(b);
+            if (hadFocus) b.requestFocus();
+            return;
+        }
+        if (in == null) slot.addView(small("Install", v -> installMods(java.util.Collections.singletonList(m), false)));
+        else if (catalog.updateAvailable(m)) slot.addView(small("Update to " + m.versionText, v -> installMods(java.util.Collections.singletonList(m), true)));
+        else slot.addView(text("Installed  ", 15, ACCENT));
+    }
+
+    /** "Queued", "Downloading 40%", "Installing"; long: with sizes. */
+    private String queueLabel(DownloadQueue.Item q, boolean longForm) {
+        switch (q.state) {
+            case QUEUED: return "Queued";
+            case RUNNING:
+                if (!"Downloading".equals(q.phase)) return q.phase + "…";
+                int pc = q.percent();
+                if (!longForm) return pc >= 0 ? "Downloading " + pc + "%" : "Downloading…";
+                return "Downloading " + ModDownloader.human(q.got)
+                        + (q.total > 0 ? " of " + ModDownloader.human(q.total) : "") + (pc >= 0 ? "  (" + pc + "%)" : "");
+            case DONE: return q.update ? "Updated to " + q.mod.versionText : "Installed";
+            case CANCELLED: return "Cancelled";
+            default: return "Failed: " + q.error;
+        }
+    }
+
+    // ------------------------------------------------------------------- Downloads (the queue)
+    private View downloadsPage() {
+        LinearLayout col = column();
+        col.addView(heading("Downloads"));
+        col.addView(text("Mods download one at a time, top first. The launcher stays usable meanwhile, and Play works too: "
+                + "a mod that finishes while the game runs is used from the next Play. If the launcher is closed, "
+                + "the queue carries on (and the download resumes) when it opens again.", 14, DIM));
+        LinearLayout bar = row();
+        bar.addView(small("Get mods…", v -> show("catalog")));
+        bar.addView(small("Clear finished", v -> { queue.clearFinished(); refresh(); }));
+        col.addView(bar);
+        java.util.List<DownloadQueue.Item> items = queue.snapshot();
+        if (items.isEmpty()) col.addView(text("\nNothing downloading. Pick mods under Get mods.", 16, DIM));
+        for (DownloadQueue.Item q : items) col.addView(downloadRow(q));
+        return scroll(col);
+    }
+
+    private View downloadRow(DownloadQueue.Item q) {
+        LinearLayout whole = column();
+        whole.setPadding(0, dp(10), 0, dp(10));
+        LinearLayout r = row();
+        LinearLayout info = column();
+        TextView name = text(q.mod.name + (q.update ? "  (update to " + q.mod.versionText + ")" : ""), 18, TEXT);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        info.addView(name);
+        boolean bad = q.state == DownloadQueue.State.FAILED;
+        TextView line = text(queueLabel(q, true) + (q.state == DownloadQueue.State.QUEUED && !q.mod.sizeText().isEmpty() ? "  ·  " + q.mod.sizeText() : ""),
+                14, bad ? 0xFFFF8080 : q.state == DownloadQueue.State.DONE ? ACCENT : DIM);
+        info.addView(line);
+        r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        switch (q.state) {
+            case QUEUED:
+                r.addView(small("▲", v -> queue.move(q, -1)));
+                r.addView(small("▼", v -> queue.move(q, +1)));
+                r.addView(small("Cancel", v -> queue.cancel(q)));
+                break;
+            case RUNNING:
+                r.addView(small("Cancel", v -> queue.cancel(q)));
+                break;
+            case FAILED: case CANCELLED:
+                r.addView(small("Retry", v -> queue.retry(q)));
+                break;
+            default:
+                break;
+        }
+        whole.addView(r);
+        android.widget.ProgressBar bar = null;
+        if (q.state == DownloadQueue.State.RUNNING) {
+            bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            bar.setMax(100);
+            int pc = q.percent();
+            bar.setIndeterminate(pc < 0 || !"Downloading".equals(q.phase));
+            if (pc >= 0) bar.setProgress(pc);
+            whole.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)));
+        }
+        progressViews.put(q, new Object[] { line, bar });
+        return whole;
+    }
+
+    private String queueSignature() {
+        StringBuilder b = new StringBuilder();
+        for (DownloadQueue.Item q : queue.snapshot()) b.append(q.mod.id).append(':').append(q.state).append(':').append(q.phase).append(';');
+        return b.toString();
+    }
+
+    /** The queue moved: the status line always; the page in place when only progress changed. */
+    private void queueChanged() {
+        String sig = queueSignature();
+        boolean structural = !sig.equals(queueSig);
+        boolean installedOne = structural && countDone(sig) > countDone(queueSig);
+        queueSig = sig;
+        if (installedOne) { library.load(); catalog.prune(library.dir); }
+        updateStatus();
+        switch (page) {
+            case "downloads":
+                if (structural) { refresh(); return; }
+                for (java.util.Map.Entry<DownloadQueue.Item, Object[]> e : progressViews.entrySet()) {
+                    DownloadQueue.Item q = e.getKey();
+                    ((TextView) e.getValue()[0]).setText(queueLabel(q, true));
+                    android.widget.ProgressBar bar = (android.widget.ProgressBar) e.getValue()[1];
+                    if (bar != null && q.percent() >= 0 && "Downloading".equals(q.phase)) { bar.setIndeterminate(false); bar.setProgress(q.percent()); }
+                }
+                break;
+            case "catalog":
+                for (ModCatalog.Mod m : catalog.mods) { LinearLayout s = actionSlots.get(m.id); if (s != null) fillAction(s, m); }
+                break;
+            case "mods":
+                if (installedOne) refresh();
+                break;
+            default:
+                break;
+        }
+    }
+
+    private static int countDone(String sig) {
+        int n = 0, i = 0;
+        while ((i = sig.indexOf(":DONE:", i)) >= 0) { n++; i++; }
+        return n;
+    }
+
+    private void updateStatus() {
+        StringBuilder s = new StringBuilder();
+        s.append(install.hasGame() ? "Game files: ready" : "Game files: not imported yet")
+                .append("\nMods: ").append(library.enabledCount()).append(" of ").append(library.mods.size()).append(" enabled");
+        if (!catalog.updates().isEmpty()) s.append("\nMod updates: ").append(catalog.updates().size());
+        DownloadQueue.Item run = queue.running();
+        int waiting = queue.pendingCount() - (run != null ? 1 : 0);
+        if (run != null) s.append("\n").append(run.mod.name).append(": ").append(queueLabel(run, false));
+        if (waiting > 0) s.append("\n").append(waiting).append(" more queued");
+        s.append("\nFrame rate: ").append(fpsName(prefs.getInt("fps", 3))).append(prefs.getBoolean("turbo", false) ? ", 2× speed" : "");
+        status.setText(s);
+        int n = queue.pendingCount();
+        downloadsButton.setText(n > 0 ? "Downloads (" + n + ")" : "Downloads");
     }
 
     private Button chip(String label, boolean on, View.OnClickListener l) {
@@ -352,7 +539,9 @@ public class LauncherActivity extends Activity {
                 .setTitle(m.name)
                 .setView(scroll(col))
                 .setNegativeButton("Close", null);
-        if (in == null && !browserOnly) d.setPositiveButton("Install", (x, w) -> installMods(java.util.Collections.singletonList(m), false));
+        DownloadQueue.Item q = queue.pending(m);
+        if (q != null) d.setPositiveButton(queueLabel(q, false) + " (Downloads)", (x, w) -> show("downloads"));
+        else if (in == null && !browserOnly) d.setPositiveButton("Install", (x, w) -> installMods(java.util.Collections.singletonList(m), false));
         else if (in != null && catalog.updateAvailable(m)) d.setPositiveButton("Update to " + m.versionText, (x, w) -> installMods(java.util.Collections.singletonList(m), true));
         else if (in != null) d.setPositiveButton("Remove", (x, w) -> uninstall(m));
         String web = !m.infoLink.isEmpty() ? m.infoLink : null;
@@ -395,31 +584,21 @@ public class LauncherActivity extends Activity {
     }
 
     /** Install (or update) mods from the catalog, with the catalog mods they need first. */
+    /** Queue mods (installs or updates) from the catalog, with the catalog mods they need first. */
     private void installMods(java.util.List<ModCatalog.Mod> wanted, boolean update) {
-        if (busy) return;
         java.util.List<ModCatalog.Mod> order = new java.util.ArrayList<>();
         for (ModCatalog.Mod m : wanted) addWithRequirements(m, order, 0);
-        background(() -> {
-            StringBuilder done = new StringBuilder(), failed = new StringBuilder();
-            int k = 0;
-            for (ModCatalog.Mod m : order) {
-                k++;
-                ModCatalog.Installed in = catalog.installedOf(m);
-                if (in != null && !catalog.updateAvailable(m)) continue;
-                // an update keeps the library name, so the load order and options stay
-                String base = in != null ? in.file.replaceAll("(?i)\\.iro$", "") : m.name;
-                final String label = (order.size() > 1 ? "(" + k + "/" + order.size() + ") " : "") + m.name;
-                ModDownloader.Result r = downloader.install(m.id, base, m.links.toArray(new String[0]), m.sizeKb * 1024,
-                        (what, got, total) -> progress(what + " " + label + (got > 0 ? ": " + ModDownloader.human(got)
-                                + (total > 0 ? " of " + ModDownloader.human(total) : "") : "")));
-                if (r.error != null) { failed.append(m.name).append(": ").append(r.error).append('\n'); continue; }
-                catalog.markInstalled(m, r.file);
-                if (in == null) enableNew(r.file);
-                done.append(m.name).append(in != null ? " updated to " + m.versionText : " installed").append('\n');
-            }
-            String msg = (done.length() > 0 ? done.toString() : "") + (failed.length() > 0 ? "\nNot installed:\n" + failed : "");
-            return msg.trim().isEmpty() ? null : msg.trim();
-        });
+        int added = 0;
+        for (ModCatalog.Mod m : order) {
+            ModCatalog.Installed in = catalog.installedOf(m);
+            if (in != null && !catalog.updateAvailable(m)) continue;
+            if (queue.add(m, in != null)) added++;
+        }
+        if (added > 0) {
+            android.widget.Toast.makeText(this, added == 1 ? "Added to Downloads" : added + " mods added to Downloads",
+                    android.widget.Toast.LENGTH_SHORT).show();
+        }
+        queueChanged();
     }
 
     private void addWithRequirements(ModCatalog.Mod m, java.util.List<ModCatalog.Mod> order, int depth) {
@@ -441,6 +620,7 @@ public class LauncherActivity extends Activity {
     private void uninstall(ModCatalog.Mod m) {
         ModCatalog.Installed in = catalog.installedOf(m);
         if (in == null) return;
+        if (queue.pending(m) != null) { toastDialog(m.name + " is in Downloads; cancel it there first."); return; }
         new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setMessage("Remove " + m.name + "? Its file is deleted from the device.")
                 .setPositiveButton("Remove", (x, w) -> {
