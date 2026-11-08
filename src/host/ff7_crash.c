@@ -40,6 +40,7 @@ static _Unwind_Reason_Code bt_frame(struct _Unwind_Context *ctx, void *arg) {
     return _URC_NO_REASON;
 }
 
+__attribute__((weak)) void ff7_interp_dump(void);    /* src/interp/x86_interp.c */
 static void on_fault(int sig, siginfo_t *si, void *uc) {
 #if defined(__aarch64__)
     ucontext_t *u = (ucontext_t *)uc;
@@ -58,6 +59,7 @@ static void on_fault(int sig, siginfo_t *si, void *uc) {
     fprintf(stderr, "\n  in lifted func 0x%08X, last import %s\n", g_cur_func, g_cur_import ? g_cur_import : "(none)");
     fprintf(stderr, "  eax=%08X ebx=%08X ecx=%08X edx=%08X esi=%08X edi=%08X ebp=%08X esp=%08X\n",
             g_eax, g_ebx, g_ecx, g_edx, g_esi, g_edi, g_ebp, g_esp);
+    if (ff7_interp_dump) ff7_interp_dump();          /* the x86 interpreter's last steps, if it ran */
     fprintf(stderr, "  recent indirect calls (target <- from):\n");
     for (uint32_t i = 0; i < 8 && i < g_icall_count; i++) {
         uint32_t k = (g_icall_trace_idx - 1 - i) & (ICALL_TRACE_SIZE - 1);

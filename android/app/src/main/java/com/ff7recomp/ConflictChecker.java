@@ -188,6 +188,37 @@ final class ConflictChecker {
         void note(String file, String s) { perMod.computeIfAbsent(file.toLowerCase(Locale.ROOT), k -> new ArrayList<>()).add(s); }
     }
 
+    /**
+     * Options that need another mod, as their description says ("Full ESUI Theme. Enhanced
+     * Stock UI mod required."): an option that is on while that mod is not enabled. Mods
+     * write this only in prose, so the catalog's mod names are looked for in the text.
+     * (Finishing Touch's UI Theme without Enhanced Stock UI jumps into code that mod supplies:
+     * the game crashed at the New Game screen.)
+     */
+    static void optionNeeds(Report r, ModLibrary lib, ModCatalog catalog) {
+        for (ModLibrary.Mod m : lib.mods) {
+            if (!m.enabled || m.error != null) continue;
+            for (ModLibrary.Option o : m.options) {
+                if (m.value(o) == 0 || o.description == null) continue;
+                String d = o.description.toLowerCase(Locale.ROOT);
+                if (!d.contains("required") && !d.contains("requires") && !d.contains("needs ")) continue;
+                for (ModCatalog.Mod cm : catalog.mods) {
+                    String n = cm.name.toLowerCase(Locale.ROOT).replaceAll("\\[[^\\]]*\\]\\s*", "").trim();
+                    if (n.length() < 6 || !d.contains(n)) continue;
+                    ModCatalog.Installed in = catalog.installedOf(cm);
+                    boolean on = false;
+                    if (in != null) for (ModLibrary.Mod x : lib.mods) if (x.enabled && x.file.equalsIgnoreCase(in.file)) on = true;
+                    if (on) continue;
+                    r.lines.add(0, new Warning(m.title() + ": the option \"" + o.name + "\" needs " + cm.name
+                            + (in == null ? ", which is not installed" : ", which is not enabled")
+                            + ". Turn the option off (Options) or " + (in == null ? "install" : "enable") + " it; without it the game may crash.", true));
+                    r.note(m.file, "Option \"" + o.name + "\" needs " + cm.name);
+                    r.problems++;
+                }
+            }
+        }
+    }
+
     static Report report(JSONObject j, ModCatalog catalog) {
         Report r = new Report();
         if (j == null) return r;

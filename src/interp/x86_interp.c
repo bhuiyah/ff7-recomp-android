@@ -677,9 +677,37 @@ static void group3(cpu_t *c, dec_t *d, int sz) {
     }
 }
 
+/* ---- the last instructions run, for the crash report (ff7_crash.c) ------------------------- */
+#define TRACE_N 48
+static struct { uint32_t eip, func, eax, ecx, esp, ebp; } g_trace[TRACE_N];
+static unsigned g_trace_i;
+
+void ff7_interp_dump(void) {
+    if (!g_trace_i) return;
+    fprintf(stderr, "  interpreter, last %u instructions (eip func: eax ecx esp ebp):\n", g_trace_i < TRACE_N ? g_trace_i : TRACE_N);
+    unsigned n = g_trace_i < TRACE_N ? g_trace_i : TRACE_N;
+    for (unsigned k = 0; k < n; k++) {
+        unsigned i = (g_trace_i - n + k) % TRACE_N;
+        fprintf(stderr, "    %08X %08X: %08X %08X %08X %08X\n", g_trace[i].eip, g_trace[i].func,
+                g_trace[i].eax, g_trace[i].ecx, g_trace[i].esp, g_trace[i].ebp);
+    }
+    /* the code bytes of the last two instructions, as they are in memory now */
+    for (unsigned b = 2; b >= 1; b--) {
+        uint32_t va = g_trace[(g_trace_i - b) % TRACE_N].eip;
+        fprintf(stderr, "  bytes at %08X:", va);
+        for (unsigned k = 0; k < 12; k++) fprintf(stderr, " %02X", MEM8(va + k));
+        fprintf(stderr, "\n");
+    }
+}
+
 /* ---- one instruction ---------------------------------------------------------------------- */
 /* Returns 1 when the activation ends (ret, or a tail call out). */
 static int step(cpu_t *c) {
+    {
+        unsigned i = g_trace_i++ % TRACE_N;
+        g_trace[i].eip = c->eip; g_trace[i].func = c->func; g_trace[i].eax = g_eax;
+        g_trace[i].ecx = g_ecx; g_trace[i].esp = g_esp; g_trace[i].ebp = g_ebp;
+    }
     dec_t d;
     memset(&d, 0, sizeof d);
     d.opsz = 4;

@@ -515,3 +515,11 @@
   own walkmesh. The swirl crash: saves are refused during the swirl ("between scenes"), and
   ten swirls with saves requested every 0.1 s did not crash; the one crash had no save in its
   log, so it is an intermittent swirl crash, not reproduced since.
+- Boot crash after installing Finishing Touch: its "UI Theme" option (on by default) says
+  "Enhanced Stock UI mod required". Theme/Hext/00-Spacing.txt detours 0x7217C5 to 0x914000,
+  whose first 16 bytes (the moved mov/imul) that other mod supplies; without it the jump lands
+  on zeros (add [eax], al with eax = 7) at the New Game screen -- 7th Heaven would crash the
+  same way. Found with a new crash report section: the x86 interpreter's last 48 steps and the
+  code bytes at the last two (src/interp/x86_interp.c ff7_interp_dump). The launcher now warns
+  on the Mods page when an option that is on names a catalog mod as required that is not
+  enabled (ConflictChecker.optionNeeds). The user's profile has Theme = 0 (boots again).

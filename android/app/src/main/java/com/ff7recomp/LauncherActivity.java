@@ -270,6 +270,7 @@ public class LauncherActivity extends Activity {
         new Thread(() -> {
             org.json.JSONObject j = library.conflicts();
             ConflictChecker.Report r = ConflictChecker.report(j, catalog);
+            ConflictChecker.optionNeeds(r, library, catalog);
             runOnUiThread(() -> {
                 int before = conflictReport == null ? -1 : conflictReport.overlaps + conflictReport.problems;
                 conflictReport = r;
