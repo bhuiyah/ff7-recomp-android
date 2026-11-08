@@ -714,6 +714,20 @@ EDITS = [
      '        ff7_externals.engine_convert_psx_matrix_to_float_matrix_row_version_661465(&global_game_data->rot_matrix, matrix);\n'
      '        ff7_externals.engine_apply_matrix_product_to_vector_66CF7E(matrix, &input_vector_copy, &output_temp);\n'
      '#endif\n'),
+    # Battle menus read confirm/cancel through the repeatable query: held past 200 ms they
+    # repeat every 50 ms, so a firm press on Attack also confirmed the target at once (the
+    # aiming hand flashed and vanished). In battle, buttons other than the directions count
+    # once per press; the D-pad still repeats (direction masks have bits in 0xFFF000).
+    ('ff7_opengl.cpp',
+     'static int ff7_query_repeatable_input(int mask)\n{\n',
+     'static int ff7_query_repeatable_input(int mask)\n{\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\tif ((mask & 0x00FFF000) == 0)\n'
+     '\t{\n'
+     '\t\tstruct game_mode *mode = getmode_cached();\n'
+     '\t\tif (mode && mode->driver_mode == MODE_BATTLE) return ff7_externals.get_button_pressed(mask);\n'
+     '\t}\n'
+     '#endif\n'),
 ]
 
 

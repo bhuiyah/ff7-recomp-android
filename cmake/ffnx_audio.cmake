@@ -40,6 +40,9 @@ target_include_directories(ffnx_vgmstream PUBLIC "${VGM}"
 target_compile_definitions(ffnx_vgmstream PUBLIC VGM_USE_VORBIS VGM_USE_G7221)
 target_link_libraries(ffnx_vgmstream PUBLIC ffnx_vorbis m)
 target_compile_options(ffnx_vgmstream PRIVATE -w)
+# FFNx passes game paths: vgmstream's fopen goes through the path mapping and mod overlay
+set_source_files_properties("${VGM}/base/streamfile_stdio.c" PROPERTIES
+  COMPILE_OPTIONS "-include;${FF7_ROOT}/src/ffnx_port/include/ffnx_file_paths.h")
 
 # ---- SoLoud: core + miniaudio backend (+ the bundled audio sources FFNx's subclasses use)
 set(SL "${FFNX_DEPS}/soloud")
@@ -49,6 +52,8 @@ add_library(ffnx_soloud STATIC ${SOLOUD_SOURCES})
 target_include_directories(ffnx_soloud PUBLIC "${SL}/include" PRIVATE "${SL}/src/backend/miniaudio")
 target_compile_definitions(ffnx_soloud PUBLIC WITH_MINIAUDIO)
 target_compile_options(ffnx_soloud PRIVATE -w)
+set_source_files_properties("${SL}/src/core/soloud_file.cpp" PROPERTIES
+  COMPILE_OPTIONS "-include;${FF7_ROOT}/src/ffnx_port/include/ffnx_file_paths.h")
 if(ANDROID)
   target_link_libraries(ffnx_soloud PUBLIC OpenSLES aaudio log)
 endif()

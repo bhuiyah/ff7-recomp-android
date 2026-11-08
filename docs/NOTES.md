@@ -467,3 +467,22 @@
   running item and how many wait. Waiting items persist in files/downloads/queue.txt and
   restart (the running download resumes from its .part) when the launcher opens again.
   Not yet exercised on the Thor (the user was playing).
+- Mods that replace files inside LGP archives (NinoStyle: char/*.hrc ...) did nothing: the
+  overlay watched only data/, mods/textures/ and the root. It now also watches 7th Heaven's
+  ExtraFolders (ambient, direct, lighting, mesh, music, override, save, sfx, shaders, time,
+  voice, widescreen); FFNx reads LGP entries from direct/<lgp>/<file>. Checked on the Thor:
+  NinoStyle Cloud/Barret/NPC models load; Echo-S music/voice and Cosmo Memory FMV now open.
+  The knocked-out MPs on the Sector 1 platform look the same with NinoStyle off (game pose).
+- override/ redirection crashed at boot (kernel2.bin): FFNx lower-cases the path it built
+  from basedir ("/storage/.../android/data/..."), and the game-root test was case-sensitive.
+- vgmstream (streamfile_stdio.c) and SoLoud (soloud_file.cpp) fopen now go through the path
+  mapping + overlay (force-included ffnx_file_paths.h): FFNx hands them game paths
+  ("C:\FF7\data\movies\opening.ogg", "<basedir>/data\sound\audio.dat"), which failed.
+- Battle: a confirm held past 200 ms auto-repeated (the game's repeatable query: 200 ms delay,
+  50 ms interval), so a firm press on Attack also confirmed the target and the aiming hand
+  vanished. In battle, non-direction buttons now count once per press (ffnx_edit_android.py,
+  ff7_query_repeatable_input). FF7_INPUT_TRACE=1 logs the input state per frame in battle.
+- Known: a save state taken during the battle swirl crashes (memcpy from null in an FFNx
+  export); toml configs inside mods ("music/vgmstream/config.toml") still fail to parse
+  (toml++ opens them with std::ifstream, not routed); the bottom screen shows "MP" instead of
+  enemy names with Echo-S.

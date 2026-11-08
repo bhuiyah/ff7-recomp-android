@@ -93,7 +93,9 @@ const char *hle_host_path(const char *guest, char *buf, unsigned n) {
         static char game_root[1024];
         if (!game_root[0] && !getcwd(game_root, sizeof game_root)) game_root[0] = 0;
         size_t gl = strlen(game_root);
-        if (gl && !strncmp(buf, game_root, gl) && buf[gl] == '/') {
+        /* Any case: FFNx lower-cases some paths it built from basedir (open_file after its
+         * override/ redirection: ".../android/data/com.ff7recomp/..."). */
+        if (gl && !strncasecmp(buf, game_root, gl) && buf[gl] == '/') {
             char rel[1024], mod[1024];
             snprintf(rel, sizeof rel, "%s", buf + gl + 1);
             if (ff7_mods_redirect(rel, mod, sizeof mod)) {

@@ -15,10 +15,12 @@
 #include <bx/math.h>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <set>
 #include <string>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <algorithm>
 #include <set>
 #include <string>
@@ -261,6 +263,18 @@ extern "C" void ff7_companion_battle_tap(float x, float y) {
 extern "C" void ff7_companion_battle_back() { g_steer = Steer{}; g_press_once = PAD_CANCEL; g_press_timer = 0; }
 
 extern "C" void ff7_companion_battle_tick() {
+    // FF7_INPUT_TRACE=1: the game's input state each frame while it changes (debugging)
+    static int trace = -1;
+    if (trace < 0) trace = std::getenv("FF7_INPUT_TRACE") != nullptr;
+    if (trace && g_active) {
+        auto m = [](uint32_t a) { return *(const volatile uint32_t *)(uintptr_t)a; };
+        static uint32_t last[7];
+        const uint32_t now[7] = { m(0x9A85D4), m(0x9A85E0), m(0x9A8728), m(0x9A872C), m(0x9A8734), m(0x9A8730), m(0x9A8714) };
+        if (std::memcmp(now, last, sizeof now) && (now[0] || last[0] || now[1]))
+            std::fprintf(stderr, "[input] f%llu held %04X new %04X prev %04X gate %u rep %u cnt %u tgt %u\n",
+                         (unsigned long long)g_frame, now[0], now[1], now[2], now[3], now[4], now[5], now[6]);
+        std::memcpy(last, now, sizeof now);
+    }
     if (g_press_once) {                // Back: hold, then let go
         if (g_press_timer == 0) ff7_platform_pad_inject(g_press_once);
         if (++g_press_timer > k_hold) { ff7_platform_pad_inject(0); g_press_once = 0; }

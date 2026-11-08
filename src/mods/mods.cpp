@@ -379,8 +379,14 @@ extern "C" const char *ff7_mods_redirect(const char *rel_in, char *buf, unsigned
     if (g.map.empty()) return nullptr;
     const std::string rel = norm_key(rel_in);
     // The folders 7th Heaven watches, most specific first (GameLauncher MonitorPaths: the
-    // data folder and FFNx's texture folder; then the game root).
-    const std::string prefixes[] = { "data/lang-" + g.language + "/", "data/", "mods/textures/", "" };
+    // data folder and FFNx's texture folder, then Settings.ExtraFolders -- FFNx's direct/
+    // (LGP entries: a mod's char/x.hrc is read as direct/char/x.hrc), music/, sfx/, ... --
+    // then the game root).
+    static const char *const kExtra[] = { "ambient/", "direct/", "lighting/", "mesh/", "music/", "override/",
+                                          "save/", "sfx/", "shaders/", "time/", "voice/", "widescreen/" };
+    std::vector<std::string> prefixes = { "data/lang-" + g.language + "/", "data/", "mods/textures/" };
+    for (const char *e : kExtra) prefixes.push_back(e);
+    prefixes.push_back("");
     for (const std::string &p : prefixes) {
         if (rel.compare(0, p.size(), p) != 0) continue;
         auto it = g.map.find(rel.substr(p.size()));

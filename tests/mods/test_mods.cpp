@@ -87,6 +87,11 @@ int main(int argc, char **argv) {
     CHECK(redirect("data/x.bin") == "<none>");                           // "ignored" folder not active
     CHECK(redirect("data/mod.xml") == "<none>");
     CHECK(redirect("save/save00.ff7") == "<none>");
+    // FFNx's direct mode (LGP entries) and its other folders, as 7th Heaven's ExtraFolders:
+    // the mod's field/raw.bin is also <basedir>/direct/field/raw.bin, music/field/raw.bin ...
+    CHECK(redirect("direct/field/raw.bin") == "raw contents");
+    CHECK(redirect("Music/FIELD/raw.bin") == "raw contents");
+    CHECK(redirect("nothere/field/raw.bin") == "<none>");
 
     // ---- profile, Style = 1: alt replaces raw.bin, the conditional folder drops out
     CHECK(ff7_mods_load((dir + "/profile_alt.xml").c_str(), cache.c_str()) == 0);
