@@ -24,7 +24,9 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "win32hle.h"
+#include "mods.h"
 
 static int path_trace = -1;
 
@@ -85,6 +87,19 @@ const char *hle_host_path(const char *guest, char *buf, unsigned n) {
         /* FFNx appends Windows-style parts to its base directory ("<base>/data\lang-en"). */
         snprintf(buf, n, "%s", guest);
         for (char *p = buf; *p; p++) if (*p == '\\') *p = '/';
+        /* Under the game folder (FFNx's <basedir>/data/lang-en/... paths): mods apply too. */
+        static char game_root[1024];
+        if (!game_root[0] && !getcwd(game_root, sizeof game_root)) game_root[0] = 0;
+        size_t gl = strlen(game_root);
+        if (gl && !strncmp(buf, game_root, gl) && buf[gl] == '/') {
+            char rel[1024], mod[1024];
+            snprintf(rel, sizeof rel, "%s", buf + gl + 1);
+            if (ff7_mods_redirect(rel, mod, sizeof mod)) {
+                if (path_trace) fprintf(stderr, "[path] %s -> %s (mod)\n", guest, mod);
+                snprintf(buf, n, "%s", mod);
+                return buf;
+            }
+        }
         if (path_trace) fprintf(stderr, "[path] %s -> %s (host)\n", guest, buf);
         return buf;
     }
@@ -143,6 +158,11 @@ const char *hle_host_path(const char *guest, char *buf, unsigned n) {
         else missing = 1;
         len += (size_t)snprintf(out + len, sizeof out - len, "%s%s", len ? "/" : "", use);
         if (len >= sizeof out) break;
+    }
+    /* 7th Heaven mods (src/mods/mods.h): a replaced game file opens its replacement. */
+    if (len && ff7_mods_redirect(out, buf, n)) {
+        if (path_trace) fprintf(stderr, "[path] %s -> %s (mod)\n", guest, buf);
+        return buf;
     }
     snprintf(buf, n, "%s", len ? out : ".");
     if (path_trace) fprintf(stderr, "[path] %s -> %s%s\n", guest, buf, missing ? " (new)" : "");

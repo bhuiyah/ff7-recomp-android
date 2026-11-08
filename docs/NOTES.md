@@ -118,3 +118,23 @@
 - Movies play at their encoded rate (FFNx's movie_fps_ratio supports 30/60 FPS files);
   higher needs interpolated movie files (offline), not a runtime change.
 - The Thor drained to 3% during this session on its 900 mA USB supply.
+
+## 2026-11-07 (M4: mod overlay core)
+- src/mods: 7th Heaven's IRO archives (all three storage kinds: raw, LZS, LZMA via the LZMA
+  SDK decoder; relocated directories; versions 0x10000-0x10002), mod.xml (ConfigOption,
+  ModFolder/Conditional with ActiveWhen And/Or/Not/Option/GameLanguage, FFNxConfig,
+  Variable; LoadLibrary & co reported as unsupported Windows code), and the overlay itself.
+  Semantics follow 7th Heaven's AppWrapper/AppCore (MS-PL; reference checkout in
+  external/7th-Heaven): first mod in the profile wins; within a mod, active Conditionals,
+  then active ModFolders in mod.xml order, the root only when it declares neither; game
+  paths matched relative to data/ (+ data/lang-<lang>/ for the 2026 edition), FFNx's
+  mods/Textures/, and the game root.
+- Hook: hle_host_path (every open by the game and by FFNx); IRO entries extracted on first
+  use to files/modcache and reused while the archive is unchanged.
+- Profile: files/mods/profile.xml (<Profile Language="en"><Mod Path="x.iro"><Option
+  ID=".." Value=".."/></Mod>...</Profile>), loaded at boot; no profile = no mods.
+- tools/test_mods.sh: 37/37 on the PC (generated IRO + folder mod). tools/fetch_deps.sh.
+- Not yet: RuntimeVar conditions (game-memory checks; such folders apply unconditionally
+  for now and are reported), hext from mods, FFNxConfig from mods into FFNx.toml (the
+  launcher's job), directory listings of modded folders, and a test with real 7th Heaven
+  mods on the Thor (the M4 exit test: IFRIT + Ninostyle Chibi).

@@ -8,6 +8,8 @@ set(GEN    "${FF7_ROOT}/generated/recomp")
 set(HOST   "${FF7_ROOT}/src/host")
 set(FF7HLE "${FF7_ROOT}/src/hle")
 set(BRIDGE "${FF7_ROOT}/src/ffnx_bridge")
+set(MODS   "${FF7_ROOT}/src/mods")
+set(FF7_DEPS "${FF7_ROOT}/external/deps")
 
 if(NOT EXISTS "${GEN}/recomp_dispatch.c")
   message(FATAL_ERROR "generated/recomp is empty: run tools/run_lift.py lift first")
@@ -58,8 +60,16 @@ add_library(ff7_core STATIC
   "${FF7HLE}/ff7_dinput.c"
   "${BRIDGE}/ffnx_driver.cpp"
   "${BRIDGE}/ffnx_display.cpp"
+  # 7th Heaven mod overlay (IRO archives, mod.xml, the profile; src/mods/mods.h)
+  "${MODS}/lzs.c"
+  "${MODS}/iro.cpp"
+  "${MODS}/modinfo.cpp"
+  "${MODS}/mods.cpp"
+  "${FF7_DEPS}/lzma/LzmaDec.c"
+  "${FF7_DEPS}/pugixml/src/pugixml.cpp"
   $<TARGET_OBJECTS:ff7_guest>)
-target_include_directories(ff7_core PUBLIC "${RT}/recomp32" "${RT}/win32hle" "${GEN}" "${HOST}" "${FF7HLE}" "${BRIDGE}")
+target_include_directories(ff7_core PUBLIC "${RT}/recomp32" "${RT}/win32hle" "${GEN}" "${HOST}" "${FF7HLE}" "${BRIDGE}" "${MODS}"
+  PRIVATE "${FF7_DEPS}/lzma" "${FF7_DEPS}/pugixml/src")
 target_compile_definitions(ff7_core PUBLIC ${FF7_GUEST_DEFS})
 target_compile_options(ff7_core PRIVATE -O1 -g -Wall -Wno-unused-function -Wno-unused-but-set-variable)
 target_compile_features(ff7_core PUBLIC cxx_std_17)

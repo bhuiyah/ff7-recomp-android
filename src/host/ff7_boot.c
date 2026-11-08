@@ -16,6 +16,7 @@
 #include "win32hle.h"
 #include "ff7_hle.h"
 #include "ff7_boot.h"
+#include "mods.h"
 
 void ff7_install_crash_handler(void);
 void ff7_start_watchdog(void);   /* ff7_crash.c, FF7_WATCHDOG=<s> */
@@ -28,6 +29,18 @@ int ff7_boot_and_run(const char *game_dir) {
     }
     ff7_install_crash_handler();
     ff7_start_watchdog();
+    /* 7th Heaven mods: <game>/../mods/profile.xml (the launcher writes it), archive entries
+     * extracted to <game>/../modcache on first use. No profile = no mods. */
+    {
+        char cwd[1024], profile[1100], cache[1100];
+        if (getcwd(cwd, sizeof cwd)) {
+            char *slash = strrchr(cwd, '/');
+            if (slash) *slash = 0;
+            snprintf(profile, sizeof profile, "%s/mods/profile.xml", cwd);
+            snprintf(cache, sizeof cache, "%s/modcache", cwd);
+            ff7_mods_load(profile, cache);
+        }
+    }
     if (guest_alloc_init(FF7_ARENA_LO, FF7_ARENA_HI) != 0) return 70;
     if (ff7_virtual_init() != 0) return 70;
     fprintf(stderr, "[ff7] guest arena [0x%08X,0x%08X), game dir %s\n", FF7_ARENA_LO, FF7_ARENA_HI, game_dir);
