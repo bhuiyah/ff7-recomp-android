@@ -163,6 +163,18 @@ EDITS = [
      '#define driver_free(x) guest_free(x)\n#define driver_realloc(x, y) guest_realloc(x, y)\n'
      '#elif !defined(HEAP_DEBUG)\n#define driver_malloc(x) malloc(x)\n#define driver_calloc(x, y) calloc(x, y)\n'
      '#define driver_free(x) free(x)\n#define driver_realloc(x, y) realloc(x, y)\n'),
+    # One-button movie skip on the Thor: Start while an FMV plays (FFNx's own skipMovies,
+    # with its exclusions for scenes that must not be skipped). FFNx's L3-then-Square
+    # shortcut stays as well.
+    ('gamehacks.cpp', '\t\t\tif (gamepad.IsPressed(XINPUT_GAMEPAD_LEFT_THUMB)) // L2\n',
+     '#ifdef FFNX_ANDROID\n'
+     '\t\t\tif (!ff8 && ff7_externals.movie_object->is_playing && gamepad.IsPressed(XINPUT_GAMEPAD_START))\n'
+     '\t\t\t{\n'
+     '\t\t\t\tskipMovies();\n'
+     '\t\t\t\treturn;\n'
+     '\t\t\t}\n'
+     '#endif\n'
+     '\t\t\tif (gamepad.IsPressed(XINPUT_GAMEPAD_LEFT_THUMB)) // L2\n'),
     # Pointer cells in game memory read through T** (8 bytes here): 4-byte guest cells.
     ('sfx.cpp', '\tBYTE** sfx_tmp_volume = (BYTE**)(ff7_externals.config_menu_sub + ff7_externals.call_menu_sound_slider_loop_sfx_down + 0xA);',
      '\tgptr<BYTE>* sfx_tmp_volume = (gptr<BYTE>*)(ff7_externals.config_menu_sub + ff7_externals.call_menu_sound_slider_loop_sfx_down + 0xA);   // FF7Recomp: guest cell'),
