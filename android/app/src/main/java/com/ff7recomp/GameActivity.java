@@ -135,6 +135,19 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         Log.i(TAG, "display " + d.getDisplayId() + ": mode " + best.getModeId() + " @ " + best.getRefreshRate() + " Hz");
     }
 
+    /** The surface's own frame-rate vote: without it SurfaceFlinger paces a Vulkan FIFO
+     *  swapchain at 60 Hz even on a 120 Hz mode. */
+    private static void requestFrameRate(Surface s, Display d) {
+        if (s == null || d == null || android.os.Build.VERSION.SDK_INT < 30) return;
+        float hz = d.getMode().getRefreshRate();
+        for (Display.Mode m : d.getSupportedModes()) hz = Math.max(hz, m.getRefreshRate());
+        try {
+            s.setFrameRate(hz, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            Log.w(TAG, "setFrameRate(" + hz + "): " + e);
+        }
+    }
+
     private static void hideSystemBars(WindowInsetsController c) {
         if (c != null) {
             c.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
@@ -158,6 +171,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             @Override public void surfaceCreated(SurfaceHolder h) { }
             @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int hh) {
                 Log.i(TAG, "companion surface " + w + "x" + hh);
+                requestFrameRate(h.getSurface(), d);
                 nativeSetCompanionSurface(h.getSurface(), w, hh);
             }
             @Override public void surfaceDestroyed(SurfaceHolder h) { nativeSetCompanionSurface(null, 0, 0); }
@@ -174,6 +188,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
         Log.i(TAG, "surface " + width + "x" + height);
+        requestFrameRate(holder.getSurface(), getDisplay());
         nativeSetSurface(holder.getSurface(), width, height);
         if (!started) {
             started = true;

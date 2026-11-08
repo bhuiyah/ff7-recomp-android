@@ -95,3 +95,26 @@
 - Tools: run_app.sh, play_newgame.sh, play_to_battle.sh (adb-driven), symbolize.sh, files/env.txt switches (FF7_PATH_TRACE, FF7_WATCHDOG).
 - Open: frame rate (39 FPS in credits at -O0 FFNx; 21 after -O2 with the battery at 5% -- remeasure charged, profile with simpleperf); saves; world map/minigames; bottom-screen panels (the FFNx renderer owns bgfx now, so M7 needs a second view in FFNx's renderer); launcher (M4).
 - The Thor drains on 900 mA USB while the game runs: test on a proper charger.
+
+## 2026-11-07 (frame rate: FFNx code patches live, 60 FPS works, 120 FPS mode started)
+- Found: FFNx's call-site hooks (111 of 205) and all its code patches had no effect in the
+  lift (the lifted code never reads its own instruction bytes). Fixed generally:
+  pcrecomp patch 0017 (RECOMP_CALL_AT on every direct call; patched-code variants chosen
+  by RECOMP_CODE_MATCH; live dword operands anywhere in an instruction) + run_lift.py
+  --manifests + a runtime call-site table. Manifests per FFNx frame-rate mode in
+  analysis/ffnx_manifests (game bytes: gitignored); tools/refresh_manifests.sh recollects
+  them on the device and re-lifts. All 205-255 hooks now live.
+- FFNx globals the game reads via code patches: fixed guest block at 0x6B000000.
+- **60 FPS mode (ff7_fps_limiter = 3) verified on the Thor**: field 60, battle 60 (vanilla
+  15), swirl, menus; route to the first battle and menu without faults.
+- 120 FPS mode (ff7_fps_limiter = 4, ours): field/world x4 ticks (FFNx's shift-count
+  patches m/2 = log2 m stay exact at x4), battle/menus/minigames as in 60 mode. App asks
+  both screens for their 120 Hz mode and votes 120 on its surfaces. State: boots, field
+  and menu run, dialogue fixed (divides that rounded a step to 0 are kept at 1 and logged:
+  8 sites, text paging/opening, field and world); the FPS counter still reads 60.0 in the
+  field -- a remaining 60 cap to find (next: the game's own field limiter as patched, and
+  the swapchain's present interval). Battle at x8 (true 120) needs FFNx's battle maths
+  reworked (shift counts 2 - m/2 have no value at x8).
+- Movies play at their encoded rate (FFNx's movie_fps_ratio supports 30/60 FPS files);
+  higher needs interpolated movie files (offline), not a runtime change.
+- The Thor drained to 3% during this session on its 900 mA USB supply.

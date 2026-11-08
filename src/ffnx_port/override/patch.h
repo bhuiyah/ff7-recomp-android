@@ -80,7 +80,10 @@ void patch_code_double(uint32_t offset, double r);
 void memcpy_code(uint32_t offset, const void *data, uint32_t size);
 void memset_code(uint32_t offset, uint32_t val, uint32_t size);
 
-namespace ffnx_recomp { void note_code_write(uint32_t offset, uint32_t size, const char *what); }
+namespace ffnx_recomp {
+void note_code_write(uint32_t offset, uint32_t size, const char *what);
+void note_divide_floor(uint32_t offset, int before, int divisor, int kept);
+}
 
 template <typename T>
 void patch_multiply_code(uint32_t offset, int multiplier) {
@@ -91,7 +94,16 @@ void patch_multiply_code(uint32_t offset, int multiplier) {
 template <typename T>
 void patch_divide_code(uint32_t offset, int multiplier) {
     ffnx_recomp::note_code_write(offset, sizeof(T), "patch_divide_code");
-    *(T *)(uintptr_t)offset = (*(T *)(uintptr_t)offset) / (T)multiplier;
+    const T before = *(T *)(uintptr_t)offset;
+    T after = before / (T)multiplier;
+    // FF7Recomp: a per-frame step divided past zero freezes what it steps (a text box at x4
+    // in the 120 FPS mode). Keep the smallest step instead, and name the site: those want
+    // a finer fix (the step at x4 then runs up to twice its intended speed).
+    if (after == 0 && before != 0) {
+        after = before > 0 ? (T)1 : (T)-1;
+        ffnx_recomp::note_divide_floor(offset, (int)before, multiplier, (int)after);
+    }
+    *(T *)(uintptr_t)offset = after;
 }
 
 void *member_func_to_ptr(char i, ...);

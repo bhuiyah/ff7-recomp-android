@@ -194,6 +194,21 @@ EDITS = [
      '		patch_code_dword(ff7_externals.pandora_box_skill_init_566871 + 0x1F, ffnx_guest_va(&pandora_box_main_loop));'),
     ('ff7/battle/battle.cpp', '		patch_code_dword(resource + 4, reinterpret_cast<uint32_t>("DOMU1.TIM"));',
      '		patch_code_dword(resource + 4, guest::guest_string("DOMU1.TIM"));   // FF7Recomp: guest copy'),
+    # 120 FPS mode (ff7_fps_limiter = 4) for 120 Hz screens such as the Thor's: field and
+    # world map run 4 game ticks per original one (30 -> 120 FPS) through FFNx's own 60 FPS
+    # machinery, whose shift-count patches (m/2 standing for log2 m) stay exact at x4.
+    # Battle (x4 of its native 15), swirl, menus and minigames keep their 60 FPS settings:
+    # battle at x8 needs FFNx's battle maths reworked first.
+    ('cfg.h', '#define FPS_LIMITER_60FPS 3\n',
+     '#define FPS_LIMITER_60FPS 3\n#define FPS_LIMITER_120FPS 4   // FF7Recomp: field/world at 120, the rest as 60\n'),
+    ('cfg.cpp', '\telse if (ff7_fps_limiter > FPS_LIMITER_60FPS) ff7_fps_limiter = FPS_LIMITER_60FPS;',
+     '\telse if (ff7_fps_limiter > FPS_LIMITER_120FPS) ff7_fps_limiter = FPS_LIMITER_120FPS;'),
+    ('ff7_opengl.cpp', '\t\t\t\tcommon_frame_multiplier = 2;\n',
+     '\t\t\t\tcommon_frame_multiplier = ff7_fps_limiter >= FPS_LIMITER_120FPS ? 4 : 2;   // FF7Recomp: 120 FPS mode\n'),
+    ('ff7/misc.cpp', '\t\tswitch (mode->driver_mode)\n\t\t{\n\t\tcase MODE_FIELD:\n\t\tcase MODE_WORLDMAP:\n\t\tcase MODE_BATTLE:',
+     '\t\tswitch (mode->driver_mode)\n\t\t{\n\t\tcase MODE_FIELD:\n\t\tcase MODE_WORLDMAP:\n'
+     '\t\t\tframerate = 30.0f * common_frame_multiplier;   // FF7Recomp: 60, or 120 in the 120 FPS mode\n'
+     '\t\t\tbreak;\n\t\tcase MODE_BATTLE:'),
     # One-button movie skip on the Thor: Start while an FMV plays (FFNx's own skipMovies,
     # with its exclusions for scenes that must not be skipped). FFNx's L3-then-Square
     # shortcut stays as well.
@@ -271,6 +286,26 @@ EDITS = [
 # patch_code_dword/uint(addr, (DWORD)&fn) with a native function or object: the value the
 # game reads must be a guest address (ffnx_guest_va, src/ffnx_port/include/ffnx_guest.h).
 PATCH_VA_RE = re.compile(r'(patch_code_(?:dword|uint)\((?:[^;]*?)),\s*\((?:DWORD|uint32_t)\)\s*(&?)([A-Za-z_][A-Za-z_0-9:]*)\)\s*;')
+
+
+def rewrite_fps_tests():
+    """`ff7_fps_limiter == FPS_LIMITER_60FPS` means "the high frame rate mode": with the 120 FPS
+    mode it becomes >= (FF7 code only)."""
+    n = 0
+    for dirpath, _, files in os.walk(SRC):
+        rel_dir = os.path.relpath(dirpath, SRC).replace(os.sep, '/')
+        if rel_dir.startswith('ff8'):
+            continue
+        for f in files:
+            if not f.endswith(('.cpp', '.h')) or f.startswith('ff8'):
+                continue
+            path = os.path.join(dirpath, f)
+            raw = open(path, 'rb').read().decode('utf-8', errors='surrogateescape')
+            new, k = re.subn(r'ff7_fps_limiter\s*==\s*FPS_LIMITER_60FPS', 'ff7_fps_limiter >= FPS_LIMITER_60FPS', raw)
+            if k:
+                open(path, 'wb').write(new.encode('utf-8', errors='surrogateescape'))
+                n += k
+    return n
 
 
 def rewrite_patch_values():
@@ -443,7 +478,8 @@ def main():
             sys.exit(f'{rel}: edit did not match exactly once:\n{old[:120]}')
     print(f'{changed} edits applied ({len(EDITS)} total); {rewrite_patch_values()} patch values made guest addresses; '
           f'{rewrite_fnptr_globals()} game-function pointer variables made guest calls; '
-          f'{rewrite_game_fn_casts()} casts of game addresses to native functions made guest calls')
+          f'{rewrite_game_fn_casts()} casts of game addresses to native functions made guest calls; '
+          f'{rewrite_fps_tests()} 60 FPS tests made "60 or above"')
 
 
 if __name__ == '__main__':

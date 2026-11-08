@@ -103,6 +103,10 @@ uint32_t replace_call_function_va(uint32_t offset, uint32_t host_va, const char 
     return record_hook(what, offset, host_va, install_callsite(offset, host_va, what, orig));
 }
 
+void note_divide_floor(uint32_t offset, int before, int divisor, int kept) {
+    ffnx_warning("patch_divide_code: 0x%08X: %d / %d rounds to 0, kept at %d\n", offset, before, divisor, kept);
+}
+
 void note_code_write(uint32_t offset, uint32_t size, const char *what) {
     std::lock_guard<std::mutex> lk(g_lock);
     if (in_text(offset)) g_code_writes.push_back({ what, offset, size });
