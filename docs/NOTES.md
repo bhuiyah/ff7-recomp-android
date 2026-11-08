@@ -208,3 +208,17 @@
     difftest now includes those runs (17032 agree, 0 differ).
   - documented approximations the difftest masks: CF after inc/dec, OF/PF of shifts,
     imul/mul flags, bt ZF, narrow cmps/sbb SF/OF, fcom kept in the integer flags.
+
+## 2026-11-07: re-lift on the PC; hext status in the launcher
+- Re-lifted with the manifests on hand (l1..l4): 25257 functions, 0 failures, patches
+  0018 (narrow sar) and 0019 (fOPp st(0)) now in the APK, recomp_variants.c (384
+  variants) emitted. The widescreen and mode-4 stepped manifests still need the Thor
+  (refresh_manifests.sh).
+- Two build fixes: the generated-sources glob is CONFIGURE_DEPENDS (a new generated file
+  was not compiled until CMake re-ran), and ff7_hext.cpp references the variant table
+  strongly -- a weak reference never pulls a member out of the static ff7_core archive, so
+  the table was silently missing. CMake now stops if generated/ predates the table.
+- ff7_hext.cpp writes mods/hext_status.txt (one row per hext file: state, data writes,
+  code lifted / interpreted / without effect); the launcher shows a line per mod from it
+  ("2 hext patches: 3 data, 1 code interpreted (last run)"), flagged when a file stopped
+  early or a code patch had no effect.

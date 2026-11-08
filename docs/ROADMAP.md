@@ -64,7 +64,7 @@ Order:
      mod's code patch works on the device without a PC re-lift (lifted variants stay the
      fast path). Checked by tools/interp_difftest.sh against the lift on real FF7 code.
    - Still to do: the launcher showing each mod's hext status (lifted / interpreted /
-     without effect).
+     without effect) -- done: from mods/hext_status.txt of the last run.
 5. Launcher: import IROs through the Android file picker (scoped storage) into app storage,
    later the Qhimm catalog; each mod shows a status: works / runs interpreted / unsupported.
 

@@ -146,6 +146,8 @@ public class LauncherActivity extends Activity {
             for (String u : m.unsupported) sub.append("\n⚠ ").append(u).append(" (Windows code, skipped)");
         }
         info.addView(text(sub.toString(), 13, m.error != null ? 0xFFFF8080 : DIM));
+        if (m.error == null && m.hext != null)
+            info.addView(text((m.hextProblem ? "⚠ " : "") + m.hext, 13, m.hextProblem ? 0xFFFFC060 : DIM));
         r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         r.addView(small("▲", v -> { library.move(index, -1); saveProfile(); refresh(); }));
         r.addView(small("▼", v -> { library.move(index, +1); saveProfile(); refresh(); }));

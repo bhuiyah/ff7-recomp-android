@@ -14,6 +14,9 @@ set(FF7_DEPS "${FF7_ROOT}/external/deps")
 if(NOT EXISTS "${GEN}/recomp_dispatch.c")
   message(FATAL_ERROR "generated/recomp is empty: run tools/run_lift.py lift first")
 endif()
+if(NOT EXISTS "${GEN}/recomp_variants.c")
+  message(FATAL_ERROR "generated/recomp predates the variant table: re-run tools/run_lift.py lift")
+endif()
 
 set(FF7_GUEST_DEFS RECOMP_FLAT_MEMORY RECOMP_STRICT_ICALL)
 option(FF7_TRACE "Lifted-function entry ring (src/host/ff7_trace.c)" OFF)
@@ -23,7 +26,7 @@ endif()
 
 # Generated code: -O1 keeps compile time sane; no FP contraction so x87 results round
 # like the original.
-file(GLOB FF7_GEN_SOURCES "${GEN}/recomp_*.c")
+file(GLOB FF7_GEN_SOURCES CONFIGURE_DEPENDS "${GEN}/recomp_*.c")
 add_library(ff7_guest OBJECT ${FF7_GEN_SOURCES})
 target_include_directories(ff7_guest PRIVATE "${RT}/recomp32" "${GEN}")
 target_compile_definitions(ff7_guest PRIVATE ${FF7_GUEST_DEFS})

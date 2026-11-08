@@ -46,6 +46,10 @@ final class ModLibrary {
         final List<Option> options = new ArrayList<>();
         final List<String> unsupported = new ArrayList<>();
         final List<String[]> ffnx = new ArrayList<>();        // [key, value]
+        // hext patches as the last game run applied them (mods/hext_status.txt, written by
+        // src/host/ff7_hext.cpp); null if the mod had none or the game has not run with it
+        String hext;
+        boolean hextProblem;                                   // a file stopped, or a code patch had no effect
 
         String title() { return name != null && !name.isEmpty() ? name : file; }
         int value(Option o) {
@@ -104,6 +108,48 @@ final class ModLibrary {
             mods.add(m);
         }
         for (Mod m : mods) readInfo(m);
+        readHextStatus();
+    }
+
+    /** One line per mod from the last run's hext_status.txt (TSV: mod, file, state, data,
+     *  lifted, interpreted, without effect). */
+    private void readHextStatus() {
+        File f = new File(dir, "hext_status.txt");
+        if (!f.isFile()) return;
+        Map<String, int[]> sums = new LinkedHashMap<>();       // mod -> files, data, lifted, interpreted, none, problems
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(
+                new java.io.FileInputStream(f), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                String[] t = line.split("\t");
+                if (t.length < 7) continue;
+                int[] s = sums.computeIfAbsent(t[0].toLowerCase(Locale.ROOT), k -> new int[6]);
+                s[0]++;
+                for (int i = 0; i < 4; i++) {
+                    try { s[1 + i] += Integer.parseInt(t[3 + i]); } catch (NumberFormatException ignored) { }
+                }
+                if (!t[2].equals("applied") && !t[2].equals("delayed")) s[5]++;
+            }
+        } catch (Exception ex) {
+            Log.w(TAG, "hext_status.txt unreadable: " + ex);
+            return;
+        }
+        for (Mod m : mods) {
+            int[] s = sums.get(m.file.toLowerCase(Locale.ROOT));
+            if (s == null) continue;
+            StringBuilder b = new StringBuilder();
+            b.append(s[0]).append(s[0] == 1 ? " hext patch" : " hext patches");
+            List<String> parts = new ArrayList<>();
+            if (s[1] > 0) parts.add(s[1] + " data");
+            if (s[2] > 0) parts.add(s[2] + " code lifted");
+            if (s[3] > 0) parts.add(s[3] + " code interpreted");
+            if (s[4] > 0) parts.add(s[4] + " code without effect");
+            if (s[5] > 0) parts.add(s[5] + (s[5] == 1 ? " file stopped early" : " files stopped early"));
+            if (!parts.isEmpty()) b.append(": ").append(String.join(", ", parts));
+            b.append(" (last run)");
+            m.hext = b.toString();
+            m.hextProblem = s[4] > 0 || s[5] > 0;
+        }
     }
 
     private void readInfo(Mod m) {
