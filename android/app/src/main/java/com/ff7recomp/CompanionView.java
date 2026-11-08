@@ -27,6 +27,9 @@ public class CompanionView extends View {
     private static native String nativeState();
     private static native void nativeCommand(int cmd);
     private static native void nativeTap(int buttons);
+    private static native void nativeSetArea(int top, int bottom);
+    private static native void nativeBattleTap(float x, float y);
+    private static native void nativeBattleBack();
 
     private static final int CMD_SPEED = 1, CMD_SAVE = 2, CMD_LOAD = 3;
     private static final int PAD_Y = 0x8000;   // Triangle: the game's main menu
@@ -49,6 +52,9 @@ public class CompanionView extends View {
         new Button("2× speed", CMD_SPEED, 0),
     };
     private Button pressed;
+    private int areaTop = -1, areaBottom = -1;   // the game's battle windows (native code draws there)
+    private JSONArray regions;                   // their layout: [sx0, sy0, sx1, sy1, dx, dy, dw, dh]
+    private boolean battleNow;
     private String flash;            // a short note after a button ("Saving...")
     private long flashUntil;
 
@@ -111,36 +117,91 @@ public class CompanionView extends View {
     protected void onDraw(Canvas c) {
         final float W = getWidth(), H = getHeight(), u = H / 1080f, pad = 24 * u;
         if (state.optInt("ready") != 1) {
+            fill.setShader(null);
+            fill.setColor(Color.BLACK);
+            c.drawRect(0, 0, W, H, fill);
             label(c, "FINAL FANTASY VII", W / 2, H / 2, 64 * u, 0xFFDCDCF0, Paint.Align.CENTER);
             label(c, "starting...", W / 2, H / 2 + 70 * u, 40 * u, 0xFF8090B0, Paint.Align.CENTER);
             return;
         }
         final String mode = state.optString("mode");
         final boolean battle = "battle".equals(mode);
+        battleNow = battle;
 
-        // In battle the game draws its own windows (names, HP/MP/Limit/Time, commands) across
-        // the top of this screen, at the band's proportions (companion_render.cpp: x 0..640,
-        // y 330..450 of the game's frame); everything else starts below them.
-        float bandH = battle ? W * (450f - 330f) / 640f : 0f;
-        fill.setShader(null);
-        fill.setColor(Color.BLACK);
-        c.drawRect(0, bandH, W, H, fill);
-        if (!battle) {
+        // command deck at the bottom (in battle the first button is Back)
+        float deckH = 150 * u, deckT = H - pad - deckH;
+
+        if (battle) {
+            // enemies, compact, on top: two columns
+            JSONArray en = state.optJSONArray("enemies");
+            int ne = en == null ? 0 : en.length();
+            int rows = Math.max(1, (ne + 1) / 2);
+            float rowH = 50 * u, enT = pad, enB = enT + 16 * u + rows * rowH;
+            fill.setShader(null);
+            fill.setColor(Color.BLACK);
+            c.drawRect(0, 0, W, enB + pad, fill);
+            window(c, pad, enT, W - pad, enB);
+            float colW = (W - pad * 2 - 80 * u) / 2f;   // 20 margins, 40 between the columns
+            for (int i = 0; i < ne; i++) {
+                JSONObject e = en.optJSONObject(i);
+                int hp = e.optInt("hp"), mhp = Math.max(1, e.optInt("mhp"));
+                float x = pad + 20 * u + (i % 2) * (colW + 40 * u), y = enT + 8 * u + (i / 2) * rowH;
+                String nm = e.optString("name");
+                label(c, nm.isEmpty() ? "#" + e.optInt("slot") : nm, x, y + 28 * u, 28 * u, hp > 0 ? Color.WHITE : 0xFF8090B0, Paint.Align.LEFT);
+                label(c, hp + "/" + mhp, x + colW, y + 28 * u, 26 * u, 0xFFDCDCF0, Paint.Align.RIGHT);
+                bar(c, x, y + 36 * u, colW, 8 * u, (double) hp / mhp, 0xFFE05050);
+            }
+            // the game's windows in between (native code draws them; leave the area clear)
+            int areaTop = (int) (enB + pad), areaBottom = (int) (deckT - pad);
+            if (areaTop != this.areaTop || areaBottom != this.areaBottom) {
+                this.areaTop = areaTop; this.areaBottom = areaBottom;
+                nativeSetArea(areaTop, areaBottom);
+            }
+            fill.setColor(Color.BLACK);
+            c.drawRect(0, areaBottom, W, H, fill);
+            regions = state.optJSONArray("layout");
+        } else {
+            regions = null;
+            fill.setShader(null);
+            fill.setColor(Color.BLACK);
             c.drawRect(0, 0, W, H, fill);
-        }
-
-        // top: where, play time, gil (outside battle)
-        float top = battle ? bandH : pad, topH = battle ? 0 : 110 * u;
-        if (!battle) window(c, pad, top, W - pad, top + topH);
-        if (!battle) {
+            // top: where, play time, gil
+            float top = pad, topH = 110 * u;
+            window(c, pad, top, W - pad, top + topH);
             String where = state.optString("loc");
             label(c, where.isEmpty() ? "-" : where, pad + 30 * u, top + 70 * u, 46 * u, Color.WHITE, Paint.Align.LEFT);
             label(c, clock(state.optLong("time")) + "    " + state.optLong("gil") + " G", W - pad - 30 * u, top + 70 * u, 38 * u,
                   0xFFDCDCF0, Paint.Align.RIGHT);
+            // party
+            float bodyT = top + topH + pad, bodyB = deckT - pad;
+            float partyR = W - pad;
+            JSONArray party = state.optJSONArray("party");
+            int n = party == null ? 0 : party.length();
+            float rowH = (bodyB - bodyT - pad * 2) / 3f;
+            for (int i = 0; i < 3; i++) {
+                float t = bodyT + i * (rowH + pad), b = t + rowH;
+                window(c, pad, t, partyR, b);
+                JSONObject m = i < n ? party.optJSONObject(i) : null;
+                if (m == null) continue;
+                float x = pad + 28 * u, colW = partyR - pad - 56 * u;
+                label(c, m.optString("name"), x, t + 58 * u, 48 * u, Color.WHITE, Paint.Align.LEFT);
+                label(c, "Lv " + m.optInt("lv"), x + colW, t + 58 * u, 36 * u, 0xFFDCDCF0, Paint.Align.RIGHT);
+                int hp = m.optInt("hp"), mhp = Math.max(1, m.optInt("mhp")), mp = m.optInt("mp"), mmp = Math.max(1, m.optInt("mmp"));
+                float barW = colW * 0.48f, bh = 16 * u, by = t + 112 * u;
+                double hf = (double) hp / mhp;
+                label(c, "HP " + hp + "/" + mhp, x, by - 6 * u, 32 * u, hf <= 0.25 ? 0xFFFFD040 : Color.WHITE, Paint.Align.LEFT);
+                bar(c, x, by + 4 * u, barW, bh, hf, hf <= 0.25 ? 0xFFE0B020 : 0xFF40D070);
+                float x2 = x + colW * 0.52f;
+                label(c, "MP " + mp + "/" + mmp, x2, by - 6 * u, 32 * u, Color.WHITE, Paint.Align.LEFT);
+                bar(c, x2, by + 4 * u, barW, bh, (double) mp / mmp, 0xFF4090F0);
+                float y3 = by + bh + 48 * u;
+                if (y3 + bh < b) {
+                    label(c, "Limit " + m.optInt("limlv"), x, y3 - 6 * u, 30 * u, 0xFFFFB0D0, Paint.Align.LEFT);
+                    bar(c, x, y3 + 4 * u, barW, bh, m.optInt("limit") / 255.0, 0xFFF060B0);
+                }
+            }
         }
 
-        // command deck at the bottom
-        float deckH = 150 * u, deckT = H - pad - deckH;
         float bw = (W - pad * (buttons.length + 1)) / buttons.length;
         for (int i = 0; i < buttons.length; i++) {
             Button b = buttons[i];
@@ -152,58 +213,10 @@ public class CompanionView extends View {
                 fill.setColor(on ? 0x6600FF88 : 0x55FFFFFF);
                 c.drawRoundRect(b.box, 14 * u, 14 * u, fill);
             }
-            label(c, b.label, b.box.centerX(), b.box.centerY() + 16 * u, 44 * u, Color.WHITE, Paint.Align.CENTER);
+            String text = (battle && b.pad == PAD_Y) ? "Back" : b.label;
+            label(c, text, b.box.centerX(), b.box.centerY() + 16 * u, 44 * u, Color.WHITE, Paint.Align.CENTER);
         }
 
-        // party outside battle (in battle the game's own windows above show it); enemies in battle
-        float bodyT = top + topH + pad, bodyB = deckT - pad;
-        float partyR = W - pad;
-        JSONArray party = state.optJSONArray("party");
-        int n = party == null ? 0 : party.length();
-        float rowH = (bodyB - bodyT - pad * 2) / 3f;
-        for (int i = 0; i < 3 && !battle; i++) {
-            float t = bodyT + i * (rowH + pad), b = t + rowH;
-            window(c, pad, t, partyR, b);
-            JSONObject m = i < n ? party.optJSONObject(i) : null;
-            if (m == null) continue;
-            float x = pad + 28 * u, colW = partyR - pad - 56 * u;
-            label(c, m.optString("name"), x, t + 58 * u, 48 * u, Color.WHITE, Paint.Align.LEFT);
-            label(c, "Lv " + m.optInt("lv"), x + colW, t + 58 * u, 36 * u, 0xFFDCDCF0, Paint.Align.RIGHT);
-            int hp = m.optInt("hp"), mhp = Math.max(1, m.optInt("mhp")), mp = m.optInt("mp"), mmp = Math.max(1, m.optInt("mmp"));
-            float barW = colW * 0.48f, bh = 16 * u, by = t + 112 * u;
-            double hf = (double) hp / mhp;
-            label(c, "HP " + hp + "/" + mhp, x, by - 6 * u, 32 * u, hf <= 0.25 ? 0xFFFFD040 : Color.WHITE, Paint.Align.LEFT);
-            bar(c, x, by + 4 * u, barW, bh, hf, hf <= 0.25 ? 0xFFE0B020 : 0xFF40D070);
-            float x2 = x + colW * 0.52f;
-            label(c, "MP " + mp + "/" + mmp, x2, by - 6 * u, 32 * u, Color.WHITE, Paint.Align.LEFT);
-            bar(c, x2, by + 4 * u, barW, bh, (double) mp / mmp, 0xFF4090F0);
-            float y3 = by + bh + 48 * u;
-            if (y3 + bh < b) {
-                label(c, "Limit " + m.optInt("limlv"), x, y3 - 6 * u, 30 * u, 0xFFFFB0D0, Paint.Align.LEFT);
-                bar(c, x, y3 + 4 * u, barW, bh, m.optInt("limit") / 255.0, 0xFFF060B0);
-                int atb = m.optInt("atb", -1);
-                if (atb >= 0) {
-                    label(c, "Time", x2, y3 - 6 * u, 30 * u, 0xFFF0E0A0, Paint.Align.LEFT);
-                    bar(c, x2, y3 + 4 * u, barW, bh, atb / 65535.0, atb >= 0xFFFF ? 0xFFFFE060 : 0xFFC0A040);
-                }
-            }
-        }
-        if (battle) {
-            float l = pad;
-            window(c, l, bodyT, W - pad, bodyB);
-            label(c, "Enemies", l + 28 * u, bodyT + 58 * u, 44 * u, Color.WHITE, Paint.Align.LEFT);
-            JSONArray en = state.optJSONArray("enemies");
-            float y = bodyT + 120 * u, w = W - pad - l - 56 * u;
-            for (int i = 0; en != null && i < en.length() && y < bodyB - 40 * u; i++) {
-                JSONObject e = en.optJSONObject(i);
-                int hp = e.optInt("hp"), mhp = Math.max(1, e.optInt("mhp"));
-                String nm = e.optString("name");
-                label(c, nm.isEmpty() ? "#" + e.optInt("slot") : nm, l + 28 * u, y, 32 * u, Color.WHITE, Paint.Align.LEFT);
-                label(c, hp + "/" + mhp, W - pad - 28 * u, y, 30 * u, 0xFFDCDCF0, Paint.Align.RIGHT);
-                bar(c, l + 28 * u, y + 12 * u, w, 14 * u, (double) hp / mhp, 0xFFE05050);
-                y += 78 * u;
-            }
-        }
         if (flash != null && System.currentTimeMillis() < flashUntil)
             label(c, flash, W / 2, deckT - 20 * u, 38 * u, 0xFFFFE060, Paint.Align.CENTER);
     }
@@ -217,6 +230,7 @@ public class CompanionView extends View {
         case MotionEvent.ACTION_DOWN:
             pressed = null;
             for (Button b : buttons) if (b.box.contains(x, y)) pressed = b;
+            if (pressed == null && battleNow && y >= areaTop && y < areaBottom) battleTap(x, y);
             invalidate();
             return true;
         case MotionEvent.ACTION_UP:
@@ -234,8 +248,26 @@ public class CompanionView extends View {
         }
     }
 
+    /** A tap on the game's battle windows: back to the game's 2D coordinates through the
+     *  layout native code drew them with; the game thread steers the cursor there. A tap
+     *  outside them (choosing a target on the top screen) confirms. */
+    private void battleTap(float x, float y) {
+        performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+        for (int i = 0; regions != null && i < regions.length(); i++) {
+            JSONArray r = regions.optJSONArray(i);
+            if (r == null || r.length() < 8) continue;
+            float dx = (float) r.optDouble(4), dy = (float) r.optDouble(5), dw = (float) r.optDouble(6), dh = (float) r.optDouble(7);
+            if (x < dx || x >= dx + dw || y < dy || y >= dy + dh) continue;
+            float sx0 = (float) r.optDouble(0), sy0 = (float) r.optDouble(1), sx1 = (float) r.optDouble(2), sy1 = (float) r.optDouble(3);
+            nativeBattleTap(sx0 + (x - dx) / dw * (sx1 - sx0), sy0 + (y - dy) / dh * (sy1 - sy0));
+            return;
+        }
+        nativeBattleTap(-1, -1);
+    }
+
     private void fire(Button b) {
         performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+        if (battleNow && b.pad == PAD_Y) { nativeBattleBack(); return; }
         if (b.pad != 0) {
             // held long enough for the game to see it (it reads the pad once per frame)
             nativeTap(b.pad);

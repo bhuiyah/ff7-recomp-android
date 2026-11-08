@@ -410,3 +410,28 @@
 - Cost: none measured (top screen 118 FPS in battle with both screens drawing).
 - Not yet seen on the device: the Magic/Item lists (same band, so routed the same way); adb key
   presses are too slow to catch a command turn reliably.
+
+## 2026-11-08: bottom screen battle layout and touch; Magic crash
+- Layout (user request: enemies above, compact; bigger command window): CompanionView draws
+  enemies in two compact columns at the top and the deck at the bottom, and tells native code
+  the area between (ff7_companion_set_area). companion_render.cpp lays the game's windows out
+  there: on a command turn the band's left part (x 0..267: name + command menu) and right part
+  (267..640: HP/MP/Limit/Time) stacked at ~2.8x; when a window crosses x 267 (Magic/Item/Limit
+  lists) the whole band (y 330..480) at full width, up to 1.5x taller than wide. Window frames
+  and headers are batched across both parts, so each routed draw is submitted to every
+  region's view (Renderer::draw, extra views first with BGFX_DISCARD_NONE) and each view's
+  projection crops its part. The layout goes to CompanionView in the snapshot for touch.
+- Touch: the game's hand cursor (a 48x26 quad, texture rect 0.75,0.0625-0.9375,0.164) is
+  tracked each frame; a tap maps back to game 2D coordinates and the game thread presses the
+  D-pad one step at a time (held 4 frames, 6 frames apart, at most 24 steps) until the hand is
+  on the tapped row/column, then Circle. With no menu hand in the windows (choosing a target on
+  the top screen) a tap confirms. In battle the deck's first button is Back (Cross).
+  Checked on the Thor: Magic -> Bolt -> target, by touch; Bolt hit for 92.
+- Magic crashed the game (found by the touch test): FFNx's magic_thread_start called the
+  game's loader callback natively (a guest address: jump to 0x5AEC40). It is now a guest call
+  (tools/ffnx_edit_android.py). Every first spell in a battle hit this.
+- Loading a state and then casting crashed in gl_draw_sorted_deferred ("free of a corrupt or
+  foreign guest block"): FFNx's two draw-queue arrays (gl/deferred.cpp) are allocated once
+  from the game heap and kept in host globals, which a load does not restore. Hook
+  "ffnx-deferred" saves the two pointers with the state and restores them (states without the
+  record get new arrays).

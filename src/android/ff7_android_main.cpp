@@ -206,3 +206,23 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_ff7recomp_CompanionView_nativeTap(JNIEnv *, jclass, jint buttons) {
     ff7_platform_pad_inject((unsigned short)buttons);
 }
+
+// the bottom screen's battle windows (src/ffnx_port/companion_render.cpp)
+extern "C" void ff7_companion_set_area(int top, int bottom) __attribute__((weak));
+extern "C" void ff7_companion_battle_tap(float x, float y) __attribute__((weak));
+extern "C" void ff7_companion_battle_back() __attribute__((weak));
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ff7recomp_CompanionView_nativeSetArea(JNIEnv *, jclass, jint top, jint bottom) {
+    if (ff7_companion_set_area) ff7_companion_set_area(top, bottom);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ff7recomp_CompanionView_nativeBattleTap(JNIEnv *, jclass, jfloat x, jfloat y) {
+    if (ff7_companion_battle_tap) ff7_companion_battle_tap(x, y);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ff7recomp_CompanionView_nativeBattleBack(JNIEnv *, jclass) {
+    if (ff7_companion_battle_back) ff7_companion_battle_back();
+}

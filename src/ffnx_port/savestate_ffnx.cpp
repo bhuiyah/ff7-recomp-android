@@ -26,6 +26,11 @@
 #include "ff7_savestate.h"
 
 void stop_music_for_channel(int channel);   // music.cpp
+// gl/deferred.cpp: queues allocated once from the game heap, kept across frames
+extern struct deferred_draw *deferred_draws;
+extern uint32_t num_deferred;
+extern struct deferred_sorted_draw *deferred_sorted_draws;
+extern uint32_t num_sorted_deferred;
 extern "C" uint32_t universal_buttons_ss_count();          // ff7/universal_buttons.cpp
 extern "C" void universal_buttons_ss_get(uint32_t *out);
 extern "C" void universal_buttons_ss_set(const uint32_t *in);
@@ -176,8 +181,32 @@ void prompts_after_load(void *) {
 }
 const ff7_savestate_hook g_prompts_hook = { "ffnx-prompts", nullptr, prompts_save, nullptr, prompts_restore, prompts_after_load };
 
+// ---- FFNx's draw queues (gl/deferred.cpp): arrays allocated once from the game heap and kept
+// across frames (magic effects use them). The state's heap has the arrays its own session had:
+// point at those; a state without the record gets new ones (the old pointers would name memory
+// the restored heap gives to something else).
+uint32_t g_deferred[2];
+bool g_deferred_have;
+int deferred_save(void *, ff7_ss_writer put, void *buf) {
+    uint32_t v[2] = { guest::to_va(deferred_draws), guest::to_va(deferred_sorted_draws) };
+    return put(buf, v, sizeof v);
+}
+void deferred_restore(void *, const void *data, size_t n) {
+    g_deferred_have = n == sizeof g_deferred;
+    if (g_deferred_have) std::memcpy(g_deferred, data, n);
+}
+void deferred_after_load(void *) {
+    deferred_draws = g_deferred_have ? guest::ptr_of<struct deferred_draw>(g_deferred[0]) : nullptr;
+    deferred_sorted_draws = g_deferred_have ? guest::ptr_of<struct deferred_sorted_draw>(g_deferred[1]) : nullptr;
+    num_deferred = 0;
+    num_sorted_deferred = 0;
+    g_deferred_have = false;
+}
+const ff7_savestate_hook g_deferred_hook = { "ffnx-deferred", nullptr, deferred_save, nullptr, deferred_restore, deferred_after_load };
+
 struct Register {
-    Register() { ff7_savestate_register(&g_hook); ff7_savestate_register(&g_scene_hook); ff7_savestate_register(&g_prompts_hook); }
+    Register() { ff7_savestate_register(&g_hook); ff7_savestate_register(&g_scene_hook); ff7_savestate_register(&g_prompts_hook);
+                 ff7_savestate_register(&g_deferred_hook); }
 } g_register;
 
 }  // namespace

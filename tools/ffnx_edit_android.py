@@ -638,6 +638,10 @@ EDITS = [
     ('renderer.cpp',
      '    bgfx::submit(backendViewId, backendProgramHandles[program], 0, flags);\n\n'
      '    internalState.bHasDrawBeenDone = true;\n',
+     '#ifdef FFNX_ANDROID\n'
+     '    // FF7Recomp: the bottom screen crops one part of the band per view; the same draw goes to each\n'
+     '    if (companionDraw) { uint16_t extraView; while (ffnx_companion_extra_view(&extraView)) bgfx::submit(extraView, backendProgramHandles[program], 0, BGFX_DISCARD_NONE); }\n'
+     '#endif\n'
      '    bgfx::submit(drawViewId, backendProgramHandles[program], 0, flags);\n\n'
      '    internalState.bHasDrawBeenDone = true;\n'),
     ('renderer.cpp',
@@ -653,6 +657,7 @@ EDITS = [
      '#ifdef FFNX_ANDROID\n'
      'void ffnx_companion_frame_begin();                    // FF7Recomp: src/ffnx_port/companion_render.cpp\n'
      'bool ffnx_companion_take_draw(uint16_t *view);\n'
+     'bool ffnx_companion_extra_view(uint16_t *view);\n'
      '#endif\n'),
     ('gl/gl.cpp',
      '\tif (!ff8 && enable_lighting && normals != nullptr && isLightingEnabledTexture)\n'
@@ -678,6 +683,19 @@ EDITS = [
      '#include "../ff7/widescreen.h"\n'
      '#ifdef FFNX_ANDROID\n'
      'void ffnx_companion_route_2d(const struct nvertex *v, uint32_t n);   // FF7Recomp: src/ffnx_port/companion_render.cpp\n'
+     '#endif\n'),
+    # magic_thread_start gets the game's loader as a callback: a game function (guest address),
+    # which native code cannot call directly (the first Magic in battle jumped to 0x5AEC40).
+    ('ff7/battle/battle.cpp',
+     '\t\t* effects synchronously.\n'
+     '\t\t*/\n'
+     '\t\tfunc();\n',
+     '\t\t* effects synchronously.\n'
+     '\t\t*/\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\t\t(guest::gfn<void()>::from_va((uint32_t)(uintptr_t)func))();   // FF7Recomp: a game function\n'
+     '#else\n'
+     '\t\tfunc();\n'
      '#endif\n'),
     # The float camera projection (field background scrolling) hands a 16-float local matrix
     # to two game functions. As a float* the guest bridge bounces one float: the game wrote

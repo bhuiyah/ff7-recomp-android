@@ -144,8 +144,9 @@ window is not focusable; stray key/stick events are forwarded). Next: the battle
 window on the bottom screen (renderer work, below), map panel, options in the launcher.
 Step 2 done 2026-11-08: in battle the game's own windows (names, HP/MP/Limit/Time, the command
 menu and its cursor) draw on the bottom screen and the top screen shows the battle uncovered
-(src/ffnx_port/companion_render.cpp). Left: touch on the menu items, a launcher switch,
-sub-lists (Magic/Item) seen on the device.
+(src/ffnx_port/companion_render.cpp). Step 3 done: enemies compact on top, the windows
+enlarged (command turn: two parts stacked; lists: full width), touch on the menus (steers
+the game's cursor), Back button. Left: a launcher switch for the bottom screen.
 
 The AYN Thor reports its top screen as the primary display and the 3.92" bottom touch
 screen as an external display. Dual-screen Thor projects use the bottom screen as a live

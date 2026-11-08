@@ -22,6 +22,7 @@
 #include "ff7_savestate.h"
 
 extern "C" void ff7_ss_location(char *out, unsigned n, uint32_t *play_seconds);   // savestate_ffnx.cpp
+std::string ffnx_companion_layout_json();                                          // companion_render.cpp
 
 namespace {
 
@@ -61,6 +62,7 @@ constexpr uint32_t k_scene_enemies = 0x9A8E9C;
 }  // namespace
 
 extern "C" void ff7_companion_command(int cmd) { g_command = cmd; }
+extern "C" void ff7_companion_battle_tick();                    // companion_render.cpp
 
 // The 2x button: 2x on, or back to normal speed. FFNx's own toggle switches the speed hack on
 // at its current speed, which is 1x unless the launcher's 2x option set a minimum.
@@ -130,13 +132,16 @@ std::string build_snapshot() {
             first = false;
         }
     }
-    j += "]}";
+    j += "],\"layout\":";
+    j += ffnx_companion_layout_json();
+    j += "}";
     return j;
 }
 }  // namespace
 
 // Commands: 1 toggle 2x speed, 2 save state (current slot), 3 load it.
 extern "C" void ff7_companion_frame() {
+    ff7_companion_battle_tick();
     int cmd = g_command.exchange(0);
     switch (cmd) {
     case 1: gamehacks.companionToggleSpeedhack(); break;
