@@ -506,3 +506,12 @@
   on the Thor 60 idle frames show no jump (max 1.9 vs 11.5 per flip). The smoothing block in
   ffnx_edit_android.py now holds the final code (an edit that rewrites another edit's output
   re-inserted it on the next run).
+- Bug sweep: mods' config.toml (music/vgmstream, sfx, voice, ambient; FFNx widescreen/time/
+  lighting configs too) never loaded -- toml::parse_file opens with std::ifstream, past the
+  fopen macro. ffnx_prelude.h now routes toml::parse_file through hle_host_path (mapping +
+  overlay); the log's "Parse error ... config.toml" warnings are gone. The bottom screen's "MP"
+  enemy name is correct (the first fight's guards are MPs). Running right at the Sector 1
+  station puts Cloud on the train's side steps out of sight with or without mods: the game's
+  own walkmesh. The swirl crash: saves are refused during the swirl ("between scenes"), and
+  ten swirls with saves requested every 0.1 s did not crash; the one crash had no save in its
+  log, so it is an intermittent swirl crash, not reproduced since.

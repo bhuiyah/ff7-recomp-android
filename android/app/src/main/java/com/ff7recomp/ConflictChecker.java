@@ -163,6 +163,9 @@ final class ConflictChecker {
             case "magic": return "spell effects";
             case "wm": case "world": return "world map";
             case "menu": return "menus";
+            case "cr": return "credits";
+            case "disc": return "disc change screens";
+            case "snowboard-us": case "high-us": return "minigames";
             case "sfx": return "sound effects";
             case "voice": return "voice acting";
             case "ambient": return "ambient sound";

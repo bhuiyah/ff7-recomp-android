@@ -187,6 +187,21 @@ field/world state), so no memory scanning is needed.
 - Options in the launcher (M4): which panels, which screen the game uses, brightness of the
   bottom screen, "bottom screen off" for battery.
 
+## M8: Game boosters (user request 2026-11-08)
+The console re-releases (PS4 onward) have three toggles, each shown by a small icon on screen
+while on. Same features here, with our own icons (not the console art):
+- Speed x3: field, world map, battle and menus at 3x (today's 2x speed toggle becomes 1x/2x/3x;
+  audio stays at normal pitch, FMVs at normal speed).
+- No random encounters: the field and world map encounter checks never start a battle
+  (scripted battles and bosses still happen).
+- Battle enhancement ("immunity"): in battle the party's HP and MP stay full and the Limit
+  gauge stays full; no other stats change.
+- Each toggle: a bottom-screen deck button, a pad shortcut, and a launcher default; the
+  icons sit in a top-screen corner (and on the bottom screen) while a booster is on.
+- Not saved into the game's save file; save states keep the toggles as they were.
+- Exit test on the Thor: each booster on and off in the field, the world map and a battle;
+  icons appear and disappear with them; a scripted battle still starts with encounters off.
+
 ## M6: RetroAchievements
 - RetroAchievements has a FF7 set for the PlayStation version only; its conditions read
   PS1 RAM addresses. This port runs the PC executable, whose memory layout differs.
