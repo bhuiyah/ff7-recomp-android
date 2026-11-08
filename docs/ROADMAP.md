@@ -142,6 +142,10 @@ second): location (or Battle/Menu - place), play time, gil; each party member's 
 (Menu, Save state, Load state, 2x speed). Touch never takes the pad from the game (the
 window is not focusable; stray key/stick events are forwarded). Next: the battle command
 window on the bottom screen (renderer work, below), map panel, options in the launcher.
+Step 2 done 2026-11-08: in battle the game's own windows (names, HP/MP/Limit/Time, the command
+menu and its cursor) draw on the bottom screen and the top screen shows the battle uncovered
+(src/ffnx_port/companion_render.cpp). Left: touch on the menu items, a launcher switch,
+sub-lists (Magic/Item) seen on the device.
 
 The AYN Thor reports its top screen as the primary display and the 3.92" bottom touch
 screen as an external display. Dual-screen Thor projects use the bottom screen as a live

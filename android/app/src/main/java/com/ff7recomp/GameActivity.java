@@ -24,8 +24,9 @@ import java.io.File;
  * (/sdcard/Android/data/com.ff7recomp/files/game: ff7_en.exe and data/).
  *
  * Dual screen (AYN Thor): the bottom screen is a separate presentation display. If one
- * exists, a Presentation shows CompanionView there: party, battle and location panels and
- * a touch command deck (docs/ROADMAP.md M7).
+ * exists, a Presentation shows CompanionView there (party, battle and location panels, a
+ * touch command deck) over a SurfaceView the game draws its battle windows into
+ * (docs/ROADMAP.md M7).
  */
 public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = "FF7Recomp";
@@ -172,9 +173,23 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             @Override public boolean dispatchGenericMotionEvent(MotionEvent e) { return GameActivity.this.dispatchGenericMotionEvent(e); }
         };
         companion.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
-        // the panels and touch deck (CompanionView: Android-drawn, live state from the game)
-        CompanionView v = new CompanionView(companion.getContext());
-        companion.setContentView(v);
+        // Under: the game's battle windows (a swap chain native code draws into in battle,
+        // src/ffnx_port/companion_render.cpp). Over: the panels and touch deck (CompanionView),
+        // which leaves the windows' band clear in battle.
+        android.widget.FrameLayout layers = new android.widget.FrameLayout(companion.getContext());
+        SurfaceView windows = new SurfaceView(companion.getContext());
+        windows.getHolder().addCallback(new SurfaceHolder.Callback() {
+            @Override public void surfaceCreated(SurfaceHolder h) { }
+            @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int hh) {
+                Log.i(TAG, "companion surface " + w + "x" + hh);
+                requestFrameRate(h.getSurface(), d);
+                nativeSetCompanionSurface(h.getSurface(), w, hh);
+            }
+            @Override public void surfaceDestroyed(SurfaceHolder h) { nativeSetCompanionSurface(null, 0, 0); }
+        });
+        layers.addView(windows);
+        layers.addView(new CompanionView(companion.getContext()));
+        companion.setContentView(layers);
         preferHighestRefreshRate(companion.getWindow(), d);
         companion.show();
         hideSystemBars(companion.getWindow().getInsetsController());

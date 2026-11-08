@@ -619,6 +619,66 @@ EDITS = [
      '\tvoid companionToggleSpeedhack();   // FF7Recomp: the bottom screen (src/ffnx_port/companion.cpp)\n'
      '\tbool companionSpeedhackEnabled() const { return speedhack_enabled; }\n'
      '#endif\n'),
+    # The Thor's bottom screen shows the battle windows (src/ffnx_port/companion_render.cpp):
+    # a 2D battle draw inside the window band goes to the bottom screen's view instead.
+    ('renderer.cpp',
+     '    // Set current view rect\n'
+     '    if (bgfx::isValid(targetFrameBuffer))\n',
+     '#ifdef FFNX_ANDROID\n'
+     '    // FF7Recomp: a battle window draw routed to the Thor\'s bottom screen (companion_render.cpp)\n'
+     '    uint16_t drawViewId = backendViewId;\n'
+     '    const bool companionDraw = ffnx_companion_take_draw(&drawViewId);\n'
+     '    if (companionDraw) {}\n'
+     '    else\n'
+     '#else\n'
+     '    const uint16_t drawViewId = backendViewId;\n'
+     '#endif\n'
+     '    // Set current view rect\n'
+     '    if (bgfx::isValid(targetFrameBuffer))\n'),
+    ('renderer.cpp',
+     '    bgfx::submit(backendViewId, backendProgramHandles[program], 0, flags);\n\n'
+     '    internalState.bHasDrawBeenDone = true;\n',
+     '    bgfx::submit(drawViewId, backendProgramHandles[program], 0, flags);\n\n'
+     '    internalState.bHasDrawBeenDone = true;\n'),
+    ('renderer.cpp',
+     '    backendViewId = 1;\n\n'
+     '    vertexBufferData.clear();\n',
+     '    backendViewId = 1;\n\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    ffnx_companion_frame_begin();   // FF7Recomp: the bottom screen\'s view for the next frame\n'
+     '#endif\n\n'
+     '    vertexBufferData.clear();\n'),
+    ('renderer.cpp', '#include "image/image.h"\n',
+     '#include "image/image.h"\n'
+     '#ifdef FFNX_ANDROID\n'
+     'void ffnx_companion_frame_begin();                    // FF7Recomp: src/ffnx_port/companion_render.cpp\n'
+     'bool ffnx_companion_take_draw(uint16_t *view);\n'
+     '#endif\n'),
+    ('gl/gl.cpp',
+     '\tif (!ff8 && enable_lighting && normals != nullptr && isLightingEnabledTexture)\n'
+     '\t{\n'
+     '\t\tnewRenderer.drawToShadowMap();\n'
+     '\t\tnewRenderer.drawWithLighting(true, true);\n'
+     '\t}\n'
+     '\telse newRenderer.draw();\n',
+     '\tif (!ff8 && enable_lighting && normals != nullptr && isLightingEnabledTexture)\n'
+     '\t{\n'
+     '\t\tnewRenderer.drawToShadowMap();\n'
+     '\t\tnewRenderer.drawWithLighting(true, true);\n'
+     '\t}\n'
+     '\telse\n'
+     '\t{\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\t\t// FF7Recomp: battle windows go to the Thor\'s bottom screen (companion_render.cpp)\n'
+     '\t\tif (!ff8 && vertextype == TLVERTEX && mode == MODE_BATTLE) ffnx_companion_route_2d(vertices, vertexcount);\n'
+     '#endif\n'
+     '\t\tnewRenderer.draw();\n'
+     '\t}\n'),
+    ('gl/gl.cpp', '#include "../ff7/widescreen.h"\n',
+     '#include "../ff7/widescreen.h"\n'
+     '#ifdef FFNX_ANDROID\n'
+     'void ffnx_companion_route_2d(const struct nvertex *v, uint32_t n);   // FF7Recomp: src/ffnx_port/companion_render.cpp\n'
+     '#endif\n'),
     # The float camera projection (field background scrolling) hands a 16-float local matrix
     # to two game functions. As a float* the guest bridge bounces one float: the game wrote
     # 64 bytes into a 4-byte guest block and the matrix came back uninitialized, so the

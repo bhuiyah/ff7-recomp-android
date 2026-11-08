@@ -67,6 +67,7 @@ add_library(ffnx STATIC ${FFNX_SOURCES}
   "${FF7_ROOT}/src/ffnx_port/quickboot.cpp"
   "${FF7_ROOT}/src/ffnx_port/savestate_ffnx.cpp"
   "${FF7_ROOT}/src/ffnx_port/companion.cpp"
+  "${FF7_ROOT}/src/ffnx_port/companion_render.cpp"
   # platform helpers for FFNx's Android branches; FFNx's own Win32 calls
   "${FF7_ROOT}/src/ffnx_port/android_window.cpp"
   "${FF7_ROOT}/src/ffnx_port/win32_compat.cpp"

@@ -393,3 +393,20 @@
 - Testing taps: `adb shell input -d 4 tap X Y` (logical display 4 = bottom screen);
   screenshots: `adb exec-out screencap -p -d 4630946482288158084` (bottom) /
   `-d 4630946441858561667` (top).
+
+## 2026-11-08: battle windows on the bottom screen (M7 step 2)
+- In battle the game draws its windows as pre-transformed 2D quads in the band y 330..450 of its
+  640x480 frame. gl_draw_indexed_primitive (FFNx edit) asks ffnx_companion_route_2d about each
+  battle TLVERTEX draw; one entirely inside the band is submitted by Renderer::draw to view 250,
+  whose frame buffer is the bottom screen's swap chain (bgfx window frame buffer on the
+  Presentation's SurfaceView, D24S8 depth) and whose ortho projection puts x 0..640 / y 330..450
+  across the top of that screen. The top screen no longer gets those draws, so the battle is
+  uncovered; the action-name box, damage numbers and the target hand (above the band) stay.
+- View 250 is set up in Renderer::show for the next frame (only in battle with a bottom
+  screen); FFNx's own views stay 1..n.
+- Bottom screen: a FrameLayout with the SurfaceView under CompanionView; in battle
+  CompanionView leaves the band (width * 120/640 px) transparent and draws enemies and the
+  touch deck below it.
+- Cost: none measured (top screen 118 FPS in battle with both screens drawing).
+- Not yet seen on the device: the Magic/Item lists (same band, so routed the same way); adb key
+  presses are too slow to catch a command turn reliably.

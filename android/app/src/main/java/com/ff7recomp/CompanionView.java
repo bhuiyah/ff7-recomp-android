@@ -65,7 +65,8 @@ public class CompanionView extends View {
         text.setColor(Color.WHITE);
         text.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
         stroke.setStyle(Paint.Style.STROKE);
-        setBackgroundColor(Color.BLACK);
+        setBackground(null);       // battle: the game's windows show through the top band
+        setWillNotDraw(false);
     }
 
     @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); handler.post(poll); }
@@ -117,13 +118,26 @@ public class CompanionView extends View {
         final String mode = state.optString("mode");
         final boolean battle = "battle".equals(mode);
 
-        // top: where, play time, gil
-        float top = pad, topH = 110 * u;
-        window(c, pad, top, W - pad, top + topH);
-        String where = state.optString("loc");
-        label(c, where.isEmpty() ? "-" : where, pad + 30 * u, top + 70 * u, 46 * u, Color.WHITE, Paint.Align.LEFT);
-        label(c, clock(state.optLong("time")) + "    " + state.optLong("gil") + " G", W - pad - 30 * u, top + 70 * u, 38 * u,
-              0xFFDCDCF0, Paint.Align.RIGHT);
+        // In battle the game draws its own windows (names, HP/MP/Limit/Time, commands) across
+        // the top of this screen, at the band's proportions (companion_render.cpp: x 0..640,
+        // y 330..450 of the game's frame); everything else starts below them.
+        float bandH = battle ? W * (450f - 330f) / 640f : 0f;
+        fill.setShader(null);
+        fill.setColor(Color.BLACK);
+        c.drawRect(0, bandH, W, H, fill);
+        if (!battle) {
+            c.drawRect(0, 0, W, H, fill);
+        }
+
+        // top: where, play time, gil (outside battle)
+        float top = battle ? bandH : pad, topH = battle ? 0 : 110 * u;
+        if (!battle) window(c, pad, top, W - pad, top + topH);
+        if (!battle) {
+            String where = state.optString("loc");
+            label(c, where.isEmpty() ? "-" : where, pad + 30 * u, top + 70 * u, 46 * u, Color.WHITE, Paint.Align.LEFT);
+            label(c, clock(state.optLong("time")) + "    " + state.optLong("gil") + " G", W - pad - 30 * u, top + 70 * u, 38 * u,
+                  0xFFDCDCF0, Paint.Align.RIGHT);
+        }
 
         // command deck at the bottom
         float deckH = 150 * u, deckT = H - pad - deckH;
@@ -141,13 +155,13 @@ public class CompanionView extends View {
             label(c, b.label, b.box.centerX(), b.box.centerY() + 16 * u, 44 * u, Color.WHITE, Paint.Align.CENTER);
         }
 
-        // party (left, or the whole width outside battle) and enemies (right, in battle)
+        // party outside battle (in battle the game's own windows above show it); enemies in battle
         float bodyT = top + topH + pad, bodyB = deckT - pad;
-        float partyR = battle ? W * 0.62f : W - pad;
+        float partyR = W - pad;
         JSONArray party = state.optJSONArray("party");
         int n = party == null ? 0 : party.length();
         float rowH = (bodyB - bodyT - pad * 2) / 3f;
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 3 && !battle; i++) {
             float t = bodyT + i * (rowH + pad), b = t + rowH;
             window(c, pad, t, partyR, b);
             JSONObject m = i < n ? party.optJSONObject(i) : null;
@@ -175,7 +189,7 @@ public class CompanionView extends View {
             }
         }
         if (battle) {
-            float l = partyR + pad;
+            float l = pad;
             window(c, l, bodyT, W - pad, bodyB);
             label(c, "Enemies", l + 28 * u, bodyT + 58 * u, 44 * u, Color.WHITE, Paint.Align.LEFT);
             JSONArray en = state.optJSONArray("enemies");
