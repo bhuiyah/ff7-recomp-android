@@ -611,6 +611,14 @@ EDITS = [
      '#endif\n'
      '\n'
      'void universal_buttons_unload()\n{\n'),
+    # The Thor's bottom screen (src/ffnx_port/companion.cpp) has a 2x speed button and shows
+    # whether 2x is on: FFNx keeps both private.
+    ('gamehacks.h', '\tdouble getCurrentSpeedhack();\n',
+     '\tdouble getCurrentSpeedhack();\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\tvoid companionToggleSpeedhack();   // FF7Recomp: the bottom screen (src/ffnx_port/companion.cpp)\n'
+     '\tbool companionSpeedhackEnabled() const { return speedhack_enabled; }\n'
+     '#endif\n'),
     # The float camera projection (field background scrolling) hands a 16-float local matrix
     # to two game functions. As a float* the guest bridge bounces one float: the game wrote
     # 64 bytes into a 4-byte guest block and the matrix came back uninitialized, so the

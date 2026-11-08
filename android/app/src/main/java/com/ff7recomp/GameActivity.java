@@ -24,8 +24,8 @@ import java.io.File;
  * (/sdcard/Android/data/com.ff7recomp/files/game: ff7_en.exe and data/).
  *
  * Dual screen (AYN Thor): the bottom screen is a separate presentation display. If one
- * exists, a Presentation with its own SurfaceView is shown there and its Surface goes to
- * native code as the companion screen (docs/ROADMAP.md M7).
+ * exists, a Presentation shows CompanionView there: party, battle and location panels and
+ * a touch command deck (docs/ROADMAP.md M7).
  */
 public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = "FF7Recomp";
@@ -165,17 +165,15 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         }
         Display d = displays[0];
         Log.i(TAG, "companion display " + d.getDisplayId() + " \"" + d.getName() + "\"");
-        companion = new Presentation(this, d);
-        SurfaceView v = new SurfaceView(companion.getContext());
-        v.getHolder().addCallback(new SurfaceHolder.Callback() {
-            @Override public void surfaceCreated(SurfaceHolder h) { }
-            @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int hh) {
-                Log.i(TAG, "companion surface " + w + "x" + hh);
-                requestFrameRate(h.getSurface(), d);
-                nativeSetCompanionSurface(h.getSurface(), w, hh);
-            }
-            @Override public void surfaceDestroyed(SurfaceHolder h) { nativeSetCompanionSurface(null, 0, 0); }
-        });
+        // Touching the bottom screen must not take the pad from the game: the window never
+        // takes focus, and any key or stick event that reaches it goes to the game anyway.
+        companion = new Presentation(this, d) {
+            @Override public boolean dispatchKeyEvent(KeyEvent e) { return GameActivity.this.dispatchKeyEvent(e); }
+            @Override public boolean dispatchGenericMotionEvent(MotionEvent e) { return GameActivity.this.dispatchGenericMotionEvent(e); }
+        };
+        companion.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        // the panels and touch deck (CompanionView: Android-drawn, live state from the game)
+        CompanionView v = new CompanionView(companion.getContext());
         companion.setContentView(v);
         preferHighestRefreshRate(companion.getWindow(), d);
         companion.show();

@@ -224,9 +224,11 @@ static void verify_code_writes_locked() {
 }
 
 void quickboot_frame();   // quickboot.cpp
+extern "C" void ff7_companion_frame();   // companion.cpp
 
 void step_code() {
     quickboot_frame();
+    ff7_companion_frame();
     std::lock_guard<std::mutex> lk(g_lock);
     if (g_verified < g_code_writes.size()) verify_code_writes_locked();
     const uint64_t k = g_step_frame++;

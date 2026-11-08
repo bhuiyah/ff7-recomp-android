@@ -371,3 +371,25 @@
   no record: the list is cleared, and their prompt objects keep stale host pointers (save again).
 - Note: "quick" in tools/ss_cmd.sh and Select+L1/R1 mean the current numbered slot
   (savestates/current.txt), not quick.ff7s.
+
+## 2026-11-08: bottom screen companion (M7 step 1)
+- The Presentation on the Thor's second display now hosts CompanionView (Android Canvas), not a
+  bgfx swap chain: crisp text, native touch, nothing added to the game's renderer.
+- State: src/ffnx_port/companion.cpp builds a JSON snapshot on the game thread (from
+  ffnx_recomp::step_code, every 100 ms) -- getmode() calls into the game, so the UI thread
+  must not -- and the UI thread copies it (JNI CompanionView.nativeState).
+  - party: savemap chars[party_members[i]]. max_hp/max_mp are the game's last stat
+    calculation (menu/battle); a member who joined since (Barret: 318/222) falls back to
+    base_hp/base_mp until then. The runtime party array (0xDBA498, 0x440 each) has the same
+    lag.
+  - battle: battle_context->actor_vars[0..2] (live HP/MP), ATB at 0x9A8B14 + 0x44*slot,
+    enemies actor_vars[4..9] with enemyActorsMask; enemy names from the scene's type records
+    at 0x9A8E9C (0xB8 each, FF7 text name first), indexed by actor_vars.index (1.02 US).
+  - Checked against the game's own menu and battle window: identical numbers.
+- Commands: a mailbox drained on the game thread: 2x speed (GameHacks::companionToggleSpeedhack,
+  2x on / normal; FFNx's toggle turns the hack on at its current speed, 1x without the
+  launcher's 2x option), save/load state (current slot). Menu = a 150 ms Triangle press
+  injected into the pad.
+- Testing taps: `adb shell input -d 4 tap X Y` (logical display 4 = bottom screen);
+  screenshots: `adb exec-out screencap -p -d 4630946482288158084` (bottom) /
+  `-d 4630946441858561667` (top).

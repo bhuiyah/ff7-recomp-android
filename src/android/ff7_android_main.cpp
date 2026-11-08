@@ -184,3 +184,25 @@ Java_com_ff7recomp_GameActivity_nativeStart(JNIEnv *env, jclass, jstring game_di
     pthread_create(&t, &attr, game_thread, nullptr);
     pthread_detach(t);
 }
+
+// ---- the bottom screen's panels (src/ffnx_port/companion.cpp) ------------------------------
+extern "C" int ff7_companion_json(char *out, int cap) __attribute__((weak));
+extern "C" void ff7_companion_command(int cmd) __attribute__((weak));
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_ff7recomp_CompanionView_nativeState(JNIEnv *env, jclass) {
+    static char buf[8192];
+    if (!ff7_companion_json || ff7_companion_json(buf, sizeof buf) <= 0) std::snprintf(buf, sizeof buf, "{\"ready\":0}");
+    return env->NewStringUTF(buf);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ff7recomp_CompanionView_nativeCommand(JNIEnv *, jclass, jint cmd) {
+    if (ff7_companion_command) ff7_companion_command(cmd);
+}
+
+// a short button press from the bottom screen (XInput bits), on top of the real pad
+extern "C" JNIEXPORT void JNICALL
+Java_com_ff7recomp_CompanionView_nativeTap(JNIEnv *, jclass, jint buttons) {
+    ff7_platform_pad_inject((unsigned short)buttons);
+}

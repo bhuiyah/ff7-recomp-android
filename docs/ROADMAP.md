@@ -67,6 +67,19 @@ Order:
      effect) from mods/hext_status.txt of the last run.
 5. Launcher: import IROs through the Android file picker (scoped storage) into app storage,
    later the Qhimm catalog; each mod shows a status: works / runs interpreted / unsupported.
+6. Mod platform in the launcher (user request 2026-11-08: "get the mods into its own platform,
+   update them in the platform"), as 7th Heaven does:
+   - catalogs: subscribe to 7th Heaven catalog XMLs (the official Qhimm/Tsunamods catalogs by
+     default, user-added URLs too); browse, search, filter by category; mod page with
+     description, author, preview image, size, version, requirements.
+   - install from the catalog: download (resumable, Wi-Fi-only option, progress, free-space
+     check) the catalog's link types (direct/http, iros://, Mega/Google Drive where possible)
+     into app storage, verify, register in the library.
+   - updates: compare installed version with the catalog's, show "update available", update
+     one or all, keep the user's config options and load order; optional auto-check at launch.
+   - dependencies/compatibility from the catalog entry (required mods, conflicts), installed
+     together; uninstall frees the space.
+   - the same library holds file-picker imports (no catalog source, no updates).
 
 ## M5b: 120 FPS battles (opt-in: FF7_BATTLE120=1)
 Status 2026-11-08: mode 4 runs field/world at 120 and battles at 60 (x4) by default. With
@@ -122,6 +135,14 @@ The Thor's top screen is 1920x1080 (16:9); FF7 renders 4:3 (pillarboxed today).
   on the Thor without stretched 3D.
 
 ## M7: Thor dual-screen companion
+Status 2026-11-08 (step 1 done): the bottom screen shows an Android-drawn companion
+(CompanionView.java; state from src/ffnx_port/companion.cpp, built on the game thread 10x a
+second): location (or Battle/Menu - place), play time, gil; each party member's HP/MP/Limit
+(battle: live HP/MP and the Time gauge); enemies by name with HP in battle; a touch deck
+(Menu, Save state, Load state, 2x speed). Touch never takes the pad from the game (the
+window is not focusable; stray key/stick events are forwarded). Next: the battle command
+window on the bottom screen (renderer work, below), map panel, options in the launcher.
+
 The AYN Thor reports its top screen as the primary display and the 3.92" bottom touch
 screen as an external display. Dual-screen Thor projects use the bottom screen as a live
 companion rather than a second copy of the game: Cemu/melonDS forks (Wii U GamePad, DS touch
