@@ -403,9 +403,26 @@ EDITS = [
      '// FF7Recomp: in-between frames for field animations at raised frame rates\n'
      'static float ffnx_lerp_angle(float a, float b, float t)\n'
      '{\n'
-     '\tfloat d = fmodf(b - a + 540.0f, 360.0f) - 180.0f;\n'
+     '\tfloat d = remainderf(b - a, 360.0f);   // in [-180, 180] for any difference (fmodf keeps a negative sign)\n'
      '\treturn a + d * t;\n'
-     '}\n\n'
+     '}\n'
+     '\n'
+     '// Blend two Euler triples (rotation order middle axis `mid`, -1 unknown): the second is\n'
+     '// taken in whichever of its two equivalent spellings lies nearer the first.\n'
+     'static void ffnx_lerp_euler(float ax, float ay, float az, float bx, float by, float bz, int mid, float t, float *o)\n'
+     '{\n'
+     '\tconst float av[3] = { ax, ay, az }, bv[3] = { bx, by, bz };\n'
+     '\tfloat alt[3], d1 = 0.0f, d2 = 0.0f;\n'
+     '\tfor (int i = 0; i < 3; i++)\n'
+     '\t{\n'
+     '\t\talt[i] = i == mid ? 180.0f - bv[i] : bv[i] + 180.0f;\n'
+     '\t\td1 += fabsf(remainderf(bv[i] - av[i], 360.0f));\n'
+     '\t\td2 += fabsf(remainderf(alt[i] - av[i], 360.0f));\n'
+     '\t}\n'
+     '\tconst float *use = (mid >= 0 && d2 + 1.0f < d1) ? alt : bv;\n'
+     '\tfor (int i = 0; i < 3; i++) o[i] = ffnx_lerp_angle(av[i], use[i], t);\n'
+     '}\n'
+     '\n'
      '// Every animation is done once: rotation_order[3] (padding) marks it.\n'
      'void ffnx_smooth_animation(struct anim_header *a, int m)\n'
      '{\n'
@@ -435,17 +452,18 @@ EDITS = [
      '\t\tconst vector3<float> *b1 = (const vector3<float> *)(uintptr_t)(uint32_t)src[k1].data;\n'
      '\t\tstruct anim_frame_header *h = (struct anim_frame_header *)(data + per * j);\n'
      '\t\tvector3<float> *b = (vector3<float> *)(data + per * j + sizeof(struct anim_frame_header));\n'
-     '\t\th->root_rotation.x = ffnx_lerp_angle(h0->root_rotation.x, h1->root_rotation.x, t);\n'
-     '\t\th->root_rotation.y = ffnx_lerp_angle(h0->root_rotation.y, h1->root_rotation.y, t);\n'
-     '\t\th->root_rotation.z = ffnx_lerp_angle(h0->root_rotation.z, h1->root_rotation.z, t);\n'
+     '\t\tconst int mid = (byte)a->rotation_order[1] < 3 ? (byte)a->rotation_order[1] : -1;\n'
+     '\t\tfloat e[3];\n'
+     '\t\tffnx_lerp_euler(h0->root_rotation.x, h0->root_rotation.y, h0->root_rotation.z,\n'
+     '\t\t                h1->root_rotation.x, h1->root_rotation.y, h1->root_rotation.z, mid, t, e);\n'
+     '\t\th->root_rotation.x = e[0]; h->root_rotation.y = e[1]; h->root_rotation.z = e[2];\n'
      '\t\th->root_translation.x = h0->root_translation.x + (h1->root_translation.x - h0->root_translation.x) * t;\n'
      '\t\th->root_translation.y = h0->root_translation.y + (h1->root_translation.y - h0->root_translation.y) * t;\n'
      '\t\th->root_translation.z = h0->root_translation.z + (h1->root_translation.z - h0->root_translation.z) * t;\n'
      '\t\tfor (uint32_t i = 0; i < nb; i++)\n'
      '\t\t{\n'
-     '\t\t\tb[i].x = ffnx_lerp_angle(b0[i].x, b1[i].x, t);\n'
-     '\t\t\tb[i].y = ffnx_lerp_angle(b0[i].y, b1[i].y, t);\n'
-     '\t\t\tb[i].z = ffnx_lerp_angle(b0[i].z, b1[i].z, t);\n'
+     '\t\t\tffnx_lerp_euler(b0[i].x, b0[i].y, b0[i].z, b1[i].x, b1[i].y, b1[i].z, mid, t, e);\n'
+     '\t\t\tb[i].x = e[0]; b[i].y = e[1]; b[i].z = e[2];\n'
      '\t\t}\n'
      '\t\tframes[j].header = h;\n'
      '\t\tframes[j].data = b;\n'
@@ -456,15 +474,61 @@ EDITS = [
      '\ta->anim_frames = frames;\n'
      '\ta->num_frames = total;\n'
      '\ta->rotation_order[3] = (char)0xA5;\n'
-     '}\n\n'
+     '}\n'
+     '\n'
      'struct anim_header *field_load_animation_smooth(struct file_context *file_context, char *filename)\n'
      '{\n'
      '\tstruct anim_header *ret = load_animation(file_context, filename);\n'
      '\tif (ret && ff7_fps_limiter >= FPS_LIMITER_60FPS && common_frame_multiplier > 1)\n'
      '\t\tffnx_smooth_animation(ret, common_frame_multiplier);\n'
      '\treturn ret;\n'
-     '}\n\n'
+     '}\n'
+     '\n'
      '// load battle HRC file (does not save modpath name)\n'),
+    # Euler angles have two spellings of one orientation: with rotation order (a, m, c) the
+    # triple (x, y, z) equals the one with 180 - v on the middle axis m and v + 180 on the other
+    # two. Mod animations switch spelling for single keyframes (NinoStyle's Cloud idle: hip
+    # (-89, -180, -180) then (269, 0, 0)), harmless when frames are shown as they are, but a
+    # per-angle blend between the spellings swings the bone through 180 degrees: Cloud turned
+    # around for a moment while standing. The blend now uses the spelling nearer the previous frame.
+    ('ff7/loaders.cpp', '\treturn a + d * t;\n}\n\n// Every animation is done once',
+     '\treturn a + d * t;\n}\n\n'
+     '// Blend two Euler triples (rotation order middle axis `mid`, -1 unknown): the second is\n'
+     '// taken in whichever of its two equivalent spellings lies nearer the first.\n'
+     'static void ffnx_lerp_euler(float ax, float ay, float az, float bx, float by, float bz, int mid, float t, float *o)\n'
+     '{\n'
+     '\tconst float av[3] = { ax, ay, az }, bv[3] = { bx, by, bz };\n'
+     '\tfloat alt[3], d1 = 0.0f, d2 = 0.0f;\n'
+     '\tfor (int i = 0; i < 3; i++)\n'
+     '\t{\n'
+     '\t\talt[i] = i == mid ? 180.0f - bv[i] : bv[i] + 180.0f;\n'
+     '\t\td1 += fabsf(remainderf(bv[i] - av[i], 360.0f));\n'
+     '\t\td2 += fabsf(remainderf(alt[i] - av[i], 360.0f));\n'
+     '\t}\n'
+     '\tconst float *use = (mid >= 0 && d2 + 1.0f < d1) ? alt : bv;\n'
+     '\tfor (int i = 0; i < 3; i++) o[i] = ffnx_lerp_angle(av[i], use[i], t);\n'
+     '}\n\n'
+     '// Every animation is done once'),
+    ('ff7/loaders.cpp',
+     '\t\th->root_rotation.x = ffnx_lerp_angle(h0->root_rotation.x, h1->root_rotation.x, t);\n'
+     '\t\th->root_rotation.y = ffnx_lerp_angle(h0->root_rotation.y, h1->root_rotation.y, t);\n'
+     '\t\th->root_rotation.z = ffnx_lerp_angle(h0->root_rotation.z, h1->root_rotation.z, t);\n',
+     '\t\tconst int mid = (byte)a->rotation_order[1] < 3 ? (byte)a->rotation_order[1] : -1;\n'
+     '\t\tfloat e[3];\n'
+     '\t\tffnx_lerp_euler(h0->root_rotation.x, h0->root_rotation.y, h0->root_rotation.z,\n'
+     '\t\t                h1->root_rotation.x, h1->root_rotation.y, h1->root_rotation.z, mid, t, e);\n'
+     '\t\th->root_rotation.x = e[0]; h->root_rotation.y = e[1]; h->root_rotation.z = e[2];\n'),
+    ('ff7/loaders.cpp',
+     '\t\t\tb[i].x = ffnx_lerp_angle(b0[i].x, b1[i].x, t);\n'
+     '\t\t\tb[i].y = ffnx_lerp_angle(b0[i].y, b1[i].y, t);\n'
+     '\t\t\tb[i].z = ffnx_lerp_angle(b0[i].z, b1[i].z, t);\n',
+     '\t\t\tffnx_lerp_euler(b0[i].x, b0[i].y, b0[i].z, b1[i].x, b1[i].y, b1[i].z, mid, t, e);\n'
+     '\t\t\tb[i].x = e[0]; b[i].y = e[1]; b[i].z = e[2];\n'),
+    # Shortest-way angle blend: fmodf of a difference below -540 is negative, so the blend went
+    # the long way round (HD mod animations store unwrapped angles) and an idle loop turned the
+    # model around for one in-between frame. (For trees edited before this fix.)
+    ('ff7/loaders.cpp', '\tfloat d = fmodf(b - a + 540.0f, 360.0f) - 180.0f;\n',
+     '\tfloat d = remainderf(b - a, 360.0f);   // in [-180, 180] for any difference (fmodf keeps a negative sign)\n'),
     ('ff7/defs.h', 'struct anim_header *load_animation(struct file_context *file_context, char *filename);\n',
      'struct anim_header *load_animation(struct file_context *file_context, char *filename);\n'
      'struct anim_header *field_load_animation_smooth(struct file_context *file_context, char *filename);   // FF7Recomp\n'

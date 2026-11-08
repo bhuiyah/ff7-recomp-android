@@ -496,3 +496,13 @@
   Forbid/Require -> a summary on the Mods page, notes on each row, "All details". Checked on
   the Thor: Arranged Soundtrack vs Echo-S share 93 music/movie files, vs Cosmo Memory 2 movies;
   installing FFNx FF7Music warns about the Arranged Soundtrack. Unit test: 75 passed.
+- Field: NinoStyle Cloud turned around for a frame or two every ~0.5 s while standing. Not the
+  model: its idle animation (acfe.a, Y-X-Z order) spells the hip rotation two ways --
+  (-89, -180, -180) and, for single keyframes, (269, 0, 0) -- the same orientation, so the game
+  shows each keyframe fine, but our 60/120 FPS in-between frames blended per angle and swung the
+  bone 180 degrees. The blend now takes the spelling nearer the previous frame (middle axis
+  180 - v, the others v + 180), and angle differences use remainderf (fmodf of a difference
+  below -540 was negative). Offline check on acfe.a: worst in-between deviation 2.0 -> 0.001;
+  on the Thor 60 idle frames show no jump (max 1.9 vs 11.5 per flip). The smoothing block in
+  ffnx_edit_android.py now holds the final code (an edit that rewrites another edit's output
+  re-inserted it on the next run).
