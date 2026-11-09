@@ -667,3 +667,7 @@
   FPS line stays the launcher's choice). Left as is: sub_006465FB (field background tile walk,
   10%: lifted game code at -O1), the Adreno vkResetDescriptorPool memset (6%, pool 1024 sets),
   bgfx vertex copies (~7%), Android's own swapchain clock_gettime.
+- 2026-11-09 15-minute soak after round 2 (Reactor 1 field, 120 FPS, 1x, Balanced = scale 2,
+  ChaOS + Echo-S + 6 more mods), from a 47 C baseline: game process 41% of a core and GPU 46% at
+  401 MHz every minute; big-core sensors level at 56-58 C (spikes to 61), GPU 50-54 C, flat from
+  minute 3 on. The Thor exposes no fan cooling device in sysfs, so fan speed is not measured.
