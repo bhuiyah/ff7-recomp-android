@@ -511,7 +511,10 @@ final class GameBuild {
         }
         File rf = new File(work, "link.rsp");
         writeText(rf, rsp.toString());
-        ProcessBuilder pb = new ProcessBuilder(new File(nativeDir, "libllvm.so").getPath(), "ld.lld", "@" + rf.getPath());
+        // --threads=1: lld's parallel link crashes on Android now and then (it frees a pointer
+        // whose heap tag is gone: "Pointer tag ... was truncated"), every time for some inputs;
+        // single-threaded it takes under a second on a Thor and writes the same library.
+        ProcessBuilder pb = new ProcessBuilder(new File(nativeDir, "libllvm.so").getPath(), "ld.lld", "--threads=1", "@" + rf.getPath());
         pb.environment().put("LD_LIBRARY_PATH", nativeDir);
         run(pb, null);
         lib.getParentFile().mkdirs();

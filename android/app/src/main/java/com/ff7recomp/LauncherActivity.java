@@ -81,6 +81,75 @@ public class LauncherActivity extends Activity {
         }
     };
 
+    // ---- updates (Updater.java)
+    private TextView updateLine;                   // Settings page: the updater's status
+    private String updateShown = "";
+
+    /** Check GitHub for a newer release: when the launcher opens (every 6 hours at most) or on
+     *  "Check now". A newer one is offered once per version; Settings keeps the button. */
+    private void checkUpdates(boolean asked) {
+        if (Updater.busy) return;
+        if (!asked && System.currentTimeMillis() - prefs.getLong("update_checked", 0) < 6 * 3600_000L) {
+            if (Updater.available != null) offerUpdate(false);
+            return;
+        }
+        Updater.busy = true;
+        Updater.status = "Checking for updates";
+        new Thread(() -> {
+            String msg;
+            try {
+                Updater.Release r = Updater.check(this);
+                prefs.edit().putLong("update_checked", System.currentTimeMillis()).apply();
+                msg = r != null ? "Version " + r.version + " is available" : "You have the latest version";
+            } catch (Exception e) {
+                msg = "Could not check for updates: " + e.getMessage();
+            }
+            final String m = msg;
+            Updater.status = m;
+            Updater.busy = false;
+            runOnUiThread(() -> {
+                updateStatus();
+                if (updateLine != null) updateLine.setText(m);
+                if (Updater.available != null) offerUpdate(asked);
+                else if (asked) refresh();
+            });
+        }, "update-check").start();
+    }
+
+    private void offerUpdate(boolean asked) {
+        Updater.Release r = Updater.available;
+        if (r == null || isFinishing()) return;
+        if (!asked && (r.version.equals(prefs.getString("update_skipped", "")) || r.version.equals(updateShown))) return;
+        updateShown = r.version;
+        String notes = r.notes.replaceAll("(?m)^#+\\s*", "").replaceAll("\\*\\*", "").trim();
+        if (notes.length() > 900) notes = notes.substring(0, 900) + "…";
+        ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Update available: " + r.version)
+                .setMessage("You have " + Updater.installedVersion(this) + ". Your game files, mods and saves stay.\n\n" + notes)
+                .setPositiveButton("Update now", (d, w) -> installUpdate())
+                .setNegativeButton("Later", null)
+                .setNeutralButton("Skip this version", (d, w) -> prefs.edit().putString("update_skipped", r.version).apply())
+                .show());
+    }
+
+    private void installUpdate() {
+        Updater.Release r = Updater.available;
+        if (r == null || Updater.busy) return;
+        if (GameBuild.running) { toastDialog("Not now: the game is being built. Update when it is done."); return; }
+        Updater.busy = true;
+        new Thread(() -> {
+            try {
+                Updater.install(this, r);           // the system then asks to confirm
+            } catch (Exception e) {
+                Updater.busy = false;
+                Updater.percent = -1;
+                Updater.status = "Update failed: " + e.getMessage();
+                runOnUiThread(() -> toastDialog(Updater.status));
+            }
+        }, "update").start();
+        show("settings");
+    }
+
     private void sound(int id) {
         if (sfx != null) sfx.play(id);
     }
@@ -107,6 +176,7 @@ public class LauncherActivity extends Activity {
     private boolean wasBuilding;
     private final Runnable buildTick = new Runnable() {
         @Override public void run() {
+            if (updateLine != null && !updateLine.getText().toString().equals(updateText())) updateLine.setText(updateText());
             if (GameBuild.running) {
                 if (buildBar != null) { buildBar.setIndeterminate(GameBuild.percent <= 0); buildBar.setProgress(GameBuild.percent); }
                 if (buildLine != null) buildLine.setText(GameBuild.stage + " · " + GameBuild.percent + "%");
@@ -119,6 +189,10 @@ public class LauncherActivity extends Activity {
             ticker.postDelayed(this, 500);
         }
     };
+
+    private String updateText() {
+        return Updater.percent >= 0 ? Updater.status + " · " + Updater.percent + "%" : Updater.status;
+    }
 
     /** The game can start: files imported and libff7.so built for this device. */
     private boolean ready() {
@@ -221,6 +295,7 @@ public class LauncherActivity extends Activity {
         queue.setListener(this::queueChanged);
         loadSounds();
         refresh();
+        checkUpdates(false);
         ticker.removeCallbacks(buildTick);
         ticker.post(buildTick);
     }
@@ -246,6 +321,7 @@ public class LauncherActivity extends Activity {
         content.removeAllViews();
         actionSlots.clear();
         progressViews.clear();
+        updateLine = null;
         queueSig = queueSignature();
         switch (page) {
             case "downloads": content.addView(downloadsPage()); break;
@@ -722,6 +798,7 @@ public class LauncherActivity extends Activity {
                 : build.built() ? "Game: ready" : "Game: not built for this device yet")
                 .append("\nMods: ").append(library.enabledCount()).append(" of ").append(library.mods.size()).append(" enabled");
         if (!catalog.updates().isEmpty()) s.append("\nMod updates: ").append(catalog.updates().size());
+        if (Updater.available != null) s.append("\nFF7Recomp ").append(Updater.available.version).append(" available (Settings)");
         DownloadQueue.Item run = queue.running();
         int waiting = queue.pendingCount() - (run != null ? 1 : 0);
         if (run != null) s.append("\n").append(run.mod.name).append(": ").append(queueLabel(run, false));
@@ -944,6 +1021,23 @@ public class LauncherActivity extends Activity {
 
     private View settingsPage() {
         LinearLayout col = column();
+        col.addView(heading("Updates"));
+        Updater.Release up = Updater.available;
+        if (Updater.status.isEmpty()) Updater.status = "FF7Recomp " + Updater.installedVersion(this);
+        updateLine = text(updateText(), 15, up != null ? ACCENT : DIM);
+        col.addView(updateLine);
+        col.addView(space(8));
+        LinearLayout ub = new LinearLayout(this);
+        ub.addView(button("Check now", v -> checkUpdates(true)));
+        if (up != null) {
+            Button go = button("Update to " + up.version, v -> installUpdate());
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.leftMargin = dp(12);
+            ub.addView(go, lp);
+        }
+        col.addView(ub);
+        col.addView(text("Installed: " + Updater.installedVersion(this) + "   ·   from github.com/" + Updater.REPO, 13, DIM));
+        col.addView(space(18));
         CheckBox ms = new CheckBox(this);
         ms.setText("Menu sounds (FF7's own, from your game files)");
         ms.setTextSize(16);

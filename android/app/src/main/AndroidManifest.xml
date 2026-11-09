@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Updates from the GitHub releases, installed in the app (Updater.java). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application
         android:label="FF7Recomp"
         android:icon="@mipmap/ic_launcher"
@@ -40,6 +42,9 @@
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode"
             android:launchMode="singleTask" />
+        <receiver
+            android:name=".Updater$InstallResult"
+            android:exported="false" />
         <service
             android:name=".BuildService"
             android:exported="false"

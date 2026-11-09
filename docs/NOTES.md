@@ -733,3 +733,15 @@
   (Sfx.nativeModFiles: ff7_mods_load + ff7_mods_redirect, IRO entries extracted to
   cache/modfiles; one lock with the conflict report, which loads the same global overlay),
   audio.dat only without a mod sound. Re-resolved when profile.xml changes.
+- 2026-11-09 The device link crashed (ld.lld: "Pointer tag ... was truncated", a free of a
+  pointer whose heap tag was gone) on a rebuild, then every time for those inputs; earlier builds
+  had linked. Single-threaded (--threads=1) it links in 0.76 s to the same libff7.so (byte for
+  byte). GameBuild links with --threads=1.
+- 2026-11-09 Updates in the launcher (Updater.java): GitHub releases of bhuiyah/ff7-recomp-android
+  (pre-releases included, drafts not), the newest above versionName with an .apk asset; checked
+  when the launcher opens (6 hours apart) and with Settings > Check now; offered once per version
+  (Update now / Later / Skip this version); downloaded to cache/update and installed with a
+  PackageInstaller session (REQUEST_INSTALL_PACKAGES; Android asks to confirm). Updates keep the
+  game files, mods and saves; they need the same signing key (release key in ~/.ff7recomp, read
+  by build.gradle). Each release must raise versionCode. A private repository answers 404:
+  "no public releases found".
