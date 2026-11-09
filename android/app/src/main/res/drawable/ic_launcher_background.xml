@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FF7Recomp launcher icon (original art): a glowing green orb set on a sword, on the
+     launcher's navy. 108dp adaptive-icon canvas; everything sits inside the 66dp safe circle. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M0,0 h108 v108 h-108 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="54" android:centerY="46" android:gradientRadius="70">
+                <item android:offset="0" android:color="#FF31426E"/>
+                <item android:offset="0.55" android:color="#FF18213F"/>
+                <item android:offset="1" android:color="#FF0B1020"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>
