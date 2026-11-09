@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72" width="128" height="128">
+  <!-- FF7Recomp launcher icon, converted from android/app/src/main/res/drawable/ic_launcher_*.xml
+       (the visible 72dp of the 108dp adaptive-icon canvas, as a rounded square). -->
+  <defs>
+    <clipPath id="shape"><rect x="18" y="18" width="72" height="72" rx="16"/></clipPath>
+    <radialGradient id="bg" gradientUnits="userSpaceOnUse" cx="54" cy="46" r="70">
+      <stop offset="0" stop-color="#31426E"/>
+      <stop offset="0.55" stop-color="#18213F"/>
+      <stop offset="1" stop-color="#0B1020"/>
+    </radialGradient>
+    <linearGradient id="blade" gradientUnits="userSpaceOnUse" x1="48" y1="0" x2="60" y2="0">
+      <stop offset="0" stop-color="#8C96B4"/>
+      <stop offset="0.5" stop-color="#F2F4FB"/>
+      <stop offset="1" stop-color="#5D6787"/>
+    </linearGradient>
+    <linearGradient id="gold" gradientUnits="userSpaceOnUse" x1="0" y1="72" x2="0" y2="77">
+      <stop offset="0" stop-color="#F3D58A"/>
+      <stop offset="1" stop-color="#A9802E"/>
+    </linearGradient>
+    <radialGradient id="glow" gradientUnits="userSpaceOnUse" cx="54" cy="59" r="27">
+      <stop offset="0" stop-color="#5CFF9A" stop-opacity="0.502"/>
+      <stop offset="0.6" stop-color="#2BD872" stop-opacity="0.141"/>
+      <stop offset="1" stop-color="#2BD872" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="orb" gradientUnits="userSpaceOnUse" cx="49.5" cy="53.5" r="16">
+      <stop offset="0" stop-color="#D8FFE6"/>
+      <stop offset="0.25" stop-color="#6CF59E"/>
+      <stop offset="0.7" stop-color="#16A653"/>
+      <stop offset="1" stop-color="#075A2B"/>
+    </radialGradient>
+  </defs>
+  <g clip-path="url(#shape)">
+    <rect x="0" y="0" width="108" height="108" fill="url(#bg)"/>
+    <g transform="translate(0,-1) translate(54,55.3) scale(1.1) translate(-54,-55.3)">
+      <path d="M54,23 L60,31 L60,58 L48,58 L48,31 Z" fill="url(#blade)"/>
+      <path d="M54,23 L54,58 L48,58 L48,31 Z" fill="#FFFFFF" fill-opacity="0.122"/>
+      <path d="M42.75,72.5 h22.5 a2.25,2.25 0 0,1 2.25,2.25 a2.25,2.25 0 0,1 -2.25,2.25 h-22.5 a2.25,2.25 0 0,1 -2.25,-2.25 a2.25,2.25 0 0,1 2.25,-2.25 Z" fill="url(#gold)"/>
+      <path d="M53,77 h2 a1,1 0 0,1 1,1 v4.5 a1,1 0 0,1 -1,1 h-2 a1,1 0 0,1 -1,-1 v-4.5 a1,1 0 0,1 1,-1 Z" fill="#3A2A1C"/>
+      <circle cx="54" cy="85" r="2.6" fill="url(#gold)"/>
+      <circle cx="54" cy="59" r="27" fill="url(#glow)"/>
+      <circle cx="54" cy="60" r="13" fill="url(#orb)"/>
+      <path d="M45.5,55.5 A10,10 0 0,1 53,49.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.851" stroke-width="2.2" stroke-linecap="round"/>
+      <circle cx="58.8" cy="65" r="1.6" fill="#FFFFFF" fill-opacity="0.349"/>
+    </g>
+  </g>
+</svg>
