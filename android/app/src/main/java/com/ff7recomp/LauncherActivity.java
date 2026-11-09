@@ -1152,6 +1152,27 @@ public class LauncherActivity extends Activity {
         fps.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("show_fps", on).apply());
         col.addView(fps);
         col.addView(space(16));
+        col.addView(heading("On-screen controls"));
+        RadioGroup tc = new RadioGroup(this);
+        String[][] touchModes = {
+            { "0", "Automatic", "Shown on devices with one screen when no controller is connected; hidden as soon as one is used" },
+            { "1", "Always", "Shown over the game, also with a controller" },
+            { "2", "Off", "Never shown" },
+        };
+        int curTc = prefs.getInt("touch_controls", 0);
+        for (String[] t : touchModes) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(t[1] + "\n" + t[2]);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            final int v = Integer.parseInt(t[0]);
+            rb.setOnClickListener(x -> prefs.edit().putInt("touch_controls", v).apply());
+            tc.addView(rb);
+            if (v == curTc) rb.setChecked(true);
+        }
+        col.addView(tc);
+        col.addView(space(16));
         col.addView(heading("Start"));
         RadioGroup st = new RadioGroup(this);
         String[][] starts = {
@@ -1550,7 +1571,8 @@ public class LauncherActivity extends Activity {
             install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false),
                                   prefs.getInt("perf", 1) != 2);
             install.writeCompanion("off");   // battle windows stay on the top screen
-            runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)));
+            runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)
+                    .putExtra("touch_controls", prefs.getInt("touch_controls", 0))));
             return null;
         });
     }

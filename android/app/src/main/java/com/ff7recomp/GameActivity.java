@@ -78,9 +78,46 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
+    // the on-screen pad (TouchControls), added to the real one
+    private int touchButtons, touchLt, touchRt;
+    private TouchControls touch;
+    /** Launcher setting: 0 auto (one screen and no controller), 1 always, 2 off. */
+    private int touchMode;
+
     private void sendPad() {
-        nativePad(padButtons | hatButtons, padLt, padRt, padLx, padLy, padRx, padRy);
+        nativePad(padButtons | hatButtons | touchButtons, Math.max(padLt, touchLt), Math.max(padRt, touchRt),
+                  padLx, padLy, padRx, padRy);
     }
+
+    private static boolean isGamepad(InputDevice d) {
+        if (d == null || d.isVirtual()) return false;
+        int s = d.getSources();
+        return (s & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+            || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+    }
+
+    private static boolean gamepadConnected() {
+        for (int id : InputDevice.getDeviceIds()) if (isGamepad(InputDevice.getDevice(id))) return true;
+        return false;
+    }
+
+    /** Shows or hides the on-screen pad: always, never, or (auto) on one screen with no controller. */
+    private void updateTouch() {
+        if (touch == null) return;
+        boolean show = touchMode == 1 || (touchMode == 0 && companion == null && !gamepadConnected());
+        touch.setVisibility(show ? android.view.View.VISIBLE : android.view.View.GONE);
+        if (!show && (touchButtons != 0 || touchLt != 0 || touchRt != 0)) {
+            touchButtons = touchLt = touchRt = 0;
+            sendPad();
+        }
+    }
+
+    private final android.hardware.input.InputManager.InputDeviceListener deviceListener =
+            new android.hardware.input.InputManager.InputDeviceListener() {
+        @Override public void onInputDeviceAdded(int id) { updateTouch(); }
+        @Override public void onInputDeviceRemoved(int id) { updateTouch(); }
+        @Override public void onInputDeviceChanged(int id) { updateTouch(); }
+    };
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
@@ -94,6 +131,9 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         }
         int bit = xinputBit(code);
         if (bit == 0) return super.dispatchKeyEvent(e);   // volume etc. stay with the system
+        // a controller is in use: the on-screen pad (auto) steps aside
+        if (touchMode == 0 && touch != null && touch.getVisibility() == android.view.View.VISIBLE
+                && isGamepad(e.getDevice())) touch.setVisibility(android.view.View.GONE);
         if (e.getAction() == KeyEvent.ACTION_DOWN) padButtons |= bit;
         else if (e.getAction() == KeyEvent.ACTION_UP) padButtons &= ~bit;
         sendPad();
@@ -133,10 +173,23 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         layers.addView(view);
         layers.addView(new BoosterIcons(this), new android.widget.FrameLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        touchMode = getIntent().getIntExtra("touch_controls", 0);
+        if (touchMode != 2) {
+            touch = new TouchControls(this, (buttons, lt, rt) -> {
+                touchButtons = buttons;
+                touchLt = lt;
+                touchRt = rt;
+                sendPad();
+            });
+            layers.addView(touch, new android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        }
         setContentView(layers);
         preferHighestRefreshRate(getWindow(), getDisplay());
         hideSystemBars(getWindow().getInsetsController());
         showCompanion();
+        updateTouch();
+        ((android.hardware.input.InputManager) getSystemService(Context.INPUT_SERVICE)).registerInputDeviceListener(deviceListener, null);
         startSteamSync();
     }
 
@@ -263,6 +316,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     protected void onDestroy() {
         if (companion != null) companion.dismiss();
         steamSyncRunning = false;
+        ((android.hardware.input.InputManager) getSystemService(Context.INPUT_SERVICE)).unregisterInputDeviceListener(deviceListener);
         super.onDestroy();
     }
 }

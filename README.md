@@ -42,6 +42,9 @@ and I would rather you know before you install it.
   (.iro, .zip, .7z), set mod order and options, settings, save states, achievements. It plays
   FF7's own menu sounds (or your mods' versions of them).
 - 16:9 widescreen, controller support (A confirms, B cancels), save states.
+- On-screen touch controls for devices with one screen and no controller (D-pad, A/B/X/Y,
+  L1/L2/R1/R2, Start/Select); they hide when a controller is used. **Settings** → **On-screen
+  controls**: Automatic, Always or Off.
 - On the AYN Thor's bottom screen: party status, location, enemy HP in battle, a touch deck
   (menu, save/load state, speed, random battles, battle enhancement); it dims during cutscenes.
 - Game boosters as in the console re-releases (speed, no random battles, battle enhancement).
