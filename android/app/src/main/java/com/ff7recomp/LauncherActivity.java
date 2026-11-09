@@ -812,7 +812,12 @@ public class LauncherActivity extends Activity {
         for (int mode = 0; mode <= 4; mode++) {
             RadioButton rb = new RadioButton(this);
             rb.setId(View.generateViewId());
-            rb.setText(fpsName(mode) + "\n" + fpsDetail(mode));
+            // one line: the name, then a short dim note
+            android.text.SpannableString label = new android.text.SpannableString(fpsName(mode) + "   " + fpsDetail(mode));
+            int at = fpsName(mode).length();
+            label.setSpan(new android.text.style.ForegroundColorSpan(DIM), at, label.length(), 0);
+            label.setSpan(new android.text.style.RelativeSizeSpan(0.85f), at, label.length(), 0);
+            rb.setText(label);
             rb.setTextColor(TEXT);
             rb.setTextSize(16);
             final int m = mode;
@@ -950,11 +955,11 @@ public class LauncherActivity extends Activity {
 
     private static String fpsDetail(int mode) {
         switch (mode) {
-            case 0: return "The game's own limiter, as shipped";
-            case 1: return "Original speeds with FFNx's limiter fixes";
-            case 2: return "Battles at 30 instead of 15, the rest original";
-            case 4: return "Field and world map at 120; battles and menus at 60";
-            default: return "The whole game at 60 (FFNx's 60 FPS mode)";
+            case 0: return "As shipped";
+            case 1: return "As shipped, smoother pacing";
+            case 2: return "Battles at 30, the rest as shipped";
+            case 4: return "Field at 120, battles at 60";
+            default: return "Everything at 60";
         }
     }
 
