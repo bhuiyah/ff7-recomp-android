@@ -1,0 +1,5 @@
+# Patches must keep the line endings of the files they patch (LF in pcrecomp, FFNx, bgfx), and
+# Git Bash scripts must stay LF: Git for Windows' default core.autocrlf=true would otherwise
+# check them out with CRLF (the bgfx patches then fail to apply on a fresh clone).
+*.patch text eol=lf
+*.sh    text eol=lf
