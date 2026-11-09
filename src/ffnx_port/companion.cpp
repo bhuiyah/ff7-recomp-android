@@ -96,6 +96,13 @@ std::string build_snapshot() {
     struct game_mode *gm = getmode_cached();
     const int mode = gm ? (int)gm->driver_mode : -1;
     savemap *sm = ff7_externals.savemap;
+    // Nothing to show until a game is under way: at the title and its save screen the savemap
+    // holds whatever was there (a play time of 1193046 hours). A game starts at its first field,
+    // battle or world map, and ends back at the title or the credits.
+    static bool in_game = false;
+    if (mode == MODE_FIELD || mode == MODE_BATTLE || mode == MODE_WORLDMAP) in_game = true;
+    else if (mode == MODE_MAIN_MENU || mode == MODE_CREDITS || mode == MODE_GAMEOVER) in_game = false;
+    if (!in_game) return "{\"ready\":0}";
 
     char loc[64] = "";
     uint32_t seconds = 0;

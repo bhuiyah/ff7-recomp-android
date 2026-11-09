@@ -163,9 +163,7 @@ public class CompanionView extends View {
         if (state.optInt("ready") != 1) {
             fill.setShader(null);
             fill.setColor(Color.BLACK);
-            c.drawRect(0, 0, W, H, fill);
-            label(c, "FINAL FANTASY VII", W / 2, H / 2, 64 * u, 0xFFDCDCF0, Paint.Align.CENTER);
-            label(c, "starting...", W / 2, H / 2 + 70 * u, 40 * u, 0xFF8090B0, Paint.Align.CENTER);
+            c.drawRect(0, 0, W, H, fill);      // blank until a game is under way (companion.cpp)
             return;
         }
         final String mode = state.optString("mode");
@@ -274,6 +272,7 @@ public class CompanionView extends View {
     @Override
     public boolean onTouchEvent(MotionEvent e) {
         float x = e.getX(), y = e.getY();
+        if (state.optInt("ready") != 1) { pressed = null; return true; }   // blank: no buttons
         switch (e.getActionMasked()) {
         case MotionEvent.ACTION_DOWN:
             pressed = null;
