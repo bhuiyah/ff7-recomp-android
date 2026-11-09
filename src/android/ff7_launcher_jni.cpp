@@ -78,7 +78,14 @@ std::string mod_json(const std::string &path) {
     }
     j += "],\"ffnx\":[";
     for (size_t i = 0; i < m.ffnx_config.size(); i++)
-        j += std::string(i ? "," : "") + "{\"key\":\"" + esc(m.ffnx_config[i].first) + "\",\"value\":\"" + esc(m.ffnx_config[i].second) + "\"}";
+    {
+        std::string when;
+        if (i < m.ffnx_config_when.size())
+            for (const auto &w : m.ffnx_config_when[i])
+                when += (when.empty() ? "" : ";") + w.first + "=" + w.second;
+        j += std::string(i ? "," : "") + "{\"key\":\"" + esc(m.ffnx_config[i].first) + "\",\"value\":\"" + esc(m.ffnx_config[i].second)
+           + "\",\"when\":\"" + esc(when) + "\"}";
+    }
     j += "],\"requires\":[";
     for (size_t i = 0; i < m.compat_requires.size(); i++)
         j += std::string(i ? "," : "") + "{\"id\":\"" + esc(m.compat_requires[i].mod_id) + "\",\"why\":\"" + esc(m.compat_requires[i].description) + "\"}";

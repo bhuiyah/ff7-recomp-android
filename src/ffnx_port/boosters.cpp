@@ -26,6 +26,8 @@ int ff7_booster_battle = 0;     // battle enhancement on
 namespace {
 
 bool g_inited;
+bool g_frameskip = true;   // sped up: draw only the frames 1x would (boosters.txt frameskip=on|off)
+double g_skip_acc;
 
 // The battle's party records (1.02 US): the 0x44-byte ones beside the ATB gauge, and the
 // 0x440-byte character records (HP +0x10, Limit gauge +0x1B).
@@ -51,12 +53,14 @@ void read_defaults() {
             gamehacks.companionSetBattles(std::strcmp(val, "off") != 0);
         } else if (!std::strcmp(key, "battle")) {
             ff7_booster_battle = !std::strcmp(val, "on");
+        } else if (!std::strcmp(key, "frameskip")) {
+            g_frameskip = std::strcmp(val, "off") != 0;
         }
     }
     std::fclose(f);
-    std::fprintf(stderr, "[boosters] defaults: speed %.0fx, random battles %s, battle enhancement %s\n",
+    std::fprintf(stderr, "[boosters] defaults: speed %.0fx, random battles %s, battle enhancement %s, frame skipping %s\n",
                  gamehacks.getCurrentSpeedhack(), gamehacks.companionBattlesWanted() ? "on" : "off",
-                 ff7_booster_battle ? "on" : "off");
+                 ff7_booster_battle ? "on" : "off", g_frameskip ? "on" : "off");
 }
 
 // The rate the game asks for at 1x in the current mode (FFNx's ff7_limit_fps).
@@ -97,6 +101,17 @@ extern "C" void ff7_boosters_command(int cmd) {
     }
 }
 
+// After each frame (FFNx Renderer::show, ffnx_edit_android.py): is the next one skipped? Sped
+// up, only the share 1 / speed of the frames is drawn and presented -- 2x shows every 2nd, 3x
+// every 3rd -- so the GPU draws as many frames as at 1x. Never during a movie.
+extern "C" bool ffnx_frame_skip_next(bool movie) {
+    const double speed = gamehacks.getCurrentSpeedhack();
+    if (!g_frameskip || movie || speed <= 1.01) { g_skip_acc = 0; return false; }
+    g_skip_acc += 1.0 / speed;
+    if (g_skip_acc >= 0.999) { g_skip_acc -= 1.0; return false; }
+    return true;
+}
+
 extern "C" int ff7_booster_speed() { return (int)(gamehacks.getCurrentSpeedhack() + 0.5); }
 extern "C" int ff7_booster_no_encounters() { return gamehacks.companionBattlesWanted() ? 0 : 1; }
 
@@ -106,8 +121,9 @@ extern "C" void ff7_boosters_frame() {
     struct game_mode *m = getmode_cached();
     const int mode = m ? (int)m->driver_mode : -1;
 
-    // above the display's 120 Hz the speed hack needs vsync off to get there
-    const bool fast = base_rate(mode) * gamehacks.getCurrentSpeedhack() > 121.0;
+    // above the display's 120 Hz the speed hack needs vsync off to get there (unless the extra
+    // frames are skipped: then only the 1x rate is presented)
+    const bool fast = !g_frameskip && base_rate(mode) * gamehacks.getCurrentSpeedhack() > 121.0;
     static int vsync_state = -1;
     const int want = (fast || !enable_vsync) ? 0 : 1;
     if (want != vsync_state) {

@@ -802,6 +802,30 @@ public class LauncherActivity extends Activity {
             if (mode == cur) rb.setChecked(true);
         }
         col.addView(g);
+        // Performance: render scale and frame skipping (heat and battery on smaller devices)
+        col.addView(space(16));
+        col.addView(heading("Performance"));
+        col.addView(text("How hard the GPU works. Balanced renders at the screen's resolution and, when the game is "
+                + "sped up, draws only the frames normal speed would. 120 FPS above doubles the work at normal speed.", 14, DIM));
+        RadioGroup pg = new RadioGroup(this);
+        String[] perfNames = {
+            "Cooler: a lower resolution, for weaker devices or long sessions",
+            "Balanced: the screen's resolution (recommended)",
+            "Best quality: the resolution mods ask for, every frame drawn when sped up",
+        };
+        int curPerf = prefs.getInt("perf", 1);
+        for (int p = 0; p < perfNames.length; p++) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(perfNames[p]);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            final int pv = p;
+            rb.setOnClickListener(v -> prefs.edit().putInt("perf", pv).apply());
+            pg.addView(rb);
+            if (p == curPerf) rb.setChecked(true);
+        }
+        col.addView(pg);
         // Game boosters (docs/ROADMAP.md M8): how each game starts; in game the bottom screen's
         // Speed / Battles / Battle+ buttons and FFNx's L3 shortcuts change them.
         col.addView(space(16));
@@ -1023,9 +1047,11 @@ public class LauncherActivity extends Activity {
             library.load();
             library.save();
             install.installRuntime();
-            install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods);
+            install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods,
+                                  renderScaleCap());
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
-            install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false));
+            install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false),
+                                  prefs.getInt("perf", 1) != 2);
             install.writeCompanion("off");   // battle windows stay on the top screen
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)));
             return null;
@@ -1033,6 +1059,18 @@ public class LauncherActivity extends Activity {
     }
 
     /** The start speed (1-3); older settings had only the 2x "turbo" switch. */
+    /** Performance's render scale cap: the smallest 640x480 multiple that covers the screen
+     *  (Balanced; 3 on a 1080p Thor, 2 on a 720p device), one less (Cooler), none (Best). */
+    private int renderScaleCap() {
+        int perf = prefs.getInt("perf", 1);
+        if (perf == 2) return 0;
+        android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(dm);
+        int shortSide = Math.min(dm.widthPixels, dm.heightPixels);
+        int match = Math.max(1, (shortSide + 479) / 480);
+        return perf == 0 ? Math.max(1, match - 1) : match;
+    }
+
     private int boosterSpeed() {
         return prefs.getInt("speed", prefs.getBoolean("turbo", false) ? 2 : 1);
     }

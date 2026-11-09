@@ -570,3 +570,28 @@
 - "Dark field" late in a session: Echo-S's Day Night option (on by default) drives FFNx's
   time-of-day lighting from its in-game clock; the same field at the start of the game looks the
   same with it on or off.
+- Performance pass for heat and smaller devices (2026-11-08). Baseline, Sector 1 platform at 2x
+  speed with the user's mods: GPU 79 % busy at 550 MHz, the game process 93 % of a core, ~57 C.
+  Found and fixed:
+  - FFNxConfig conditions were ignored: 7th Heaven applies <key opt="v">value</key> only while
+    option opt is v. Enhanced Stock UI's internal_resolution_scale = 4 (option off by default)
+    and Echo-S's enable_time_cycle (Day Night off) applied anyway. modinfo keeps the attributes,
+    the launcher checks them (ModLibrary.Mod.optionsMatch).
+  - Render scale: mods ask for 4x (3416x1920 for a 1080p screen). Launcher Settings >
+    Performance: Balanced (default) caps it at the smallest multiple covering the screen (3 on
+    the Thor, 2 on 720p), Cooler one less, Best quality leaves the mods' value. GPU load at
+    scale 4 / 3 / 2: 79 % @550 / 77 % @401 / 49 % @401 MHz.
+  - Frame skipping when sped up (Balanced/Cooler): at 2x/3x only every 2nd/3rd frame is drawn and
+    presented (boosters.cpp ffnx_frame_skip_next, renderer.cpp edits: a skipped frame's draws are
+    discarded, nothing presented; never during movies). The FPS counter counts game frames, so
+    it still reads 120 at 2x. Vsync stays on (only the 1x rate is presented).
+  - FFNx's frame limiter spun on QueryPerformanceCounter for the whole wait; it now sleeps until
+    0.25 ms before the frame (misc.cpp edit). simpleperf: clock_gettime was 16 % of samples.
+  - bgfx's Vulkan descriptor pool chunk was 10240 sets (FFNx's setting); Adreno's
+    vkResetDescriptorPool memsets the whole pool every frame -- 23 % of all samples, on the
+    render thread. Now 1024-set chunks (bgfx adds chunks when a frame needs more).
+  - ffnx_edit_android.py did not apply to a fresh tree (ffnx_prepare.sh): some edits match the
+    text rewrites' output, others the input. main() now runs edit passes and rewrites until all
+    match; a re-run applies nothing.
+  Profiling: run-as com.ff7recomp simpleperf record -p <pid of com.ff7recomp:game> -e task-clock
+  --call-graph fp; symbols with the NDK's binary_cache_builder.py -lib <cxx obj dir>.

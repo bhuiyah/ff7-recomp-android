@@ -758,6 +758,68 @@ EDITS = [
      '    ffnx_companion_frame_begin();   // FF7Recomp: the bottom screen\'s view for the next frame\n'
      '#endif\n\n'
      '    vertexBufferData.clear();\n'),
+    # Frame skipping while sped up (src/ffnx_port/boosters.cpp): at 2x / 3x the game runs 120 /
+    # 180 frames a second but only every 2nd / 3rd is drawn and shown, so the GPU works as at 1x.
+    # A skipped frame's draws are discarded and nothing is presented; its vertices are dropped.
+    # The frame limiter waited by spinning on the clock: a whole core busy between frames (heat,
+    # battery), hidden while presenting blocked on vsync but plain once frames are skipped. Sleep
+    # most of the wait, spin only the last quarter millisecond.
+    ('ff7/misc.cpp', '#include <algorithm>\n', '#include <algorithm>\n#include <chrono>\n#include <thread>\n'),
+    ('ff7/misc.cpp',
+     '\tdo qpc_get_time(&gametime);\n'
+     '\twhile (gametime > last_gametime && qpc_diff_time(&gametime, &last_gametime, nullptr) < frame_time);\n',
+     '#ifdef FFNX_ANDROID\n'
+     '\t// FF7Recomp: sleep through most of the wait instead of spinning a core\n'
+     '\tfor (;;)\n'
+     '\t{\n'
+     '\t\tqpc_get_time(&gametime);\n'
+     '\t\tif (!(gametime > last_gametime)) break;\n'
+     '\t\tconst double left = frame_time - (double)qpc_diff_time(&gametime, &last_gametime, nullptr);\n'
+     '\t\tif (left <= 0) break;\n'
+     '\t\tconst double left_us = left * 1000000.0 / game_object->countspersecond;\n'
+     '\t\tif (left_us > 500.0) std::this_thread::sleep_for(std::chrono::microseconds((long long)(left_us - 250.0)));\n'
+     '\t}\n'
+     '#else\n'
+     '\tdo qpc_get_time(&gametime);\n'
+     '\twhile (gametime > last_gametime && qpc_diff_time(&gametime, &last_gametime, nullptr) < frame_time);\n'
+     '#endif\n'),
+    ('renderer.cpp', '#include "ff7/widescreen.h"\n',
+     '#include "ff7/widescreen.h"\n'
+     '#ifdef FFNX_ANDROID\n'
+     'extern "C" bool ffnx_frame_skip_next(bool movie);   // FF7Recomp: src/ffnx_port/boosters.cpp\n'
+     'static bool ffnx_skip_frame;                          // this frame is not drawn\n'
+     '#endif\n'),
+    ('renderer.cpp',
+     '    auto flags = keepBindings ? BGFX_DISCARD_STATE : BGFX_DISCARD_ALL;\n',
+     '    auto flags = keepBindings ? BGFX_DISCARD_STATE : BGFX_DISCARD_ALL;\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    if (ffnx_skip_frame) {             // FF7Recomp: a sped-up frame that is not shown\n'
+     '        bgfx::discard(flags);\n'
+     '        internalState.bHasDrawBeenDone = true;\n'
+     '        internalState.bTexturesBound = false;\n'
+     '        return;\n'
+     '    }\n'
+     '#endif\n'),
+    ('renderer.cpp',
+     'void Renderer::show()\n{\n    // Reset internal state\n    resetState();\n',
+     'void Renderer::show()\n{\n    // Reset internal state\n    resetState();\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    if (ffnx_skip_frame) {             // FF7Recomp: nothing drawn, nothing presented\n'
+     '        bgfx::discard(BGFX_DISCARD_ALL);\n'
+     '        internalState.bHasDrawBeenDone = false;\n'
+     '        internalState.bHasColorClearBeenDone = false;\n'
+     '        vertexBufferData.clear();\n'
+     '        indexBufferData.clear();\n'
+     '        ffnx_skip_frame = ffnx_frame_skip_next(internalState.bIsMovie);\n'
+     '        return;\n'
+     '    }\n'
+     '#endif\n'),
+    ('renderer.cpp',
+     '    indexBufferData.shrink_to_fit();\n\n    bgfx::setViewMode(backendViewId, bgfx::ViewMode::Sequential);\n',
+     '    indexBufferData.shrink_to_fit();\n\n    bgfx::setViewMode(backendViewId, bgfx::ViewMode::Sequential);\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    ffnx_skip_frame = ffnx_frame_skip_next(internalState.bIsMovie);   // FF7Recomp: the next frame\n'
+     '#endif\n'),
     ('renderer.cpp', '#include "image/image.h"\n',
      '#include "image/image.h"\n'
      '#ifdef FFNX_ANDROID\n'
@@ -1013,28 +1075,46 @@ def rewrite_game_fn_casts():
     return n
 
 
-def main():
-    changed = 0
-    for edit in EDITS:
-        rel, old, new = edit[:3]
-        allow_many = len(edit) > 3 and edit[3] == 'all'
-        path = os.path.join(SRC, rel)
-        raw = open(path, 'rb').read().decode('utf-8', errors='surrogateescape')
-        for o, n in ((old, new), (old.replace('\n', '\r\n'), new.replace('\n', '\r\n'))):
-            if n in raw:
-                break                    # already applied (replacements may contain the original)
-            if raw.count(o) == 1 or (allow_many and raw.count(o) >= 1):
-                raw = raw.replace(o, n)
-                open(path, 'wb').write(raw.encode('utf-8', errors='surrogateescape'))
-                changed += 1
-                break
-        else:
-            sys.exit(f'{rel}: edit did not match exactly once:\n{old[:120]}')
-    print(f'{changed} edits applied ({len(EDITS)} total); {rewrite_patch_values()} patch values made guest addresses; '
-          f'{rewrite_fnptr_globals()} game-function pointer variables made guest calls; '
-          f'{rewrite_game_fn_casts()} casts of game addresses to native functions made guest calls; '
-          f'{rewrite_fps_tests()} 60 FPS tests made "60 or above"')
+def apply_edit(edit):
+    """'applied', 'present' (already applied) or None (no match yet)."""
+    rel, old, new = edit[:3]
+    allow_many = len(edit) > 3 and edit[3] == 'all'
+    path = os.path.join(SRC, rel)
+    raw = open(path, 'rb').read().decode('utf-8', errors='surrogateescape')
+    for o, n in ((old, new), (old.replace('\n', '\r\n'), new.replace('\n', '\r\n'))):
+        if n in raw:
+            return 'present'             # already applied (replacements may contain the original)
+        if raw.count(o) == 1 or (allow_many and raw.count(o) >= 1):
+            raw = raw.replace(o, n)
+            open(path, 'wb').write(raw.encode('utf-8', errors='surrogateescape'))
+            return 'applied'
+    return None
 
+
+def main():
+    # Edits in order, then the text rewrites; edits that match only the rewrites' output (on a
+    # fresh tree from ffnx_prepare.sh "(DWORD)x" is not yet "ffnx_guest_va(x)") wait for the next
+    # pass. Idempotent: a re-run applies nothing.
+    changed, counts, pending = 0, [0, 0, 0, 0], list(EDITS)
+    for _ in range(4):
+        left = []
+        for edit in pending:
+            st = apply_edit(edit)
+            if st == 'applied':
+                changed += 1
+            elif st is None:
+                left.append(edit)
+        r = (rewrite_patch_values(), rewrite_fnptr_globals(), rewrite_game_fn_casts(), rewrite_fps_tests())
+        counts = [a + b for a, b in zip(counts, r)]
+        pending = left
+        if not pending:
+            break
+    if pending:
+        sys.exit(f'{pending[0][0]}: edit did not match exactly once:\n{pending[0][1][:120]}')
+    print(f'{changed} edits applied ({len(EDITS)} total); {counts[0]} patch values made guest addresses; '
+          f'{counts[1]} game-function pointer variables made guest calls; '
+          f'{counts[2]} casts of game addresses to native functions made guest calls; '
+          f'{counts[3]} 60 FPS tests made "60 or above"')
 
 if __name__ == '__main__':
     main()

@@ -59,7 +59,9 @@ target_compile_definitions(bgfx
           BGFX_CONFIG_DYNAMIC_INDEX_BUFFER_SIZE=${FF7_BGFX_DYNAMIC_INDEX_BUFFER_SIZE}
           BGFX_CONFIG_DYNAMIC_VERTEX_BUFFER_SIZE=${FF7_BGFX_DYNAMIC_VERTEX_BUFFER_SIZE}
           BGFX_CONFIG_MAX_RECT_CACHE=${FF7_BGFX_MAX_RECT_CACHE}
-          BGFX_CONFIG_RENDERER_VULKAN_DESCRIPTOR_SETS_PER_POOL=10240)
+          # FFNx uses 10240; Adreno's vkResetDescriptorPool clears the whole pool every frame (a
+          # quarter of a core at 10240 sets x 16 samplers). bgfx adds 1024-set chunks as needed.
+          BGFX_CONFIG_RENDERER_VULKAN_DESCRIPTOR_SETS_PER_POOL=1024)
 target_link_libraries(bgfx PUBLIC bimg_decode bimg bx)
 target_compile_options(bgfx PRIVATE -w)
 if(ANDROID)

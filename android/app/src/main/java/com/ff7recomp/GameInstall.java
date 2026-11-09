@@ -213,7 +213,7 @@ final class GameInstall {
      * the launcher's choices, then each enabled mod's FFNxConfig (later mods first, so the
      * highest-priority mod's values win, as files do).
      */
-    void writeFfnxToml(int fpsLimiter, boolean turbo, int aspectRatio, boolean showFps, List<ModLibrary.Mod> mods) throws IOException {
+    void writeFfnxToml(int fpsLimiter, boolean turbo, int aspectRatio, boolean showFps, List<ModLibrary.Mod> mods, int scaleCap) throws IOException {
         File template = new File(game, "FFNx.template.toml");
         String toml = new String(readAll(new java.io.FileInputStream(template)), StandardCharsets.UTF_8);
         toml = set(toml, "renderer_backend", "5");
@@ -230,7 +230,15 @@ final class GameInstall {
         for (int i = mods.size() - 1; i >= 0; i--) {
             ModLibrary.Mod m = mods.get(i);
             if (!m.enabled || m.error != null) continue;
-            for (String[] kv : m.ffnx) toml = set(toml, kv[0], tomlValue(kv[1]));
+            for (String[] kv : m.ffnx)
+                if (m.optionsMatch(kv.length > 2 ? kv[2] : null)) toml = set(toml, kv[0], tomlValue(kv[1]));
+        }
+        // Performance: the internal resolution at most scaleCap times 640x480 (mods ask for 4x,
+        // which on a 1080p screen renders 2.4 times the pixels shown; 0 = as the mods set it)
+        if (scaleCap > 0) {
+            java.util.regex.Matcher sm = java.util.regex.Pattern.compile("(?m)^internal_resolution_scale\\s*=\\s*(\\d+)").matcher(toml);
+            int cur = sm.find() ? Integer.parseInt(sm.group(1)) : 0;
+            if (cur == 0 || cur > scaleCap) toml = set(toml, "internal_resolution_scale", Integer.toString(scaleCap));
         }
         File out = new File(game, "FFNx.toml");
         try (OutputStream o = new FileOutputStream(out)) { o.write(toml.getBytes(StandardCharsets.UTF_8)); }
@@ -243,8 +251,9 @@ final class GameInstall {
     }
 
     /** files/boosters.txt for src/ffnx_port/boosters.cpp: the game boosters a game starts with. */
-    void writeBoosters(int speed, boolean noEncounters, boolean battlePlus) throws IOException {
-        String s = "speed=" + speed + "\nencounters=" + (noEncounters ? "off" : "on") + "\nbattle=" + (battlePlus ? "on" : "off") + "\n";
+    void writeBoosters(int speed, boolean noEncounters, boolean battlePlus, boolean frameSkip) throws IOException {
+        String s = "speed=" + speed + "\nencounters=" + (noEncounters ? "off" : "on") + "\nbattle=" + (battlePlus ? "on" : "off")
+                + "\nframeskip=" + (frameSkip ? "on" : "off") + "\n";
         try (OutputStream o = new FileOutputStream(new File(files, "boosters.txt"))) { o.write(s.getBytes(StandardCharsets.UTF_8)); }
     }
 

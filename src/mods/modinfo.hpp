@@ -70,6 +70,9 @@ struct ModInfo {
     std::vector<ModFolder> mod_folders;
     std::vector<ConditionalFolder> conditionals;
     std::vector<std::pair<std::string, std::string>> ffnx_config;   // key, value (lists joined by ',')
+    // per ffnx_config entry: its attributes, option conditions that must all hold for it to apply
+    // (<internal_resolution_scale esuiscale="1">4</...>: only while the option esuiscale is 1)
+    std::vector<std::vector<std::pair<std::string, std::string>>> ffnx_config_when;
     std::vector<std::pair<std::string, std::string>> variables;     // name, value
     std::vector<std::string> windows_code;               // LoadLibrary/Assembly/Plugin/Programs: unsupported
     // <Compatibility> <Require ModID="guid">why</Require> <Forbid ModID="guid">why</Forbid>

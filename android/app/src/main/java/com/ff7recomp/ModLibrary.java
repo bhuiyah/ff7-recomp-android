@@ -48,7 +48,7 @@ final class ModLibrary {
         boolean isUi() { return error == null && category != null && category.trim().equalsIgnoreCase("User Interface"); }
         final List<Option> options = new ArrayList<>();
         final List<String> unsupported = new ArrayList<>();
-        final List<String[]> ffnx = new ArrayList<>();        // [key, value]
+        final List<String[]> ffnx = new ArrayList<>();        // [key, value, conditions "id=v;id=v"]
         String id = "";                                        // mod.xml ID (lower case)
         final List<String[]> requires = new ArrayList<>();    // <Compatibility>: [mod id, why]
         final List<String[]> forbids = new ArrayList<>();
@@ -61,6 +61,22 @@ final class ModLibrary {
         int value(Option o) {
             Integer v = chosen.get(o.id.toLowerCase(Locale.ROOT));
             return v != null ? v : o.defaultValue;
+        }
+        /** An FFNxConfig entry's conditions ("id=v;id=v", from its attributes) all hold, as
+         *  7th Heaven applies them: an option that does not exist never matches. */
+        boolean optionsMatch(String when) {
+            if (when == null || when.isEmpty()) return true;
+            for (String c : when.split(";")) {
+                int eq = c.indexOf('=');
+                if (eq <= 0) continue;
+                String id = c.substring(0, eq).trim(), want = c.substring(eq + 1).trim();
+                Option found = null;
+                for (Option o : options) if (o.id.equalsIgnoreCase(id)) found = o;
+                if (found == null) return false;
+                try { if (value(found) != Integer.parseInt(want)) return false; }
+                catch (NumberFormatException e) { return false; }
+            }
+            return true;
         }
     }
 
@@ -209,7 +225,8 @@ final class ModLibrary {
             for (int i = 0; un != null && i < un.length(); i++) m.unsupported.add(un.getString(i));
             JSONArray fx = j.optJSONArray("ffnx");
             for (int i = 0; fx != null && i < fx.length(); i++)
-                m.ffnx.add(new String[] { fx.getJSONObject(i).optString("key"), fx.getJSONObject(i).optString("value") });
+                m.ffnx.add(new String[] { fx.getJSONObject(i).optString("key"), fx.getJSONObject(i).optString("value"),
+                                          fx.getJSONObject(i).optString("when") });
         } catch (Exception ex) {
             m.error = ex.toString();
         }

@@ -193,6 +193,9 @@ bool parse_mod_xml(const std::string &xml, ModInfo &m, std::string &error) {
                     if (it.type() == pugi::node_element) { if (list) v += ","; v += trim(it.text().get()); list = true; }
                 if (!list) v = trim(c.text().get());
                 m.ffnx_config.emplace_back(c.name(), v);
+                std::vector<std::pair<std::string, std::string>> when;
+                for (pugi::xml_attribute a : c.attributes()) when.emplace_back(lower(a.name()), trim(a.value()));
+                m.ffnx_config_when.push_back(std::move(when));
             }
         } else if (ieq(k, "Compatibility")) {
             for (pugi::xml_node c : n.children()) {
