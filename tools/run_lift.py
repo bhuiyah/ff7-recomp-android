@@ -16,6 +16,7 @@ Adapted from codepdbh/nfsu2-recompiled scripts/run_lift.py (MIT License).
         recomp_dispatch.c      sorted VA -> function table (binary search)
         recomp_imports.c       IAT slot VA -> "dll!name" (for crash trails)
         recomp_variants.c      patched-code variants lifted (checked by ff7_hext.cpp)
+        recomp_extents.c       guest ranges each function's body covers (tools/gen_extents.py)
         lift_stats.json        counts for docs/LIFT_REPORT.md
       --prefix P names a second module's output (P + every file and table
       above, e.g. server_recomp_dispatch_table for server.dll) so it links
@@ -326,6 +327,10 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
             fh.write("    { 0, 0, 0, 0 },\n")
         fh.write("};\n")
         fh.write(f"const uint32_t {prefix}ff7_code_variant_count = {len(rows)};\n")
+    # Which functions hold each guest address (inline copies included): ff7_hext.cpp switches
+    # every one of them to the interpreter for a patch the lift has no variant for.
+    import gen_extents
+    gen_extents.main(outdir, prefix)
 
     out = {"functions": len(entries), "files": idx, "c_lines": lines_total,
            "lift_failures": len(failed), "failures": failed[:200],

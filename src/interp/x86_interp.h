@@ -35,6 +35,10 @@ int ff7_interp_marked(uint32_t va);
 /* The lifted function containing `va` (the nearest entry at or below it), or 0. */
 uint32_t ff7_interp_function_of(uint32_t va);
 
+/* Every lifted function whose body holds guest bytes in [va, va+n), inline copies included
+ * (src/host/ff7_hext.cpp, from tools/gen_extents.py); at most `max` into `out`. */
+int ff7_functions_covering(uint32_t va, uint32_t n, uint32_t *out, int max);
+
 /* Instructions executed so far (statistics). */
 extern uint64_t ff7_interp_steps;
 

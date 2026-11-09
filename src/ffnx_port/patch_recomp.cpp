@@ -207,19 +207,24 @@ static void verify_code_writes_locked() {
         if (!std::memcmp(w.before.data(), (const void *)(uintptr_t)w.offset, w.size)) continue;   // nothing changed
         int rc = ff7_code_runnable(w.offset, w.size);
         if (rc == 1) continue;
-        uint32_t fn = ff7_interp_function_of(w.offset);
-        if (!fallback_enabled() || !fn) {
+        // every lifted function holding the bytes (inline copies too: src/host/ff7_hext.cpp)
+        uint32_t fns[64];
+        const int nf = ff7_functions_covering(w.offset, w.size, fns, 64);
+        if (!fallback_enabled() || !nf) {
             ffnx_warning("%s at 0x%08X: no lifted variant -- the original code runs\n", w.what, w.offset);
             continue;
         }
-        if (ff7_interp_marked(fn)) continue;
-        int m = ff7_interp_mark(fn);
-        if (m == 0)
-            ffnx_info("%s at 0x%08X: no lifted variant (%s) -- function 0x%08X runs interpreted\n",
-                      w.what, w.offset, rc == 0 ? "bytes differ" : "not covered", fn);
-        else
-            ffnx_warning("%s at 0x%08X: no lifted variant, function 0x%08X cannot be interpreted (%d)\n",
-                         w.what, w.offset, fn, m);
+        for (int i = 0; i < nf; i++) {
+            const uint32_t fn = fns[i];
+            if (ff7_interp_marked(fn)) continue;
+            int m = ff7_interp_mark(fn);
+            if (m == 0)
+                ffnx_info("%s at 0x%08X: no lifted variant (%s) -- function 0x%08X runs interpreted\n",
+                          w.what, w.offset, rc == 0 ? "bytes differ" : "not covered", fn);
+            else if (m != -2)
+                ffnx_warning("%s at 0x%08X: no lifted variant, function 0x%08X cannot be interpreted (%d)\n",
+                             w.what, w.offset, fn, m);
+        }
     }
 }
 

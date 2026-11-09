@@ -30,7 +30,7 @@ int ff7_override_active(uint32_t va);
 uint64_t ff7_interp_steps;
 
 /* ---- marked functions ------------------------------------------------------------------- */
-#define MAX_MARKED 1024
+#define MAX_MARKED 4096
 static uint32_t g_marked[MAX_MARKED];
 static int g_nmarked;
 

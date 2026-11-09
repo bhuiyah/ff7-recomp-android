@@ -523,3 +523,37 @@
   code bytes at the last two (src/interp/x86_interp.c ff7_interp_dump). The launcher now warns
   on the Mods page when an option that is on names a catalog mod as required that is not
   enabled (ConflictChecker.optionNeeds). The user's profile has Theme = 0 (boots again).
+- M8 game boosters (src/ffnx_port/boosters.cpp, BoosterIcons.java): speed 1x/2x/3x (FFNx's
+  speed hack), random battles off (FFNx's battle_wanted), battle enhancement (ours: party HP/MP
+  full in battle -- actor_vars plus the two copies the game draws from, 0xDBA498 + 0x440 * slot
+  and the ATB-side records at 0x9A8B14 + 0x44 * slot -- and the Limit gauge byte at +0x1B of the
+  0xDBA498 record, the savemap's limit bar outside battle). Set from the bottom-screen deck
+  (Speed / Battles / Battle+), FFNx's L3 shortcut mode (Cross = battle enhancement) and the
+  launcher's Settings (files/boosters.txt, read at the first frame). Top-right icons are an
+  Android view fed by the companion snapshot. Above the display's 120 Hz the speed hack needs
+  vsync off; bgfx's Vulkan backend then wanted IMMEDIATE, which Adreno lacks, and fell back to
+  FIFO (capped at 120): patches/bgfx/0002 falls back to MAILBOX. Checked on the Thor: battle at
+  1x 60 FPS, 2x 119, 3x 178 cycling from the deck; HP stays 302/302 under the guards' fire.
+- Bottom screen in battle (launcher Settings): Automatic / enlarged split / the strip as drawn /
+  off (files/companion.txt). Automatic shows the strip as drawn when a User Interface mod is on.
+- Squeezed dialogue text with Finishing Touch + Enhanced Stock UI: load order, not the port.
+  Echo-S ships its own menu fonts (Echo-S/menu/usfont_*) and was above the two UI mods, so its
+  font won while their hext still set the letter widths (0x99DDA8) for theirs. With the UI mods
+  first, the text is right. The launcher now puts a newly added User Interface mod above the
+  content mods, and the conflict summary flags a content mod whose menu textures hide a UI
+  mod's, with a "Put interface mods first" button. The option-needs check now ignores
+  sentences that name a mod as one choice of several ("Requires either ... or New Threat 2.0").
+- Enhanced Stock UI froze the Echo-S intro at its second message (6 lines in a 5-line box):
+  OK did nothing. Its Field patch moves the box height the paging code compares against to
+  0x91C94A (137) and shrinks the drawn one (104); the wait-for-OK state (mode 4) needs
+  line_row == (height - 9) / 16 + scrolls - 1, but text drawing stopped at row 4, from the
+  old height. The draw check at 0x631B31 is patched too, yet the hext loader switched only
+  "the function at or below" it (0x631AA7) to the interpreter -- and 0x631AA7 is a label inside
+  0x631945, whose lifted body has its own inline copy of that code, so the patch never ran.
+  tools/gen_extents.py now lists the guest ranges every lifted function covers
+  (generated/recomp/recomp_extents.c, also written by run_lift.py), and a hext or FFNx code
+  write with no lifted variant switches every function holding the bytes (here 17). The intro
+  now pages through; any earlier mod patch that landed in inline-copied code benefits too.
+- Still open with Finishing Touch + Enhanced Stock UI in battle: the party window draws the
+  name under the HP numbers (same on the top screen, so the game's layout with these options,
+  not the bottom-screen crop); "ME" at the left edge. To compare with Windows 7th Heaven.

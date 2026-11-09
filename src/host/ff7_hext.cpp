@@ -28,6 +28,36 @@ typedef struct { uint32_t start, end; const char *bytes, *mask; } ff7_code_varia
 // sits in a static library, whose members a weak reference never pulls in.
 extern const ff7_code_variant_t ff7_code_variants[];
 extern const uint32_t ff7_code_variant_count;
+// generated/recomp/recomp_extents.c (tools/gen_extents.py): the guest ranges each lifted
+// function's body covers, by start.
+typedef struct { uint32_t fn, start, end; } ff7_fn_extent_t;
+extern const ff7_fn_extent_t ff7_fn_extents[];
+extern const uint32_t ff7_fn_extent_count;
+
+// Every lifted function whose body holds guest bytes in [va, va+n): a block reached by
+// falling into another function's entry is lifted inline in each function that reaches it
+// (sub_00631945 runs its own copy of sub_00631AA7's code), so a patch there must switch all
+// of them to the interpreter. Falls back to the nearest entry below va. Returns the count.
+int ff7_functions_covering(uint32_t va, uint32_t n, uint32_t *out, int max) {
+    int k = 0;
+    uint32_t lo = 0, hi = ff7_fn_extent_count;
+    while (lo < hi) {                       // first range starting at or after va + n
+        uint32_t mid = lo + (hi - lo) / 2;
+        if (ff7_fn_extents[mid].start < va + n) lo = mid + 1; else hi = mid;
+    }
+    for (uint32_t i = 0; i < lo && k < max; i++) {
+        const ff7_fn_extent_t &e = ff7_fn_extents[i];
+        if (e.end <= va || !e.fn) continue;
+        bool dup = false;
+        for (int j = 0; j < k; j++) dup |= out[j] == e.fn;
+        if (!dup) out[k++] = e.fn;
+    }
+    if (k == 0 && max > 0) {
+        uint32_t fn = ff7_interp_function_of(va);
+        if (fn) out[k++] = fn;
+    }
+    return k;
+}
 }
 
 namespace {
@@ -67,14 +97,27 @@ const char *code_status(uint32_t va, const std::vector<uint8_t> &before, uint32_
 
 struct Ctx { int files = 0, writes = 0, data_writes = 0, code_ok = 0, code_bad = 0, errors = 0, delayed = 0, interpreted = 0; };
 
-// The function holding [va, va+n) runs interpreted from now on.
+// Every function holding [va, va+n) runs interpreted from now on (ff7_functions_covering).
 void interpret_at(const std::string &mod, const std::string &file, uint32_t va, uint32_t n, const char *why, Ctx &c) {
-    uint32_t fn = ff7_interp_function_of(va);
-    int rc = fn ? ff7_interp_mark(fn) : -1;
-    if (rc == 0) {
+    uint32_t fns[64];
+    const int nf = ff7_functions_covering(va, n, fns, 64);
+    int rc = -1, marked = 0;
+    std::string list;
+    for (int i = 0; i < nf; i++) {
+        const int r = ff7_interp_mark(fns[i]);
+        if (r == 0) {
+            marked++;
+            char b[16];
+            std::snprintf(b, sizeof b, "%s0x%08X", list.empty() ? "" : ", ", fns[i]);
+            list += b;
+        } else if (rc != -3) {
+            rc = r;                         // the reason when none can be marked
+        }
+    }
+    if (marked) {
         c.interpreted++;
-        std::fprintf(stderr, "[hext] %s %s: code write 0x%08X (%u bytes), %s: function 0x%08X runs interpreted\n",
-                     mod.c_str(), file.c_str(), va, n, why, fn);
+        std::fprintf(stderr, "[hext] %s %s: code write 0x%08X (%u bytes), %s: %s %s interpreted\n",
+                     mod.c_str(), file.c_str(), va, n, why, marked == 1 ? "function" : "functions", list.c_str());
         return;
     }
     c.code_bad++;
