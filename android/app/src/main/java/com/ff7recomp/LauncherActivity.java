@@ -68,6 +68,36 @@ public class LauncherActivity extends Activity {
     private String page = "mods";
     private boolean busy;
     private GameBuild build;
+
+    // ---- FF7's menu sounds (Sfx.java, from the player's game files)
+    private Sfx sfx;
+    private long lastNavKey;
+    /** On every click of a view theme() passed: the game's confirm sound. Android calls a view's
+     *  accessibility delegate on each performClick, with accessibility on or off. */
+    private final View.AccessibilityDelegate clickSound = new View.AccessibilityDelegate() {
+        @Override public void sendAccessibilityEvent(View host, int type) {
+            if (type == android.view.accessibility.AccessibilityEvent.TYPE_VIEW_CLICKED) sound(Sfx.OK);
+            super.sendAccessibilityEvent(host, type);
+        }
+    };
+
+    private void sound(int id) {
+        if (sfx != null) sfx.play(id);
+    }
+
+    /** The cursor sound when the D-pad moves focus (not when a page rebuild moves it). */
+    private void cursorOnFocus(View decor) {
+        decor.getViewTreeObserver().addOnGlobalFocusChangeListener((was, now) -> {
+            if (was != null && now != null && was != now && System.currentTimeMillis() - lastNavKey < 400) sound(Sfx.CURSOR);
+        });
+    }
+
+    private void loadSounds() {
+        if (sfx != null && sfx.isReady()) { sfx.enabled = prefs.getBoolean("menu_sounds", true); return; }
+        if (sfx != null) sfx.release();
+        sfx = new Sfx(this, install.game);
+        sfx.enabled = prefs.getBoolean("menu_sounds", true);
+    }
     private android.widget.ProgressBar buildBar;   // Game files page, while building
     private TextView buildLine;
     private final android.os.Handler ticker = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -172,6 +202,8 @@ public class LauncherActivity extends Activity {
         right.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         root.addView(right, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
         setContentView(root);
+        theme(root);
+        cursorOnFocus(getWindow().getDecorView());
         hideSystemBars();
         show(ready() ? "mods" : "game");
         // catalogs older than a day are fetched quietly in the background (as 7th Heaven does)
@@ -184,6 +216,7 @@ public class LauncherActivity extends Activity {
         super.onResume();
         hideSystemBars();
         queue.setListener(this::queueChanged);
+        loadSounds();
         refresh();
         ticker.removeCallbacks(buildTick);
         ticker.post(buildTick);
@@ -908,6 +941,13 @@ public class LauncherActivity extends Activity {
 
     private View settingsPage() {
         LinearLayout col = column();
+        CheckBox ms = new CheckBox(this);
+        ms.setText("Menu sounds (FF7's own, from your game files)");
+        ms.setTextSize(16);
+        ms.setChecked(prefs.getBoolean("menu_sounds", true));
+        ms.setOnCheckedChangeListener((b, on) -> { prefs.edit().putBoolean("menu_sounds", on).apply(); loadSounds(); });
+        col.addView(ms);
+        col.addView(space(10));
         col.addView(heading("Frame rate"));
         RadioGroup g = new RadioGroup(this);
         int cur = prefs.getInt("fps", 3);
@@ -1108,7 +1148,7 @@ public class LauncherActivity extends Activity {
         if (install.hasGame() && !GameBuild.running) {
             col.addView(space(14));
             android.widget.CheckBox q = new android.widget.CheckBox(this);
-            q.setText("Quiet build: about twice as long, cooler and quieter");
+            q.setText("Quiet build: about 14 minutes instead of 8, about 12 °C cooler");
             q.setChecked(prefs.getBoolean("quiet_build", false));
             q.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("quiet_build", on).apply());
             col.addView(q);
@@ -1308,6 +1348,7 @@ public class LauncherActivity extends Activity {
     }
 
     private void toastDialog(String msg) {
+        if (msg.startsWith("Failed") || msg.startsWith("Not ")) sound(Sfx.ERROR);
         ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setMessage(msg).setPositiveButton("OK", null).show());
     }
@@ -1316,6 +1357,10 @@ public class LauncherActivity extends Activity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
         int code = e.getKeyCode();
+        if (e.getAction() == KeyEvent.ACTION_DOWN) {
+            if (isNav(code)) lastNavKey = System.currentTimeMillis();
+            else if ((code == KeyEvent.KEYCODE_BUTTON_B || code == KeyEvent.KEYCODE_BACK) && e.getRepeatCount() == 0) sound(Sfx.CANCEL);
+        }
         if (code == KeyEvent.KEYCODE_BUTTON_A)
             return super.dispatchKeyEvent(new KeyEvent(e.getDownTime(), e.getEventTime(), e.getAction(), KeyEvent.KEYCODE_DPAD_CENTER, e.getRepeatCount()));
         if (code == KeyEvent.KEYCODE_BUTTON_B)
@@ -1325,6 +1370,11 @@ public class LauncherActivity extends Activity {
             return true;
         }
         return super.dispatchKeyEvent(e);
+    }
+
+    private static boolean isNav(int code) {
+        return code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN
+                || code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT || code == KeyEvent.KEYCODE_TAB;
     }
 
     private void hideSystemBars() {
@@ -1394,6 +1444,15 @@ public class LauncherActivity extends Activity {
 
     /** Checkboxes, radio buttons and text fields inside v, in the window colours. */
     private void theme(View v) {
+        if (v.isClickable() || v instanceof Button) {
+            v.setSoundEffectsEnabled(false);
+            v.setAccessibilityDelegate(clickSound);
+        }
+        if (v instanceof android.widget.AbsListView)     // dialog lists make their rows later
+            ((ViewGroup) v).setOnHierarchyChangeListener(new ViewGroup.OnHierarchyChangeListener() {
+                @Override public void onChildViewAdded(View parent, View child) { theme(child); }
+                @Override public void onChildViewRemoved(View parent, View child) { }
+            });
         if (v instanceof CheckBox || v instanceof RadioButton) {
             android.widget.CompoundButton c = (android.widget.CompoundButton) v;
             c.setButtonTintList(new android.content.res.ColorStateList(
@@ -1417,7 +1476,15 @@ public class LauncherActivity extends Activity {
             android.graphics.drawable.InsetDrawable bg = new android.graphics.drawable.InsetDrawable(window(WIN_TOP, WIN_BOTTOM, 10), dp(16));
             d.getWindow().setBackgroundDrawable(bg);
             theme(d.getWindow().getDecorView());
+            cursorOnFocus(d.getWindow().getDecorView());
         }
+        d.setOnKeyListener((di, code, e) -> {
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_BUTTON_B) sound(Sfx.CANCEL);
+                else if (isNav(code)) lastNavKey = System.currentTimeMillis();
+            }
+            return false;
+        });
         for (int which : new int[] { AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL }) {
             Button b = d.getButton(which);
             if (b != null) { b.setTextColor(ACCENT); shadow(b); }

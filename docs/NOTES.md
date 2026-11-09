@@ -713,3 +713,14 @@
   (avcodec_configuration()) is replaced after configure. The APK has no build-PC paths left.
   Result on the Thor: 486 s at an average CPU sensor of ~80 C (was 582 s, unmanaged), boots into
   the field at 119 FPS. APK 67.7 MB.
+- 2026-11-09 Quiet build on the Thor: 827 s at an average CPU sensor of 66-70 C (default 486 s
+  at ~80 C).
+- 2026-11-09 FF7's menu sounds in the launcher (Sfx.java), decoded on the device from the
+  player's data/sound/audio.fmt + audio.dat (nothing of the game in the APK) into cached WAVs,
+  played with a SoundPool. audio.fmt: per ID from 1, length, offset, loop (16 bytes), then a
+  WAVEFORMATEX and its cbSize extra (MS-ADPCM coefficients); an empty slot is 42 bytes with no
+  extra (750 entries, all MS-ADPCM 44.1 kHz). The decode matches an independent Python decoder
+  sample for sample. IDs from the game's own menu with FFNx trace_sfx: 1 cursor and confirm,
+  3 invalid (buzzer), 4 cancel. Clicks play 1 through an accessibility delegate theme() sets on
+  every clickable view (Android calls it on each performClick even with accessibility off),
+  D-pad focus moves 1, B/Back 4, failure messages 3. Settings > Menu sounds turns them off.
