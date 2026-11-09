@@ -93,9 +93,12 @@ public class LauncherActivity extends Activity {
     }
 
     private void loadSounds() {
-        if (sfx != null && sfx.isReady()) { sfx.enabled = prefs.getBoolean("menu_sounds", true); return; }
+        if (sfx != null && sfx.isReady() && sfx.profileStamp == library.profile.lastModified()) {
+            sfx.enabled = prefs.getBoolean("menu_sounds", true);
+            return;
+        }
         if (sfx != null) sfx.release();
-        sfx = new Sfx(this, install.game);
+        sfx = new Sfx(this, install.game, library.profile);   // the mods' sounds win, as in the game
         sfx.enabled = prefs.getBoolean("menu_sounds", true);
     }
     private android.widget.ProgressBar buildBar;   // Game files page, while building

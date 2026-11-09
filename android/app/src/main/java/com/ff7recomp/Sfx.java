@@ -13,10 +13,12 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
- * FF7's own menu sounds in the launcher, decoded from the player's game files
- * (data/sound/audio.fmt + audio.dat, as FFNx's sfx.cpp reads them): nothing of the game ships
- * in the APK. Each sound is decoded once (MS-ADPCM) into a WAV in the app's cache and played
- * through a SoundPool.
+ * FF7's own menu sounds in the launcher, the ones the game would play: nothing of the game
+ * ships in the APK. Like FFNx (audio.cpp), an enabled mod's sound wins: sfx/config.toml may map
+ * a game sound ID to another file (shuffle / sequential: the first entry), then sfx/<id>.ogg,
+ * found through the mod overlay (ModLibrary's profile, src/mods). Without one, the original
+ * from data/sound/audio.fmt + audio.dat (as FFNx's sfx.cpp reads it), decoded once (MS-ADPCM)
+ * into a WAV in the app's cache. Played through a SoundPool.
  *
  * audio.fmt: one entry per sound ID (from 1): length and offset in audio.dat, loop flag and
  * points (16 bytes), then a WAVEFORMATEX (18 bytes) and its cbSize extra bytes (the ADPCM
@@ -34,7 +36,15 @@ final class Sfx {
     volatile boolean enabled = true;
     private long lastCursor;
 
-    Sfx(Context ctx, File gameDir) {
+    static { System.loadLibrary("ff7launcher"); }
+
+    private static native String[] nativeModFiles(String profile, String cacheDir, String[] rels);
+
+    /** profile.xml's state when this set was made: a new one after the mods change. */
+    final long profileStamp;
+
+    Sfx(Context ctx, File gameDir, File profile) {
+        profileStamp = profile.lastModified();
         pool = new SoundPool.Builder().setMaxStreams(4).setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()).build();
         File cache = new File(ctx.getCacheDir(), "sfx");
@@ -43,9 +53,15 @@ final class Sfx {
                 File fmt = new File(gameDir, "data/sound/audio.fmt"), dat = new File(gameDir, "data/sound/audio.dat");
                 if (!fmt.isFile() || !dat.isFile()) return;
                 cache.mkdirs();
+                String[] modded = modSounds(profile, new File(ctx.getCacheDir(), "modfiles"));
                 String stamp = fmt.length() + "-" + dat.length() + "-" + dat.lastModified();
                 for (int id : USED) {
                     if (loaded[id] != 0) continue;
+                    if (modded[id] != null) {
+                        loaded[id] = pool.load(modded[id], 1);
+                        Log.i(TAG, "sound " + id + ": " + modded[id]);
+                        continue;
+                    }
                     File wav = new File(cache, id + "-" + stamp + ".wav");
                     if (!wav.isFile()) decodeTo(fmt, dat, id, wav);
                     if (wav.isFile()) loaded[id] = pool.load(wav.getPath(), 1);
@@ -68,6 +84,45 @@ final class Sfx {
     }
 
     boolean isReady() { return ready; }
+
+    private static final java.util.regex.Pattern SECTION = java.util.regex.Pattern.compile("^\\s*\\[\\s*\"?(\\d+)\"?\\s*\\]");
+    private static final java.util.regex.Pattern FIRST = java.util.regex.Pattern.compile("^\\s*(shuffle|sequential)\\s*=\\s*\\[\\s*(\\d+)");
+
+    /** The enabled mods' file for each used ID (index = ID), or null: the game's choice. */
+    private static String[] modSounds(File profile, File cache) {
+        String[] out = new String[16];
+        if (!profile.isFile()) return out;
+        cache.mkdirs();
+        String[] cfg = nativeModFiles(profile.getPath(), cache.getPath(), new String[] { "sfx/config.toml" });
+        java.util.Map<Integer, String> mapped = new java.util.HashMap<>();
+        if (cfg[0] != null) {
+            int section = -1;
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(cfg[0]))) {
+                for (String l; (l = r.readLine()) != null; ) {
+                    java.util.regex.Matcher m = SECTION.matcher(l);
+                    if (m.find()) { section = Integer.parseInt(m.group(1)); continue; }
+                    if (l.trim().startsWith("[")) { section = -1; continue; }
+                    m = FIRST.matcher(l);
+                    if (section >= 0 && m.find() && !mapped.containsKey(section)) mapped.put(section, m.group(2));
+                }
+            } catch (IOException | NumberFormatException e) {
+                Log.w(TAG, "sfx/config.toml: " + e);
+            }
+        }
+        java.util.List<String> rels = new java.util.ArrayList<>();
+        java.util.List<Integer> ids = new java.util.ArrayList<>();
+        for (int id : USED) {
+            if (mapped.containsKey(id)) { rels.add("sfx/" + mapped.get(id) + ".ogg"); ids.add(id); }
+            rels.add("sfx/" + id + ".ogg");
+            ids.add(id);
+        }
+        String[] hit = nativeModFiles(profile.getPath(), cache.getPath(), rels.toArray(new String[0]));
+        for (int i = 0; i < hit.length; i++) {
+            int id = ids.get(i);
+            if (out[id] == null && hit[i] != null && new File(hit[i]).isFile()) out[id] = hit[i];
+        }
+        return out;
+    }
 
     void release() { pool.release(); }
 

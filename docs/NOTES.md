@@ -724,3 +724,12 @@
   3 invalid (buzzer), 4 cancel. Clicks play 1 through an accessibility delegate theme() sets on
   every clickable view (Android calls it on each performClick even with accessibility off),
   D-pad focus moves 1, B/Back 4, failure messages 3. Settings > Menu sounds turns them off.
+- 2026-11-09 Launcher sounds = what the game plays. The title screen's NEW GAME / Continue and
+  the menu both play sound 1 for moving and selecting (FFNx trace_sfx). But with mods FFNx plays
+  external sounds first: sfx/config.toml maps a game ID to another file (Cosmo Memory's
+  UI_Dissidia option: 1 -> 6161.ogg, 3 -> 6121.ogg, 4 -> 6439.ogg), so the game's select sound
+  was the mod's while the launcher played audio.dat's. Sfx.java now resolves like FFNx:
+  config.toml's first shuffle/sequential entry, then sfx/<id>.ogg, through the enabled mods
+  (Sfx.nativeModFiles: ff7_mods_load + ff7_mods_redirect, IRO entries extracted to
+  cache/modfiles; one lock with the conflict report, which loads the same global overlay),
+  audio.dat only without a mod sound. Re-resolved when profile.xml changes.

@@ -9,6 +9,7 @@
 #include "modinfo.hpp"
 #include "mods.h"
 #include <cstdlib>
+#include <mutex>
 
 namespace {
 
@@ -124,12 +125,44 @@ Java_com_ff7recomp_ModLibrary_nativeModInfo(JNIEnv *env, jclass, jstring jpath) 
 
 // The enabled mods of a profile as the game would load them, and where they collide
 // (src/mods/mods.h ff7_mods_conflicts_json).
+// The mod overlay is one global set (src/mods/mods.cpp): the conflict report and the sound
+// lookup below each load it, one at a time.
+static std::mutex g_overlay;
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_ff7recomp_ModLibrary_nativeConflicts(JNIEnv *env, jclass, jstring jprofile) {
     const char *p = env->GetStringUTFChars(jprofile, nullptr);
+    std::lock_guard<std::mutex> lk(g_overlay);
     char *json = ff7_mods_conflicts_json(p);
     env->ReleaseStringUTFChars(jprofile, p);
     jstring r = env->NewStringUTF(json ? json : "{}");
     std::free(json);
     return r;
+}
+
+// Where the game would read each of `rels` (paths relative to the game folder) with the
+// profile's enabled mods: the replacing file (an IRO entry is extracted into cacheDir), or
+// null where no mod replaces it. Sfx.java uses it for FFNx's external sounds (sfx/...).
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_ff7recomp_Sfx_nativeModFiles(JNIEnv *env, jclass, jstring jprofile, jstring jcache, jobjectArray jrels) {
+    const char *p = env->GetStringUTFChars(jprofile, nullptr);
+    const char *c = env->GetStringUTFChars(jcache, nullptr);
+    jsize n = env->GetArrayLength(jrels);
+    jobjectArray out = env->NewObjectArray(n, env->FindClass("java/lang/String"), nullptr);
+    {
+        std::lock_guard<std::mutex> lk(g_overlay);
+        ff7_mods_load(p, c);
+        for (jsize i = 0; i < n; i++) {
+            jstring jr = (jstring)env->GetObjectArrayElement(jrels, i);
+            const char *r = env->GetStringUTFChars(jr, nullptr);
+            char buf[4096];
+            const char *hit = ff7_mods_redirect(r, buf, sizeof buf);
+            if (hit) env->SetObjectArrayElement(out, i, env->NewStringUTF(hit));
+            env->ReleaseStringUTFChars(jr, r);
+            env->DeleteLocalRef(jr);
+        }
+    }
+    env->ReleaseStringUTFChars(jprofile, p);
+    env->ReleaseStringUTFChars(jcache, c);
+    return out;
 }
