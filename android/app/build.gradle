@@ -11,7 +11,7 @@ android {
         versionCode 1
         versionName '0.1.0'
         ndk { abiFilters 'arm64-v8a' }
-        externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static' } }
+        externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static', "-DFF7_BUNDLE_GAME=${project.findProperty('bundleGame') ?: 'OFF'}" } }
     }
     buildTypes {
         // The lifted game is ~10 M lines of C: build it optimised even for debug APKs.
@@ -19,7 +19,16 @@ android {
     }
     externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt'); version '3.30.5' } }
     // FFNx's run-time files (tools/stage_apk_assets.sh) ship in the APK as assets/ffnx.
-    sourceSets { main { assets.srcDirs += ["${rootDir}/../build/apk-assets"] } }
+    // The on-device build kit (tools/build_device_kit.sh): clang, Python, the lifter and the
+    // runtime's archives, as jniLibs (executed from the native library folder, so extracted:
+    // useLegacyPackaging) and assets/kit.zip.
+    sourceSets { main {
+        assets.srcDirs += ["${rootDir}/../build/apk-assets", "${rootDir}/../build/device-kit/assets"]
+        jniLibs.srcDirs += ["${rootDir}/../build/device-kit/jni"]
+    } }
+    packaging { jniLibs { useLegacyPackaging true } }
+    // kit.zip is already compressed
+    androidResources { noCompress += ['zip'] }
 }
 
 dependencies {

@@ -1,14 +1,20 @@
-# libff7.so for com.ff7recomp: the lifted game, its runtime, the FFNx bridge and bgfx.
+# libff7launcher.so for com.ff7recomp (and, for development, libff7.so: the lifted game, its
+# runtime, the FFNx bridge and bgfx).
 cmake_minimum_required(VERSION 3.20)
 project(FF7App C CXX)
 get_filename_component(FF7_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../.." ABSOLUTE)
 
-set(FF7_WITH_BGFX ON CACHE BOOL "" FORCE)
-set(FF7_WITH_FFNX ON CACHE BOOL "" FORCE)
-include("${FF7_ROOT}/cmake/ff7core.cmake")
-
-add_library(ff7 SHARED "${FF7_ROOT}/src/android/ff7_android_main.cpp")
-target_link_libraries(ff7 PRIVATE ff7_core android log)
+# The APK carries no game code: the device builds libff7.so from the player's own exe
+# (BuildService.java, with the kit from tools/build_device_kit.sh). FF7_BUNDLE_GAME (gradle
+# -PbundleGame=ON, needs generated/recomp) links the PC's lift into the APK, for development.
+option(FF7_BUNDLE_GAME "Link the lifted game into the APK (development)" OFF)
+if(FF7_BUNDLE_GAME)
+  set(FF7_WITH_BGFX ON CACHE BOOL "" FORCE)
+  set(FF7_WITH_FFNX ON CACHE BOOL "" FORCE)
+  include("${FF7_ROOT}/cmake/ff7core.cmake")
+  add_library(ff7 SHARED "${FF7_ROOT}/src/android/ff7_android_main.cpp")
+  target_link_libraries(ff7 PRIVATE ff7_core android log)
+endif()
 
 # libff7launcher.so for the launcher activity: mod archives and mod.xml read with the same
 # code as the game's mod overlay (src/mods), without loading the game.

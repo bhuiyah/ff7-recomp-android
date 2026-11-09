@@ -9,14 +9,15 @@ exe and records N for the ones that end in `ret imm16` (opcode C2).
 Writes generated/recomp/recomp_retn.c: a sorted table {va, pop_bytes} (only N > 0).
 usage: py -I tools/gen_retn_table.py
 """
+import gzip
 import json
 import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CATALOG = os.path.join(ROOT, 'analysis', 'catalog.json')
-EXE = os.path.join(ROOT, 'game', 'ff7_en.exe')
-OUT = os.path.join(ROOT, 'generated', 'recomp', 'recomp_retn.c')
+CATALOG = os.environ.get('FF7_CATALOG') or os.path.join(ROOT, 'analysis', 'catalog.json')
+EXE = os.environ.get('FF7_EXE') or os.path.join(ROOT, 'game', 'ff7_en.exe')
+OUT = os.environ.get('FF7_RETN_OUT') or os.path.join(ROOT, 'generated', 'recomp', 'recomp_retn.c')   # env: the on-device build
 sys.path.insert(0, os.path.join(ROOT, 'external', 'pcrecomp', 'tools', 'pe'))
 
 
@@ -27,7 +28,7 @@ def main():
     base = pe.OPTIONAL_HEADER.ImageBase
     img = pe.get_memory_mapped_image()
     md = Cs(CS_ARCH_X86, CS_MODE_32)
-    cat = json.load(open(CATALOG))
+    cat = json.load(gzip.open(CATALOG, "rt") if CATALOG.endswith(".gz") else open(CATALOG))
     rows, conflicts = [], 0
     for f in cat['functions']:
         pops = set()

@@ -24,7 +24,7 @@ Adapted from codepdbh/nfsu2-recompiled scripts/run_lift.py (MIT License).
 
 Everything written here is derived from the game binary and is gitignored.
 """
-import json, os, sys, time, collections
+import gzip, json, os, sys, time, collections
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PCRECOMP = os.environ.get("PCRECOMP", os.path.normpath(os.path.join(HERE, "..", "external", "pcrecomp")))
@@ -215,7 +215,7 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
     pe = pefile.PE(exe, fast_load=True)
     base = pe.OPTIONAL_HEADER.ImageBase
     img = pe.get_memory_mapped_image()
-    cat = json.load(open(catalog))
+    cat = json.load(gzip.open(catalog, "rt") if catalog.endswith(".gz") else open(catalog))
     fds = cat["functions"]
     lifted = {fd["address"] for fd in fds}
     names = {}

@@ -67,11 +67,36 @@ public class LauncherActivity extends Activity {
     private Button playButton;
     private String page = "mods";
     private boolean busy;
+    private GameBuild build;
+    private android.widget.ProgressBar buildBar;   // Game files page, while building
+    private TextView buildLine;
+    private final android.os.Handler ticker = new android.os.Handler(android.os.Looper.getMainLooper());
+    private boolean wasBuilding;
+    private final Runnable buildTick = new Runnable() {
+        @Override public void run() {
+            if (GameBuild.running) {
+                if (buildBar != null) { buildBar.setIndeterminate(GameBuild.percent <= 0); buildBar.setProgress(GameBuild.percent); }
+                if (buildLine != null) buildLine.setText(GameBuild.stage + " · " + GameBuild.percent + "%");
+                updateStatus();
+                wasBuilding = true;
+            } else if (wasBuilding) {
+                wasBuilding = false;
+                refresh();
+            }
+            ticker.postDelayed(this, 500);
+        }
+    };
+
+    /** The game can start: files imported and libff7.so built for this device. */
+    private boolean ready() {
+        return install.hasGame() && build.built() && !GameBuild.running;
+    }
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         install = new GameInstall(this);
+        build = new GameBuild(this);
         library = new ModLibrary(install.files);
         if (sQueue == null) {
             final File files = install.files;
@@ -148,7 +173,7 @@ public class LauncherActivity extends Activity {
         root.addView(right, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
         setContentView(root);
         hideSystemBars();
-        show(install.hasGame() ? "mods" : "game");
+        show(ready() ? "mods" : "game");
         // catalogs older than a day are fetched quietly in the background (as 7th Heaven does)
         new Thread(() -> { catalog.refresh(false); runOnUiThread(this::refresh); }).start();
         playButton.requestFocus();
@@ -160,12 +185,15 @@ public class LauncherActivity extends Activity {
         hideSystemBars();
         queue.setListener(this::queueChanged);
         refresh();
+        ticker.removeCallbacks(buildTick);
+        ticker.post(buildTick);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
         queue.setListener(null);
+        ticker.removeCallbacks(buildTick);
     }
 
     // ------------------------------------------------------------------- pages
@@ -178,7 +206,7 @@ public class LauncherActivity extends Activity {
         library.load();
         catalog.prune(library.dir);
         updateStatus();
-        playButton.setEnabled(install.hasGame() && !busy);
+        playButton.setEnabled(ready() && !busy);
         content.removeAllViews();
         actionSlots.clear();
         progressViews.clear();
@@ -653,7 +681,9 @@ public class LauncherActivity extends Activity {
 
     private void updateStatus() {
         StringBuilder s = new StringBuilder();
-        s.append(install.hasGame() ? "Game files: ready" : "Game files: not imported yet")
+        s.append(!install.hasGame() ? "Game: not imported yet"
+                : GameBuild.running ? "Game: building for this device, " + GameBuild.percent + "%"
+                : build.built() ? "Game: ready" : "Game: not built for this device yet")
                 .append("\nMods: ").append(library.enabledCount()).append(" of ").append(library.mods.size()).append(" enabled");
         if (!catalog.updates().isEmpty()) s.append("\nMod updates: ").append(catalog.updates().size());
         DownloadQueue.Item run = queue.running();
@@ -1037,16 +1067,57 @@ public class LauncherActivity extends Activity {
 
     private View gamePage() {
         LinearLayout col = column();
-        col.addView(heading("Game files"));
-        col.addView(text(install.hasGame()
-                ? "FINAL FANTASY VII is imported. Import again to replace it."
-                : "Import FINAL FANTASY VII from your copy of the Steam release: copy its install folder "
-                  + "(\"FINAL FANTASY VII\", containing ff7) to this device, then pick that folder.", 15, TEXT));
-        col.addView(space(12));
-        col.addView(button("Import from FF7 install folder…", v -> pick(PICK_GAME)));
-        col.addView(space(12));
-        col.addView(text("Stored in " + install.game.getAbsolutePath(), 13, DIM));
+        buildBar = null;
+        buildLine = null;
+        col.addView(heading("Your FINAL FANTASY VII"));
+        if (!install.hasGame()) {
+            col.addView(text("Pick the FINAL FANTASY VII folder from your Steam copy (the folder that holds "
+                    + "\"ff7\"). FF7Recomp copies the game files, then turns the game into a native Android "
+                    + "app on this device. Nothing from the game is downloaded or shared.", 15, TEXT));
+            col.addView(space(14));
+            col.addView(button("Find my FF7 folder…", v -> pick(PICK_GAME)));
+        } else if (GameBuild.running) {
+            col.addView(text("Building the game for this device. This happens once and takes about 10 to 20 "
+                    + "minutes. You can leave the launcher; it keeps going in the background.", 15, TEXT));
+            col.addView(space(14));
+            buildLine = text(GameBuild.stage + " · " + GameBuild.percent + "%", 15, ACCENT);
+            col.addView(buildLine);
+            col.addView(space(6));
+            buildBar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            buildBar.setMax(100);
+            buildBar.setIndeterminate(GameBuild.percent <= 0);
+            buildBar.setProgress(GameBuild.percent);
+            buildBar.setProgressTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+            col.addView(buildBar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(10)));
+        } else if (build.built()) {
+            col.addView(text("Ready. The game is built for this device: press Play.", 15, TEXT));
+            col.addView(space(14));
+            col.addView(button("Import again from another folder…", v -> pick(PICK_GAME)));
+            col.addView(space(8));
+            col.addView(button("Build again", v -> startBuild()));
+        } else {
+            col.addView(text(GameBuild.error != null
+                    ? "The last build stopped: " + GameBuild.error
+                    : "Your game files are here. One more step: build the game for this device (about 10 to 20 "
+                      + "minutes, once).", 15, GameBuild.error != null ? DIM : TEXT));
+            col.addView(space(14));
+            col.addView(button(GameBuild.error != null ? "Try again" : "Build for this device", v -> startBuild()));
+            col.addView(space(8));
+            col.addView(button("Import again from another folder…", v -> pick(PICK_GAME)));
+        }
+        col.addView(space(14));
+        col.addView(text("Game files: " + install.game.getAbsolutePath() + "\nBuild log: "
+                + build.log.getAbsolutePath(), 12, DIM));
         return scroll(col);
+    }
+
+    private void startBuild() {
+        if (GameBuild.running || !install.hasGame()) return;
+        if (android.os.Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[] { android.Manifest.permission.POST_NOTIFICATIONS }, 9);
+        BuildService.start(this);
+        show("game");
     }
 
     // ------------------------------------------------------------------- actions
@@ -1071,7 +1142,9 @@ public class LauncherActivity extends Activity {
         background(() -> {
             if (req == PICK_GAME) {
                 String err = install.importGame(data.getData(), this::progress);
-                return err == null ? "Game files imported." : "Not imported: " + err;
+                if (err != null) return "Not imported: " + err;
+                runOnUiThread(this::startBuild);
+                return null;
             }
             if (req == PICK_IRO) {
                 int n = 0;
@@ -1163,6 +1236,7 @@ public class LauncherActivity extends Activity {
 
     private void play(String quickbootOverride) {
         if (busy || !install.hasGame()) return;
+        if (!ready()) { show("game"); return; }
         background(() -> {
             progress("Preparing");
             library.load();

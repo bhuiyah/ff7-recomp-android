@@ -54,4 +54,17 @@ pin tomlplusplus        https://github.com/marzer/tomlplusplus.git           301
 pin vgmstream           https://github.com/vgmstream/vgmstream.git           71e2361042531fe767fb98300cf8c1ee95e539a0   # r2117
 pin vorbis              https://github.com/xiph/vorbis.git                   0657aee69dec8508a0011f47f3b69d7538e9d262   # v1.3.7
 pin xxhash              https://github.com/Cyan4973/xxHash.git               e626a72bc2321cd320e953a0ccf1584cad60f363   # v0.8.3
+# The on-device build (tools/build_device_kit.sh): the lifter's disassembler and PE reader,
+# built / packed for Android so the player's device lifts its own exe.
+pin capstone            https://github.com/capstone-engine/capstone.git      52c66920fc7bfa15fd9626dfd9f646c698aaa99b   # 5.0.7
+pin pefile              https://github.com/erocarrera/pefile.git             4b3b1e2e568a88d4f1897d694d684f23d9e270c4   # v2024.8.26
+# Python for Android (python.org's official embeddable package): runs the lifter on the device.
+PYA="$ROOT/external/python-android"
+if [ ! -f "$PYA/prefix/lib/libpython3.14.so" ]; then
+  mkdir -p "$PYA"
+  curl -sfL -o "$PYA/py.tgz" https://www.python.org/ftp/python/3.14.4/python-3.14.4-aarch64-linux-android.tar.gz
+  echo "410fff96f47d818136f91f79c8f83202e1364aeaab2022d00fa70e53007ebde1  $PYA/py.tgz" | sha256sum -c --quiet -
+  tar -C "$PYA" -xzf "$PYA/py.tgz" --exclude='*/libsqlite3.so.0' --exclude='*/include/openssl/*'
+  echo "python-android 3.14.4"
+fi
 echo "deps ok"

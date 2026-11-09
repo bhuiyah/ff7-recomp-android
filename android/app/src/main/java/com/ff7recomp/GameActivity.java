@@ -33,7 +33,16 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private boolean started;
     private Presentation companion;
 
-    static { System.loadLibrary("ff7"); }
+    /** libff7.so: built on this device from the player's exe (GameBuild.java), or bundled in a
+     *  development APK. Loaded before the first native call (onCreate). */
+    private static boolean loaded;
+
+    private static void loadGame(android.content.Context ctx) {
+        if (loaded) return;
+        if (new java.io.File(ctx.getApplicationInfo().nativeLibraryDir, "libff7.so").isFile()) System.loadLibrary("ff7");
+        else System.load(new java.io.File(ctx.getFilesDir(), "game/libff7.so").getAbsolutePath());
+        loaded = true;
+    }
 
     private static native void nativeSetSurface(Surface surface, int width, int height);
     private static native void nativeSetCompanionSurface(Surface surface, int width, int height);
@@ -116,6 +125,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        loadGame(this);
         SurfaceView view = new SurfaceView(this);
         view.getHolder().addCallback(this);
         // the game, and the game boosters' icons over its top-right corner (BoosterIcons)
