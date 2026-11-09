@@ -25,13 +25,15 @@ import org.json.JSONObject;
  */
 public class CompanionView extends View {
     private static native String nativeState();
+    /** The game's snapshot (JSON), for the top screen's booster icons (GameActivity). */
+    static String snapshot() { return nativeState(); }
     private static native void nativeCommand(int cmd);
     private static native void nativeTap(int buttons);
     private static native void nativeSetArea(int top, int bottom);
     private static native void nativeBattleTap(float x, float y);
     private static native void nativeBattleBack();
 
-    private static final int CMD_SPEED = 1, CMD_SAVE = 2, CMD_LOAD = 3;
+    private static final int CMD_SPEED = 1, CMD_SAVE = 2, CMD_LOAD = 3, CMD_BATTLES = 4, CMD_BPLUS = 5;   // companion.cpp / boosters.cpp
     private static final int PAD_Y = 0x8000;   // Triangle: the game's main menu
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -47,9 +49,11 @@ public class CompanionView extends View {
     }
     private final Button[] buttons = {
         new Button("Menu", 0, PAD_Y),
-        new Button("Save state", CMD_SAVE, 0),
-        new Button("Load state", CMD_LOAD, 0),
-        new Button("2× speed", CMD_SPEED, 0),
+        new Button("Save", CMD_SAVE, 0),
+        new Button("Load", CMD_LOAD, 0),
+        new Button("Speed", CMD_SPEED, 0),          // game boosters (docs/ROADMAP.md M8)
+        new Button("Battles", CMD_BATTLES, 0),
+        new Button("Battle+", CMD_BPLUS, 0),
     };
     private Button pressed;
     private int areaTop = -1, areaBottom = -1;   // the game's battle windows (native code draws there)
@@ -208,13 +212,17 @@ public class CompanionView extends View {
             float l = pad + i * (bw + pad);
             b.box.set(l, deckT, l + bw, deckT + deckH);
             window(c, b.box.left, b.box.top, b.box.right, b.box.bottom);
-            boolean on = b.cmd == CMD_SPEED && state.optInt("speed2x") == 1;
+            boolean on = (b.cmd == CMD_SPEED && state.optInt("speed", 1) > 1)
+                    || (b.cmd == CMD_BATTLES && state.optInt("noenc") == 1)
+                    || (b.cmd == CMD_BPLUS && state.optInt("bplus") == 1);
             if (b == pressed || on) {
                 fill.setColor(on ? 0x6600FF88 : 0x55FFFFFF);
                 c.drawRoundRect(b.box, 14 * u, 14 * u, fill);
             }
             String text = (battle && b.pad == PAD_Y) ? "Back" : b.label;
-            label(c, text, b.box.centerX(), b.box.centerY() + 16 * u, 44 * u, Color.WHITE, Paint.Align.CENTER);
+            if (b.cmd == CMD_SPEED) text = "Speed " + Math.max(1, state.optInt("speed", 1)) + "×";
+            else if (b.cmd == CMD_BATTLES) text = state.optInt("noenc") == 1 ? "No battles" : "Battles";
+            label(c, text, b.box.centerX(), b.box.centerY() + 12 * u, 34 * u, Color.WHITE, Paint.Align.CENTER);
         }
 
         if (flash != null && System.currentTimeMillis() < flashUntil)

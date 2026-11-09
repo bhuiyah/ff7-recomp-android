@@ -115,7 +115,12 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         super.onCreate(state);
         SurfaceView view = new SurfaceView(this);
         view.getHolder().addCallback(this);
-        setContentView(view);
+        // the game, and the game boosters' icons over its top-right corner (BoosterIcons)
+        android.widget.FrameLayout layers = new android.widget.FrameLayout(this);
+        layers.addView(view);
+        layers.addView(new BoosterIcons(this), new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        setContentView(layers);
         preferHighestRefreshRate(getWindow(), getDisplay());
         hideSystemBars(getWindow().getInsetsController());
         showCompanion();

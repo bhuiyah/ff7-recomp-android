@@ -1,0 +1,26 @@
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -9460,6 +9460,23 @@
+ 			}
+ 		}
+ 
++		// Without vsync and without IMMEDIATE (Android's swapchains): MAILBOX does not wait for
++		// the display either -- FIFO would hold the frame rate at the refresh rate.
++		if (UINT32_MAX == idx && !_vsync)
++		{
++			for (uint32_t jj = 0; jj < numPresentModes; ++jj)
++			{
++				if (VK_PRESENT_MODE_MAILBOX_KHR == presentModes[jj])
++				{
++					for (uint32_t ii = 0; ii < BX_COUNTOF(s_presentMode); ++ii)
++					{
++						if (VK_PRESENT_MODE_MAILBOX_KHR == s_presentMode[ii].mode) { idx = ii; break; }
++					}
++					break;
++				}
++			}
++		}
++
+ 		if (UINT32_MAX == idx)
+ 		{
+ 			idx = 0;

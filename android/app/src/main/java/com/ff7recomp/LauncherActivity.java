@@ -198,6 +198,9 @@ public class LauncherActivity extends Activity {
                 for (int i = 0; i < Math.min(2, r.lines.size()); i++) box.addView(text(r.lines.get(i).text, 13, DIM));
                 LinearLayout b = row();
                 b.addView(small("All details", v -> showConflicts()));
+                if (r.interfaceBelow) b.addView(small("Put interface mods first", v -> {
+                    if (library.interfaceFirst()) { saveProfile(); ensureConflicts(); refresh(); }
+                }));
                 box.addView(b);
             }
             col.addView(box);
@@ -271,6 +274,7 @@ public class LauncherActivity extends Activity {
             org.json.JSONObject j = library.conflicts();
             ConflictChecker.Report r = ConflictChecker.report(j, catalog);
             ConflictChecker.optionNeeds(r, library, catalog);
+            ConflictChecker.interfaceOrder(r, library);
             runOnUiThread(() -> {
                 int before = conflictReport == null ? -1 : conflictReport.overlaps + conflictReport.problems;
                 conflictReport = r;
@@ -555,7 +559,11 @@ public class LauncherActivity extends Activity {
         int waiting = queue.pendingCount() - (run != null ? 1 : 0);
         if (run != null) s.append("\n").append(run.mod.name).append(": ").append(queueLabel(run, false));
         if (waiting > 0) s.append("\n").append(waiting).append(" more queued");
-        s.append("\nFrame rate: ").append(fpsName(prefs.getInt("fps", 3))).append(prefs.getBoolean("turbo", false) ? ", 2× speed" : "");
+        s.append("\nFrame rate: ").append(fpsName(prefs.getInt("fps", 3))).append(boosterSpeed() > 1 ? ", " + boosterSpeed() + "× speed" : "");
+        if (prefs.getBoolean("no_encounters", false) || prefs.getBoolean("battle_plus", false))
+            s.append("\nBoosters: ").append(prefs.getBoolean("no_encounters", false) ? "no random battles" : "")
+                    .append(prefs.getBoolean("no_encounters", false) && prefs.getBoolean("battle_plus", false) ? ", " : "")
+                    .append(prefs.getBoolean("battle_plus", false) ? "battle enhancement" : "");
         status.setText(s);
         int n = queue.pendingCount();
         downloadsButton.setText(n > 0 ? "Downloads (" + n + ")" : "Downloads");
@@ -794,14 +802,64 @@ public class LauncherActivity extends Activity {
             if (mode == cur) rb.setChecked(true);
         }
         col.addView(g);
-        CheckBox turbo = new CheckBox(this);
-        turbo.setText("2\u00d7 speed (turbo)\nThe whole game runs twice as fast, shown at 120 FPS with the 60 FPS or "
-                + "120 FPS setting. In game, L3 then L2 or R2 switches it off and on.");
-        turbo.setTextColor(TEXT);
-        turbo.setTextSize(16);
-        turbo.setChecked(prefs.getBoolean("turbo", false));
-        turbo.setOnCheckedChangeListener((b, on) -> { prefs.edit().putBoolean("turbo", on).apply(); refresh(); });
-        col.addView(turbo);
+        // Game boosters (docs/ROADMAP.md M8): how each game starts; in game the bottom screen's
+        // Speed / Battles / Battle+ buttons and FFNx's L3 shortcuts change them.
+        col.addView(space(16));
+        col.addView(heading("Game boosters"));
+        col.addView(text("How the game starts. In game: the bottom screen's Speed, Battles and Battle+ buttons, or L3 then "
+                + "R1/L1 (speed), Circle (random battles), Cross (battle enhancement). Icons in the top-right corner show what is on.", 14, DIM));
+        RadioGroup sg = new RadioGroup(this);
+        sg.setOrientation(LinearLayout.HORIZONTAL);
+        int curSpeed = boosterSpeed();
+        for (int sp = 1; sp <= 3; sp++) {
+            RadioButton rb = new RadioButton(this);
+            rb.setText(sp + "× speed   ");
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            rb.setId(View.generateViewId());
+            final int v = sp;
+            rb.setOnClickListener(x -> { prefs.edit().putInt("speed", v).putBoolean("turbo", v > 1).apply(); refresh(); });
+            sg.addView(rb);
+            if (sp == curSpeed) rb.setChecked(true);
+        }
+        col.addView(sg);
+        CheckBox noBattles = new CheckBox(this);
+        noBattles.setText("No random battles\nScripted battles and bosses still happen.");
+        noBattles.setTextColor(TEXT);
+        noBattles.setTextSize(16);
+        noBattles.setChecked(prefs.getBoolean("no_encounters", false));
+        noBattles.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("no_encounters", on).apply());
+        col.addView(noBattles);
+        CheckBox bplus = new CheckBox(this);
+        bplus.setText("Battle enhancement\nThe party's HP and MP stay full in battle, and the Limit gauge is full.");
+        bplus.setTextColor(TEXT);
+        bplus.setTextSize(16);
+        bplus.setChecked(prefs.getBoolean("battle_plus", false));
+        bplus.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("battle_plus", on).apply());
+        col.addView(bplus);
+        col.addView(space(16));
+        col.addView(heading("Bottom screen in battle"));
+        col.addView(text("Where the battle windows go on the Thor's second screen. Mods that restyle the battle "
+                + "windows (Finishing Touch, Enhanced Stock UI) need them shown as the game draws them.", 14, DIM));
+        RadioGroup bw = new RadioGroup(this);
+        String[][] bwModes = {
+            { "auto", "Automatic (as drawn when a user interface mod is on)" },
+            { "split", "Enlarged: names and commands above, HP/MP below" },
+            { "whole", "As the game draws them (one strip)" },
+            { "off", "Off: the windows stay on the top screen" },
+        };
+        String curBw = prefs.getString("battle_windows", "auto");
+        for (String[] mde : bwModes) {
+            RadioButton rb = new RadioButton(this);
+            rb.setText(mde[1]);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            rb.setId(View.generateViewId());
+            rb.setOnClickListener(x -> prefs.edit().putString("battle_windows", mde[0]).apply());
+            bw.addView(rb);
+            if (mde[0].equals(curBw)) rb.setChecked(true);
+        }
+        col.addView(bw);
         col.addView(space(16));
         col.addView(heading("Display"));
         RadioGroup ar = new RadioGroup(this);
@@ -988,11 +1046,34 @@ public class LauncherActivity extends Activity {
             library.load();
             library.save();
             install.installRuntime();
-            install.writeFfnxToml(prefs.getInt("fps", 3), prefs.getBoolean("turbo", false), prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods);
+            install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods);
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
+            install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false));
+            install.writeCompanion(battleWindowsMode());
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)));
             return null;
         });
+    }
+
+    /** The bottom screen's battle windows for this game: "split", "whole" or "off". Automatic
+     *  shows the strip as drawn when an enabled mod restyles the user interface. */
+    private String battleWindowsMode() {
+        String m = prefs.getString("battle_windows", "auto");
+        if (!m.equals("auto")) return m;
+        for (ModLibrary.Mod lm : library.mods) {
+            if (!lm.enabled || lm.error != null) continue;
+            String cat = lm.category == null ? "" : lm.category;
+            ModCatalog.Installed in = catalog.installedByFile(lm.file);
+            ModCatalog.Mod cm = in == null ? null : catalog.byId(in.id);
+            if (cm != null && cat.isEmpty()) cat = cm.category;
+            if (cat.equalsIgnoreCase("User Interface")) return "whole";
+        }
+        return "split";
+    }
+
+    /** The start speed (1-3); older settings had only the 2x "turbo" switch. */
+    private int boosterSpeed() {
+        return prefs.getInt("speed", prefs.getBoolean("turbo", false) ? 2 : 1);
     }
 
     private void saveProfile() {

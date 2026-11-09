@@ -63,6 +63,11 @@ constexpr uint32_t k_scene_enemies = 0x9A8E9C;
 
 extern "C" void ff7_companion_command(int cmd) { g_command = cmd; }
 extern "C" void ff7_companion_battle_tick();                    // companion_render.cpp
+extern "C" void ff7_boosters_frame();                           // boosters.cpp
+extern "C" void ff7_boosters_command(int cmd);
+extern "C" int ff7_booster_speed();
+extern "C" int ff7_booster_no_encounters();
+extern "C" int ff7_booster_battle;
 
 // The 2x button: 2x on, or back to normal speed. FFNx's own toggle switches the speed hack on
 // at its current speed, which is 1x unless the launcher's 2x option set a minimum.
@@ -88,8 +93,10 @@ std::string build_snapshot() {
     std::string j;
     j.reserve(2048);
     char b[512];
-    snprintf(b, sizeof b, "{\"ready\":1,\"mode\":\"%s\",\"loc\":\"%s\",\"gil\":%u,\"time\":%u,\"speed2x\":%d,\"party\":[",
-             mode_name(mode), loc, sm->gil, seconds, gamehacks.getCurrentSpeedhack() > 1.0 ? 1 : 0);
+    snprintf(b, sizeof b, "{\"ready\":1,\"mode\":\"%s\",\"loc\":\"%s\",\"gil\":%u,\"time\":%u,\"speed2x\":%d,"
+             "\"speed\":%d,\"noenc\":%d,\"bplus\":%d,\"party\":[",
+             mode_name(mode), loc, sm->gil, seconds, gamehacks.getCurrentSpeedhack() > 1.0 ? 1 : 0,
+             ff7_booster_speed(), ff7_booster_no_encounters(), ff7_booster_battle);
     j += b;
 
     const bool battle = mode == MODE_BATTLE && ff7_externals.battle_context;
@@ -139,12 +146,14 @@ std::string build_snapshot() {
 }
 }  // namespace
 
-// Commands: 1 toggle 2x speed, 2 save state (current slot), 3 load it.
+// Commands: 1 speed 1x/2x/3x, 2 save state (current slot), 3 load it, 4 random battles on/off,
+// 5 battle enhancement on/off (boosters.cpp).
 extern "C" void ff7_companion_frame() {
     ff7_companion_battle_tick();
+    ff7_boosters_frame();
     int cmd = g_command.exchange(0);
     switch (cmd) {
-    case 1: gamehacks.companionToggleSpeedhack(); break;
+    case 1: case 4: case 5: ff7_boosters_command(cmd); break;
     case 2: ff7_savestate_request(0, "current"); break;
     case 3: ff7_savestate_request(1, "current"); break;
     default: break;

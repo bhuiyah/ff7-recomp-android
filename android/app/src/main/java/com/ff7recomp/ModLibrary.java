@@ -44,6 +44,8 @@ final class ModLibrary {
         final Map<String, Integer> chosen = new LinkedHashMap<>();   // option id -> value
         // from mod.xml
         String name, author, version, category, description, kind, error;
+        /** mod.xml's category says it restyles the user interface (fonts, menus, windows). */
+        boolean isUi() { return error == null && category != null && category.trim().equalsIgnoreCase("User Interface"); }
         final List<Option> options = new ArrayList<>();
         final List<String> unsupported = new ArrayList<>();
         final List<String[]> ffnx = new ArrayList<>();        // [key, value]
@@ -105,13 +107,26 @@ final class ModLibrary {
         for (Mod m : saved.values()) {                        // saved order first
             for (String p : present) if (p.equalsIgnoreCase(m.file)) { m.file = p; mods.add(m); break; }
         }
+        List<Mod> added = new ArrayList<>();
         for (String p : present) {                             // then anything new
             if (saved.containsKey(p.toLowerCase(Locale.ROOT))) continue;
             Mod m = new Mod();
             m.file = p;
             mods.add(m);
+            added.add(m);
         }
         for (Mod m : mods) readInfo(m);
+        // A new user interface mod goes above the content mods: its fonts and menu textures
+        // pair with its own hext (the letter widths), so a content mod above it that ships the
+        // game's fonts too (Echo-S) would draw them with the wrong widths. 7th Heaven's
+        // catalog order puts interface mods first as well.
+        for (Mod m : added) {
+            if (!m.isUi()) continue;
+            int at = firstContent();
+            if (at < 0 || at >= mods.indexOf(m)) continue;
+            mods.remove(m);
+            mods.add(at, m);
+        }
         readHextStatus();
     }
 
@@ -205,6 +220,29 @@ final class ModLibrary {
     JSONObject conflicts() {
         try { return new JSONObject(nativeConflicts(profile.getAbsolutePath())); }
         catch (Exception e) { Log.w(TAG, "conflict check failed: " + e); return null; }
+    }
+
+    Mod byFile(String file) {
+        for (Mod m : mods) if (m.file.equalsIgnoreCase(file)) return m;
+        return null;
+    }
+
+    /** The first mod that is not a user interface mod, or -1. */
+    private int firstContent() {
+        for (int i = 0; i < mods.size(); i++) if (!mods.get(i).isUi()) return i;
+        return -1;
+    }
+
+    /** User interface mods above all others, each group keeping its order. True if it changed. */
+    boolean interfaceFirst() {
+        List<Mod> ui = new ArrayList<>(), rest = new ArrayList<>();
+        for (Mod m : mods) (m.isUi() ? ui : rest).add(m);
+        List<Mod> now = new ArrayList<>(ui);
+        now.addAll(rest);
+        if (now.equals(mods)) return false;
+        mods.clear();
+        mods.addAll(now);
+        return true;
     }
 
     void move(int index, int delta) {

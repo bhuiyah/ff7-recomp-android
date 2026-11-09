@@ -682,7 +682,49 @@ EDITS = [
      '#ifdef FFNX_ANDROID\n'
      '\tvoid companionToggleSpeedhack();   // FF7Recomp: the bottom screen (src/ffnx_port/companion.cpp)\n'
      '\tbool companionSpeedhackEnabled() const { return speedhack_enabled; }\n'
+     # Game boosters (docs/ROADMAP.md M8, src/ffnx_port/boosters.cpp): speed 1x/2x/3x and
+     # random battles on/off are FFNx's speed hack and battle mode, set from the bottom screen
+     # and the launcher; battle enhancement is ours. (In this edit, not a second one anchored
+     # inside it: a later edit that changes this one's text makes this one apply again.)
+     '\tvoid companionSetSpeed(double speed);   // FF7Recomp: game boosters (src/ffnx_port/boosters.cpp)\n'
+     '\tvoid companionSetBattles(bool on);\n'
+     '\tbool companionBattlesWanted() const { return battle_wanted; }\n'
      '#endif\n'),
+    # Cross in FFNx's L3 shortcut mode toggles battle enhancement (the only button that mode
+    # leaves free).
+    ('gamehacks.cpp',
+     '\t\t\t\tgamepad.IsPressed(XINPUT_GAMEPAD_X)\n'
+     '\t\t\t\t)\n'
+     '\t\t\t\tskipMovies();\n',
+     '\t\t\t\tgamepad.IsPressed(XINPUT_GAMEPAD_X)\n'
+     '\t\t\t\t)\n'
+     '\t\t\t\tskipMovies();\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\t\t\t// FF7Recomp: battle enhancement booster on Cross\n'
+     '\t\t\telse if (gamepad.IsPressed(XINPUT_GAMEPAD_A))\n'
+     '\t\t\t{\n'
+     '\t\t\t\textern void ff7_boosters_toggle_battle();\n'
+     '\t\t\t\tff7_boosters_toggle_battle();\n'
+     '\t\t\t\tholdInput();\n'
+     '\t\t\t}\n'
+     '#endif\n'),
+    # 3x speed from a 60 FPS base asks for 180 frames a second; with vsync the Thor's 120 Hz
+    # display holds it at 120 (2x). The boosters turn vsync off while the speed hack needs more.
+    ('renderer.h', '    void reset();\n',
+     '    void reset();\n'
+     '    void setVsync(bool on);   // FF7Recomp: game boosters (speed above the display rate)\n'),
+    ('renderer.cpp',
+     '    bgfx::reset(bgfxInit.reset, &bgfxInit.swapChain);\n}\n\n#define FFNX_LOGO_PATH',
+     '    bgfx::reset(bgfxInit.reset, &bgfxInit.swapChain);\n}\n\n'
+     '// FF7Recomp: vsync on/off at run time (the game boosters\' speed above the display rate)\n'
+     'void Renderer::setVsync(bool on)\n'
+     '{\n'
+     '    const uint32_t flags = on ? (bgfxInit.reset | BGFX_RESET_VSYNC) : (bgfxInit.reset & ~BGFX_RESET_VSYNC);\n'
+     '    if (flags == bgfxInit.reset) return;\n'
+     '    bgfxInit.reset = flags;\n'
+     '    bgfx::reset(bgfxInit.reset, &bgfxInit.swapChain);\n'
+     '}\n\n'
+     '#define FFNX_LOGO_PATH'),
     # The Thor's bottom screen shows the battle windows (src/ffnx_port/companion_render.cpp):
     # a 2D battle draw inside the window band goes to the bottom screen's view instead.
     ('renderer.cpp',

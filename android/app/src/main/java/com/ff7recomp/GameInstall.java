@@ -236,6 +236,18 @@ final class GameInstall {
         try (OutputStream o = new FileOutputStream(out)) { o.write(toml.getBytes(StandardCharsets.UTF_8)); }
     }
 
+    /** files/companion.txt for src/ffnx_port/companion_render.cpp: the bottom screen's battle windows. */
+    void writeCompanion(String battleWindows) throws IOException {
+        String s = "battlewindows=" + battleWindows + "\n";
+        try (OutputStream o = new FileOutputStream(new File(files, "companion.txt"))) { o.write(s.getBytes(StandardCharsets.UTF_8)); }
+    }
+
+    /** files/boosters.txt for src/ffnx_port/boosters.cpp: the game boosters a game starts with. */
+    void writeBoosters(int speed, boolean noEncounters, boolean battlePlus) throws IOException {
+        String s = "speed=" + speed + "\nencounters=" + (noEncounters ? "off" : "on") + "\nbattle=" + (battlePlus ? "on" : "off") + "\n";
+        try (OutputStream o = new FileOutputStream(new File(files, "boosters.txt"))) { o.write(s.getBytes(StandardCharsets.UTF_8)); }
+    }
+
     /** files/quickboot.txt for src/ffnx_port/quickboot.cpp: "newgame", "continue", or none. */
     void writeQuickboot(String mode) throws IOException {
         File f = new File(files, "quickboot.txt");

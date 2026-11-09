@@ -183,6 +183,11 @@ final class ConflictChecker {
     static final class Report {
         final List<Warning> lines = new ArrayList<>();
         int overlaps, problems;
+        /** A content mod above a user interface mod hides that mod's menu textures. */
+        boolean interfaceBelow;
+        /** Overlaps by library file: winner, loser, friendly areas. */
+        final List<String[]> pairs = new ArrayList<>();
+        final List<List<String>> pairAreas = new ArrayList<>();
         /** Per library file: short notes for its row on the Mods page. */
         final java.util.Map<String, List<String>> perMod = new java.util.HashMap<>();
         void note(String file, String s) { perMod.computeIfAbsent(file.toLowerCase(Locale.ROOT), k -> new ArrayList<>()).add(s); }
@@ -205,6 +210,16 @@ final class ConflictChecker {
                 for (ModCatalog.Mod cm : catalog.mods) {
                     String n = cm.name.toLowerCase(Locale.ROOT).replaceAll("\\[[^\\]]*\\]\\s*", "").trim();
                     if (n.length() < 6 || !d.contains(n)) continue;
+                    // only a sentence that names it as a need, not one choice of several ("Requires
+                    // either ESUI Field Icons enabled, or ECHOS or New Threat 2.0 for ...")
+                    boolean needed = false;
+                    for (String sentence : d.split("[.\\n*]+(\\s|$)")) {
+                        if (!sentence.contains(n)) continue;
+                        if (!sentence.contains("requir") && !sentence.contains("needs ")) continue;
+                        if (sentence.contains("either") || sentence.contains(" or ")) continue;
+                        needed = true;
+                    }
+                    if (!needed) continue;
                     ModCatalog.Installed in = catalog.installedOf(cm);
                     boolean on = false;
                     if (in != null) for (ModLibrary.Mod x : lib.mods) if (x.enabled && x.file.equalsIgnoreCase(in.file)) on = true;
@@ -216,6 +231,26 @@ final class ConflictChecker {
                     r.problems++;
                 }
             }
+        }
+    }
+
+    /**
+     * A user interface mod below a content mod whose menu textures win over its own (Echo-S
+     * ships the game's fonts too): the interface mod's hext still sets the letter widths for
+     * its own font, so the text is drawn squeezed. Interface mods belong above.
+     */
+    static void interfaceOrder(Report r, ModLibrary lib) {
+        for (int i = 0; i < r.pairs.size(); i++) {
+            String[] p = r.pairs.get(i);
+            ModLibrary.Mod w = lib.byFile(p[0]), l = lib.byFile(p[1]);
+            if (w == null || l == null || w.isUi() || !l.isUi()) continue;
+            List<String> a = r.pairAreas.get(i);
+            if (!a.contains("menus") && !a.contains("textures")) continue;
+            r.lines.add(0, new Warning(p[2] + " is above " + p[3] + ", so its font replaces " + p[3]
+                    + "'s while the letter spacing stays " + p[3] + "'s: text looks squeezed. Put interface mods first.", true));
+            r.note(p[1], "Its menu textures are hidden by " + p[2] + ": move it up");
+            r.problems++;
+            r.interfaceBelow = true;
         }
     }
 
@@ -264,6 +299,8 @@ final class ConflictChecker {
             r.lines.add(new Warning(name[w] + " and " + name[l] + " both replace " + n + (n == 1 ? " game file" : " game files")
                     + where + ". " + name[w] + " is higher in the list, so its version is used"
                     + (o.optBoolean("conditional") ? " (some only at certain times)" : "") + ".", false));
+            r.pairs.add(new String[] { file[w], file[l], name[w], name[l] });
+            r.pairAreas.add(areas);
             r.note(file[w], "Overrides " + name[l] + " in " + n + (n == 1 ? " file" : " files"));
             r.note(file[l], n + (n == 1 ? " file" : " files") + " overridden by " + name[w]);
             r.overlaps++;

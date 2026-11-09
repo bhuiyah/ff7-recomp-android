@@ -208,6 +208,9 @@ while on. Same features here, with our own icons (not the console art):
 - Not saved into the game's save file; save states keep the toggles as they were.
 - Exit test on the Thor: each booster on and off in the field, the world map and a battle;
   icons appear and disappear with them; a scripted battle still starts with encounters off.
+- Status 2026-11-08: built. Checked on the Thor: icons, deck buttons, speed cycling in battle
+  (60/119/178 FPS), battle enhancement (HP and Limit full), launcher defaults. Not yet seen:
+  a random-battle area with battles off, the world map, the L3 shortcut.
 
 ## M6: RetroAchievements
 - RetroAchievements has a FF7 set for the PlayStation version only; its conditions read

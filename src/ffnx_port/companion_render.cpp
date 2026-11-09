@@ -14,6 +14,7 @@
 #include <bgfx/bgfx.h>
 #include <bx/math.h>
 #include <cstdio>
+#include <unistd.h>
 #include <cstdlib>
 #include <cstring>
 #include <set>
@@ -157,7 +158,27 @@ std::string ffnx_companion_layout_json() {
 }
 
 // From Renderer::show, after a frame: set up the bottom screen's views for the next one.
+// files/companion.txt (the launcher, at Play): "battlewindows=split" (the windows enlarged in two
+// parts, the default), "whole" (the window strip as the game draws it: UI mods such as Finishing
+// Touch move the windows, so cutting at the original positions mixes them up) or "off".
+static bool g_force_whole;
+static void read_companion_settings() {
+    char cwd[512], path[600], line[96];
+    if (!getcwd(cwd, sizeof cwd)) return;
+    std::snprintf(path, sizeof path, "%s/../companion.txt", cwd);
+    FILE *f = fopen(path, "rb");
+    if (!f) return;
+    while (std::fgets(line, sizeof line, f)) {
+        if (!std::strncmp(line, "battlewindows=whole", 19)) g_force_whole = true;
+        else if (!std::strncmp(line, "battlewindows=off", 17)) g_enabled = false;
+    }
+    std::fclose(f);
+    std::fprintf(stderr, "[companion] battle windows: %s\n", !g_enabled ? "off" : g_force_whole ? "whole strip" : "split");
+}
+
 void ffnx_companion_frame_begin() {
+    static bool settings_read;
+    if (!settings_read) { settings_read = true; read_companion_settings(); }
     g_frame++;
     int w = 0, h = 0;
     void *nwh = ff7_platform_companion_window(&w, &h);
@@ -184,7 +205,7 @@ void ffnx_companion_frame_begin() {
     // that redraws every other frame does not flip the layout)
     if (g_wide_seen) g_wide_hold = 8;
     else if (g_wide_hold > 0) g_wide_hold--;
-    g_wide = g_wide_hold > 0;
+    g_wide = g_force_whole || g_wide_hold > 0;
     g_wide_seen = false;
     if (!g_active) return;
 
