@@ -25,8 +25,10 @@ need "$HOST_CC" "LLVM for Windows (clang): https://github.com/llvm/llvm-project/
 py -I -c "import capstone" 2>/dev/null || { echo "missing: Python capstone (py -m pip install capstone)" >&2; exit 1; }
 
 step "1/9 toolkits: pcrecomp, FFNx, bgfx (pinned, patched)"
-if [ ! -f external/FFNx/src/ff7/field/opcode.cpp ] || [ ! -f external/pcrecomp/tools/lift/lift32.py ]; then
+SETUP_MARK="external/.setup-$(git rev-parse --short HEAD:patches 2>/dev/null || echo x)-$(git rev-parse --short HEAD:tools/setup.ps1 2>/dev/null || echo x)"
+if [ ! -f "$SETUP_MARK" ]; then   # (re)run when it never finished, or the patches changed
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$ROOT/tools/setup.ps1")"
+  rm -f external/.setup-*; touch "$SETUP_MARK"
 fi
 
 step "2/9 libraries: LZMA, rcheevos, pugixml, ... (pinned)"
