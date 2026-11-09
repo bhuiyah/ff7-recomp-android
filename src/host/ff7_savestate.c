@@ -119,6 +119,7 @@ void ff7_savestate_register(const ff7_savestate_hook *h) { if (g_nhooks < MAX_HO
 __attribute__((weak)) int ff7_ss_driver_mode(void) { return -1; }
 __attribute__((weak)) int ff7_ss_can_save(const char **why) { (void)why; return 1; }
 __attribute__((weak)) void ff7_ss_notify(const char *msg) { (void)msg; }
+__attribute__((weak)) void ff7_achievements_reset(void) {}   /* src/ffnx_port/achievements.cpp */
 /* The settings a state depends on (FFNx's frame-rate and widescreen patches change code and
  * data layouts): a state is only loaded under the same ones. */
 __attribute__((weak)) void ff7_ss_config(char *out, unsigned n) { if (n) out[0] = 0; }
@@ -647,6 +648,7 @@ void ff7_savestate_frame(void) {
         if (why) snprintf(msg, sizeof msg, "Cannot load the state: %s", why);
         else {
             apply(raw, n);
+            ff7_achievements_reset();   /* nothing unlocks from the jump itself */
             snprintf(msg, sizeof msg, "State loaded%s", strcmp(h.build, build_id()) ? " (made by another build)" : "");
         }
         notify(msg);

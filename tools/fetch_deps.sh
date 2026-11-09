@@ -14,4 +14,8 @@ if [ ! -d "$ROOT/external/7th-Heaven" ]; then
   git -c advice.detachedHead=false clone -q --depth 1 --branch 4.6.1 https://github.com/tsunamods-codes/7th-Heaven.git "$ROOT/external/7th-Heaven" \
     || git clone -q --depth 1 https://github.com/tsunamods-codes/7th-Heaven.git "$ROOT/external/7th-Heaven"
 fi
+# rcheevos (MIT): RetroAchievements' achievement evaluation library (src/ffnx_port/achievements.cpp)
+if [ ! -d "$ROOT/external/deps/rcheevos" ]; then
+  git -c advice.detachedHead=false clone -q --depth 1 --branch v12.5.0 https://github.com/RetroAchievements/rcheevos.git "$ROOT/external/deps/rcheevos"
+fi
 echo "deps ok"

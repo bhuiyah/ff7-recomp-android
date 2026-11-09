@@ -26,6 +26,11 @@ final class BoosterIcons extends View {
     private final Path path = new Path();
     private int speed = 1;
     private boolean noBattles, battlePlus;
+    // achievement banner (src/ffnx_port/achievements.cpp): shown for a few seconds per unlock
+    private long achSeq = -1, achUntil;
+    private String achTitle = "";
+    private int achPoints;
+    private static final long ACH_MS = 5000;
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -37,6 +42,15 @@ final class BoosterIcons extends View {
                     speed = sp; noBattles = nb; battlePlus = bp;
                     invalidate();
                 }
+                long seq = s.optLong("achseq", 0);
+                if (achSeq >= 0 && seq != achSeq && seq > 0) {
+                    achTitle = s.optString("ach");
+                    achPoints = s.optInt("achpts");
+                    achUntil = System.currentTimeMillis() + ACH_MS;
+                    invalidate();
+                    handler.postDelayed(BoosterIcons.this::invalidate, ACH_MS + 50);
+                }
+                achSeq = seq;
             } catch (Exception ignored) { }
             handler.postDelayed(this, 500);
         }
@@ -65,6 +79,44 @@ final class BoosterIcons extends View {
         if (battlePlus) { badge(c, right - size, top, size, 0xCCB0304A); heartPlus(c, right - size, top, size); right -= size + gap; }
         if (noBattles) { badge(c, right - size, top, size, 0xCC2D5FA8); noEncounter(c, right - size, top, size); right -= size + gap; }
         if (speed > 1) { badge(c, right - size, top, size, 0xCC2E8A57); speedMark(c, right - size, top, size, speed); }
+        if (System.currentTimeMillis() < achUntil) achievementBanner(c, s);
+    }
+
+    /** "Achievement unlocked" with the title and points, top centre. */
+    private void achievementBanner(Canvas c, float s) {
+        final float w = 760 * s, h = 112 * s, x = (getWidth() - w) / 2, y = 24 * s;
+        r.set(x, y, x + w, y + h);
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0xE6141A33);
+        c.drawRoundRect(r, 22 * s, 22 * s, fill);
+        fill.setStyle(Paint.Style.STROKE);
+        fill.setStrokeWidth(3 * s);
+        fill.setColor(0xFFE8C15A);
+        c.drawRoundRect(r, 22 * s, 22 * s, fill);
+        // a gold star
+        float cx = x + 64 * s, cy = y + h / 2, ro = 36 * s, ri = 15 * s;
+        path.reset();
+        for (int k = 0; k < 10; k++) {
+            double a = Math.PI / 2 + k * Math.PI / 5;
+            float rr = (k % 2 == 0) ? ro : ri;
+            float px = cx + (float) Math.cos(a) * rr, py = cy - (float) Math.sin(a) * rr;
+            if (k == 0) path.moveTo(px, py); else path.lineTo(px, py);
+        }
+        path.close();
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0xFFE8C15A);
+        c.drawPath(path, fill);
+        Paint.Align was = ink.getTextAlign();
+        ink.setTextAlign(Paint.Align.LEFT);
+        ink.setStyle(Paint.Style.FILL);
+        ink.setColor(0xFFE8C15A);
+        ink.setTextSize(30 * s);
+        c.drawText("Achievement unlocked", x + 120 * s, y + 44 * s, ink);
+        ink.setColor(0xFFFFFFFF);
+        ink.setTextSize(38 * s);
+        String t = achTitle + (achPoints > 0 ? "  (" + achPoints + ")" : "");
+        c.drawText(t, x + 120 * s, y + 90 * s, ink);
+        ink.setTextAlign(was);
     }
 
     private void badge(Canvas c, float x, float y, float size, int color) {

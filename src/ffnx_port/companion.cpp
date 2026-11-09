@@ -64,6 +64,8 @@ constexpr uint32_t k_scene_enemies = 0x9A8E9C;
 extern "C" void ff7_companion_command(int cmd) { g_command = cmd; }
 extern "C" void ff7_companion_battle_tick();                    // companion_render.cpp
 extern "C" void ff7_boosters_frame();                           // boosters.cpp
+extern "C" void ff7_achievements_frame();                       // achievements.cpp
+extern "C" unsigned ff7_achievements_last(char *title, unsigned size, unsigned *points);
 extern "C" void ff7_boosters_command(int cmd);
 extern "C" int ff7_booster_speed();
 extern "C" int ff7_booster_no_encounters();
@@ -98,6 +100,14 @@ std::string build_snapshot() {
              mode_name(mode), loc, sm->gil, seconds, gamehacks.getCurrentSpeedhack() > 1.0 ? 1 : 0,
              ff7_booster_speed(), ff7_booster_no_encounters(), ff7_booster_battle);
     j += b;
+    {
+        char at[96];
+        unsigned pts = 0;
+        const unsigned seq = ff7_achievements_last(at, sizeof at, &pts);
+        for (char *p = at; *p; p++) if (*p == '"' || *p == '\\' || (unsigned char)*p < 0x20) *p = ' ';
+        snprintf(b, sizeof b, "\"achseq\":%u,\"ach\":\"%s\",\"achpts\":%u,", seq, at, pts);
+        j.insert(j.size() - std::strlen("\"party\":["), b);
+    }
 
     const bool battle = mode == MODE_BATTLE && ff7_externals.battle_context;
     bool first = true;
@@ -151,6 +161,7 @@ std::string build_snapshot() {
 extern "C" void ff7_companion_frame() {
     ff7_companion_battle_tick();
     ff7_boosters_frame();
+    ff7_achievements_frame();
     int cmd = g_command.exchange(0);
     switch (cmd) {
     case 1: case 4: case 5: ff7_boosters_command(cmd); break;

@@ -112,6 +112,7 @@ public class LauncherActivity extends Activity {
         downloadsButton = button("Downloads", v -> show("downloads"));
         side.addView(downloadsButton, navParams());
         side.addView(button("Save states", v -> show("states")), navParams());
+        side.addView(button("Achievements", v -> show("achievements")), navParams());
         side.addView(button("Settings", v -> show("settings")), navParams());
         side.addView(button("Game files", v -> show("game")), navParams());
         // the menu scrolls when it is taller than the screen (Play, five pages, the status)
@@ -165,6 +166,7 @@ public class LauncherActivity extends Activity {
             case "downloads": content.addView(downloadsPage()); break;
             case "settings": content.addView(settingsPage()); break;
             case "states": content.addView(statesPage()); break;
+            case "achievements": content.addView(achievementsPage()); break;
             case "game": content.addView(gamePage()); break;
             case "catalog": content.addView(catalogPage()); break;
             default: content.addView(modsPage()); break;
@@ -998,6 +1000,31 @@ public class LauncherActivity extends Activity {
     }
 
     // ------------------------------------------------------------------- save states
+    /** The achievements the game tracks (src/ffnx_port/achievements.cpp), offline for now. */
+    private View achievementsPage() {
+        Achievements ach = new Achievements(install.files);
+        LinearLayout col = column();
+        col.addView(heading("Achievements"));
+        col.addView(text("Unlocked while you play; a notice shows in game. This is a local set, kept on this device: "
+                + "RetroAchievements accounts and their official set need RetroAchievements to approve this port first.", 14, DIM));
+        if (!ach.haveSet) {
+            col.addView(text("\nStart the game once to set them up.", 16, DIM));
+            return scroll(col);
+        }
+        col.addView(text(ach.unlockedCount() + " of " + ach.list.size() + " unlocked  ·  " + ach.points(true) + " of "
+                + ach.points(false) + " points", 16, ACCENT));
+        java.text.DateFormat df = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT);
+        for (Achievements.Ach a : ach.list) {
+            LinearLayout r = column();
+            r.setPadding(0, dp(8), 0, dp(8));
+            boolean on = a.unlockedAt != 0;
+            r.addView(text((on ? "★ " : "☆ ") + a.title + "  (" + a.points + ")", 18, on ? TEXT : DIM));
+            r.addView(text(a.description + (on ? "  ·  unlocked " + df.format(new java.util.Date(a.unlockedAt * 1000)) : ""), 13, DIM));
+            col.addView(r);
+        }
+        return scroll(col);
+    }
+
     private View statesPage() {
         if (states == null) states = new SaveStates(install.files);
         LinearLayout col = column();

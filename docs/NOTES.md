@@ -595,3 +595,12 @@
     match; a re-run applies nothing.
   Profiling: run-as com.ff7recomp simpleperf record -p <pid of com.ff7recomp:game> -e task-clock
   --call-graph fp; symbols with the NDK's binary_cache_builder.py -lib <cxx obj dir>.
+- M6 step 1: achievements offline. PS1 savemap base 0x9C6E4 (PS1 cheat codes put gil at
+  0x9D260; FFNx's savemap struct has gil at +0xB7C; the PHS/save flag code 0x9D2A6 lands in the
+  field banks, as expected). Characters at +0x54, 0x84 each (Cloud: level 0x9C739, kills 16-bit
+  0x9C75C, Limit uses 0x9C75E, exp 0x9C774), play time 0x9D264. rcheevos' rc_runtime (not
+  rc_client: no server, no login) with the RA local-achievements file format, so a set can be
+  written with RA's own tools. Achievements are evaluated only in gameplay modes; entering play
+  from the title screen and loading a save state reset the runtime. The official RA set cannot
+  be fetched without their API: the starter set is ours. RA's local format: after the
+  description come progress, max, format, then author and points (four colons, not five).

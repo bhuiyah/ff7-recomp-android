@@ -59,6 +59,16 @@ else()
 endif()
 list(TRANSFORM FFNX_SOURCES PREPEND "${FFNX_SRC}/")
 
+# rcheevos (RetroAchievements' evaluation library, MIT; tools/fetch_deps.sh): the runtime only,
+# offline (src/ffnx_port/achievements.cpp)
+set(FF7_RC_DIR "${FFNX_DEPS}/rcheevos")
+file(GLOB FF7_RC_SOURCES "${FF7_RC_DIR}/src/rcheevos/*.c")
+add_library(ff7_rcheevos STATIC ${FF7_RC_SOURCES} "${FF7_RC_DIR}/src/rc_compat.c" "${FF7_RC_DIR}/src/rc_util.c"
+            "${FF7_RC_DIR}/src/rhash/md5.c")
+target_include_directories(ff7_rcheevos PUBLIC "${FF7_RC_DIR}/include")
+target_compile_definitions(ff7_rcheevos PUBLIC RC_DISABLE_LUA)
+set_target_properties(ff7_rcheevos PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(ffnx STATIC ${FFNX_SOURCES}
   # 32-bit layout proof for every game struct (tools/ffnx_layout_check.py)
   "${FF7_ROOT}/src/ffnx_port/layout_asserts.cpp"
@@ -69,6 +79,7 @@ add_library(ffnx STATIC ${FFNX_SOURCES}
   "${FF7_ROOT}/src/ffnx_port/companion.cpp"
   "${FF7_ROOT}/src/ffnx_port/companion_render.cpp"
   "${FF7_ROOT}/src/ffnx_port/boosters.cpp"
+  "${FF7_ROOT}/src/ffnx_port/achievements.cpp"
   # platform helpers for FFNx's Android branches; FFNx's own Win32 calls
   "${FF7_ROOT}/src/ffnx_port/android_window.cpp"
   "${FF7_ROOT}/src/ffnx_port/win32_compat.cpp"
@@ -113,7 +124,7 @@ set_target_properties(ffnx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 include("${FF7_ROOT}/cmake/ffnx_deps.cmake")
 include("${FF7_ROOT}/cmake/ffnx_audio.cmake")
 target_include_directories(ffnx PRIVATE "${FFNX_DEPS}/cgltf" "${FF7_ROOT}/src/interp" "${FF7_ROOT}/src/host")
-target_link_libraries(ffnx PUBLIC ff7_core bgfx ffnx::rc ffnx_png ffnx_imgui ffnx_pugixml ffnx_xxhash
+target_link_libraries(ffnx PUBLIC ff7_core bgfx ff7_rcheevos ffnx::rc ffnx_png ffnx_imgui ffnx_pugixml ffnx_xxhash
   ffnx_soloud ffnx_vgmstream ffnx_openpsf ffnx_lz4)
 if(FF7_HAVE_FFMPEG)
   target_compile_definitions(ffnx PRIVATE FF7_HAVE_FFMPEG=1)

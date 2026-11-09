@@ -213,6 +213,15 @@ while on. Same features here, with our own icons (not the console art):
   a random-battle area with battles off, the world map, the L3 shortcut.
 
 ## M6: RetroAchievements
+Status 2026-11-08 (step 1, offline): rcheevos v12.5.0 (MIT, tools/fetch_deps.sh) evaluates a
+local set (files/achievements/ff7-local.txt, RA's local-achievements format) each game frame
+against a virtual PS1 RAM: the savemap mirrored at PS1 0x9C6E4 (src/ffnx_port/achievements.cpp).
+Unlocks: files/achievements/unlocks.txt, a banner on the top screen (BoosterIcons.java), the
+launcher's Achievements page. Nothing unlocks from loading a save or a save state (the runtime
+is reset: each achievement must be false for a frame first). Starter set: 10 savemap
+achievements (kills, levels, Limit use, gil, play time). Checked on the Thor: "First Blood"
+unlocks at the end of the first battle. Next: battle/field RAM translation for the official
+set's other conditions; then RA's approval before any account or server connection.
 - RetroAchievements has a FF7 set for the PlayStation version only; its conditions read
   PS1 RAM addresses. This port runs the PC executable, whose memory layout differs.
 - Plan: integrate RA's official `rcheevos` library (rc_client API) and evaluate the PS1 set
