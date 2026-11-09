@@ -644,3 +644,9 @@
 - 2026-11-09 Get mods: header (count, Refresh, Update all), one search field, categories with
   counts in a left column, rows that open the mod page with one action button. Left menu
   narrowed to 214dp.
+- 2026-11-09 Bottom screen dims during cutscenes: companion snapshot "cine" = a movie playing
+  (movie_object->is_playing) or, in the field, the UC flag (opcode 0x33, handler 0x614155:
+  field global +0x32, mirrored at 0xCC040C, non-zero = the script holds the player's control).
+  CompanionView fades a black layer to 85% over 1.2 s (out 0.7 s) on an ease-in-out curve,
+  after the state holds 250 / 400 ms (no flicker from one-frame UC toggles). Checked on the
+  Thor: Echo-S's intro scene dims, control at Sector 1 Station lights it again.

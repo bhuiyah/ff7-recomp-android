@@ -58,6 +58,16 @@ const char *mode_name(int m) {
 constexpr uint32_t k_atb = 0x9A8B14, k_atb_stride = 0x44;
 // The battle scene's enemy type records (name, level, ..., HP at +0xA4), 1.02 US.
 constexpr uint32_t k_scene_enemies = 0x9A8E9C;
+// The field script's UC flag (opcode 0x33, handler 0x614155): non-zero while the script has
+// taken the player's control away (cutscenes). The handler stores it at field global +0x32 and
+// mirrors it here (1.02 US).
+constexpr uint32_t k_field_uc = 0xCC040C;
+
+// A cutscene: a movie playing, or a field scene running with the player's control taken.
+bool cinematic(int mode) {
+    if (ff7_externals.movie_object && ff7_externals.movie_object->is_playing) return true;
+    return mode == MODE_FIELD && *(const volatile uint8_t *)(uintptr_t)k_field_uc != 0;
+}
 
 }  // namespace
 
@@ -96,9 +106,9 @@ std::string build_snapshot() {
     j.reserve(2048);
     char b[512];
     snprintf(b, sizeof b, "{\"ready\":1,\"mode\":\"%s\",\"loc\":\"%s\",\"gil\":%u,\"time\":%u,\"speed2x\":%d,"
-             "\"speed\":%d,\"noenc\":%d,\"bplus\":%d,\"party\":[",
+             "\"speed\":%d,\"noenc\":%d,\"bplus\":%d,\"cine\":%d,\"party\":[",
              mode_name(mode), loc, sm->gil, seconds, gamehacks.getCurrentSpeedhack() > 1.0 ? 1 : 0,
-             ff7_booster_speed(), ff7_booster_no_encounters(), ff7_booster_battle);
+             ff7_booster_speed(), ff7_booster_no_encounters(), ff7_booster_battle, cinematic(mode) ? 1 : 0);
     j += b;
     {
         char at[96];

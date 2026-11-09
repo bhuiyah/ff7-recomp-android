@@ -62,9 +62,33 @@ public class CompanionView extends View {
     private String flash;            // a short note after a button ("Saving...")
     private long flashUntil;
 
+    // Cutscenes (a movie, or a field scene that has taken the player's control; companion.cpp
+    // "cine") dim the screen with a slow ease, like a theatre's lights. A state has to hold a
+    // moment before the lights change, so a script that drops control for a frame does not flicker.
+    private static final float DIM_MAX = 0.85f;
+    private static final long DIM_HOLD_IN = 250, DIM_HOLD_OUT = 400, DIM_IN_MS = 1200, DIM_OUT_MS = 700;
+    private float dim;                   // 0 lit .. 1 dimmed (drawn as DIM_MAX black)
+    private boolean dimTarget, seenCine;
+    private long seenSince;
+    private android.animation.ValueAnimator dimAnim;
+
+    private void updateDim(boolean cine) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (cine != seenCine) { seenCine = cine; seenSince = now; }
+        if (cine == dimTarget || now - seenSince < (cine ? DIM_HOLD_IN : DIM_HOLD_OUT)) return;
+        dimTarget = cine;
+        if (dimAnim != null) dimAnim.cancel();
+        dimAnim = android.animation.ValueAnimator.ofFloat(dim, cine ? 1f : 0f);
+        dimAnim.setDuration((long) ((cine ? DIM_IN_MS : DIM_OUT_MS) * Math.abs((cine ? 1f : 0f) - dim)));
+        dimAnim.setInterpolator(new android.view.animation.PathInterpolator(0.45f, 0f, 0.2f, 1f));
+        dimAnim.addUpdateListener(a -> { dim = (float) a.getAnimatedValue(); invalidate(); });
+        dimAnim.start();
+    }
+
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             try { state = new JSONObject(nativeState()); } catch (JSONException e) { state = new JSONObject(); }
+            updateDim(state.optInt("cine") == 1);
             invalidate();
             handler.postDelayed(this, 100);
         }
@@ -80,7 +104,11 @@ public class CompanionView extends View {
     }
 
     @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); handler.post(poll); }
-    @Override protected void onDetachedFromWindow() { handler.removeCallbacks(poll); super.onDetachedFromWindow(); }
+    @Override protected void onDetachedFromWindow() {
+        handler.removeCallbacks(poll);
+        if (dimAnim != null) dimAnim.cancel();
+        super.onDetachedFromWindow();
+    }
 
     // ---- drawing ------------------------------------------------------------------------------
 
@@ -119,6 +147,18 @@ public class CompanionView extends View {
 
     @Override
     protected void onDraw(Canvas c) {
+        drawPanels(c);
+        // the cinematic dim, over the panels and the game's battle windows below
+        if (dim > 0.001f) {
+            fill.setShader(null);
+            fill.setColor(Color.BLACK);
+            fill.setAlpha(Math.round(255 * DIM_MAX * dim));
+            c.drawRect(0, 0, getWidth(), getHeight(), fill);
+            fill.setAlpha(255);
+        }
+    }
+
+    private void drawPanels(Canvas c) {
         final float W = getWidth(), H = getHeight(), u = H / 1080f, pad = 24 * u;
         if (state.optInt("ready") != 1) {
             fill.setShader(null);
