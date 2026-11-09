@@ -636,3 +636,11 @@
   ff()). Fixed on the way: ModLibrary.load() emptied and refilled the list the background
   conflict check iterates (ConcurrentModificationException at launch); the list is now built
   aside and published whole, copy-on-write.
+- 2026-11-09 Pad: A confirms, B cancels (GameActivity.xinputBit). FF7 uses the Japanese layout
+  (OK = Circle = XInput B 0x2000, Cancel = Cross = XInput A 0x1000), so Android's A now sends
+  0x2000 and B 0x1000. Everything downstream works on the bits (quickboot, the bottom-screen
+  deck), so only the launcher's L3-shortcut hint changed (A random battles, B battle+).
+  Checked on the Thor: main menu, A opens Item, B backs out.
+- 2026-11-09 Get mods: header (count, Refresh, Update all), one search field, categories with
+  counts in a left column, rows that open the mod page with one action button. Left menu
+  narrowed to 214dp.

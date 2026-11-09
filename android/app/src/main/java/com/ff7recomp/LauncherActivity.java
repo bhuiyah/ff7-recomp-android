@@ -101,20 +101,20 @@ public class LauncherActivity extends Activity {
 
         LinearLayout side = new LinearLayout(this);
         side.setOrientation(LinearLayout.VERTICAL);
-        side.setPadding(0, 0, dp(20), 0);
-        TextView title = text("FINAL FANTASY VII", 22, TEXT);
+        side.setPadding(0, 0, dp(14), 0);
+        TextView title = text("FINAL FANTASY VII", 17, TEXT);
         title.setTypeface(Typeface.create("serif", Typeface.BOLD));
         title.setLetterSpacing(0.04f);
         title.setSingleLine(true);
         side.addView(title);
-        side.addView(text("native ARM64 · FFNx · Vulkan", 12, ACCENT));
+        side.addView(text("native ARM64 · FFNx · Vulkan", 11, ACCENT));
         side.addView(space(10));
         // the command window, Play first (the cursor starts there)
         LinearLayout menu = column();
         menu.setBackground(window(WIN_TOP, WIN_BOTTOM, 8));
         menu.setPadding(dp(8), dp(6), dp(8), dp(6));
         playButton = menuItem("Play", null);
-        playButton.setTextSize(21);
+        playButton.setTextSize(19);
         playButton.setTypeface(Typeface.DEFAULT_BOLD);
         menu.addView(playButton);
         menu.addView(menuItem("Mods", "mods"));
@@ -125,12 +125,12 @@ public class LauncherActivity extends Activity {
         menu.addView(menuItem("Achievements", "achievements"));
         menu.addView(menuItem("Settings", "settings"));
         menu.addView(menuItem("Game files", "game"));
-        side.addView(menu, new LinearLayout.LayoutParams(dp(280), ViewGroup.LayoutParams.WRAP_CONTENT));
+        side.addView(menu, new LinearLayout.LayoutParams(dp(200), ViewGroup.LayoutParams.WRAP_CONTENT));
         // the menu scrolls when it is taller than the screen
         ScrollView sideScroll = new ScrollView(this);
         sideScroll.setVerticalScrollBarEnabled(false);
         sideScroll.addView(side);
-        root.addView(sideScroll, new LinearLayout.LayoutParams(dp(300), ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(sideScroll, new LinearLayout.LayoutParams(dp(214), ViewGroup.LayoutParams.MATCH_PARENT));
 
         // right: the info bar (FF7's one-line help window) over the page's window
         LinearLayout right = column();
@@ -362,78 +362,155 @@ public class LauncherActivity extends Activity {
     }
 
     // ------------------------------------------------------------------- Get mods (catalogs)
+    /** Get mods, laid out like a store: header (count, refresh, update all), search, then the
+     *  categories on the left and the matching mods on the right. A row opens the mod's page;
+     *  its one button installs or updates it. */
     private View catalogPage() {
-        LinearLayout col = column();
-        col.addView(heading("Get mods"));
+        LinearLayout page = column();
         int total = catalog.mods.size();
-        StringBuilder sub = new StringBuilder();
-        sub.append(total).append(total == 1 ? " mod" : " mods").append(" in ");
-        for (int i = 0; i < catalog.subs.size(); i++) sub.append(i > 0 ? ", " : "").append(catalog.subs.get(i).name);
-        col.addView(text(sub.toString(), 14, DIM));
 
-        LinearLayout bar = row();
-        EditText q = new EditText(this);
-        q.setHint("Search name, author, tag…");
-        q.setText(catQuery);
-        q.setTextColor(TEXT);
-        q.setHintTextColor(DIM);
-        q.setSingleLine(true);
-        q.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
-        q.setOnEditorActionListener((v, id, ev) -> { catQuery = v.getText().toString(); refresh(); return true; });
-        bar.addView(q, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        bar.addView(small("Search", v -> { catQuery = q.getText().toString(); refresh(); }));
-        bar.addView(small("Refresh catalogs", v -> background(() -> {
+        LinearLayout head = row();
+        TextView h = heading("Get mods");
+        h.setPadding(0, 0, dp(12), 0);
+        head.addView(h);
+        head.addView(text(total + (total == 1 ? " mod" : " mods"), 15, ACCENT));
+        View gap = new View(this);
+        head.addView(gap, new LinearLayout.LayoutParams(0, 1, 1));
+        java.util.List<ModCatalog.Mod> ups = catalog.updates();
+        if (!ups.isEmpty()) head.addView(compact(small("Update all (" + ups.size() + ")", v -> installMods(ups, true))));
+        head.addView(compact(small("⟳ Refresh", v -> background(() -> {
             progress("Checking the mod catalogs");
             String err = catalog.refresh(true);
             return err == null ? null : "Some catalogs could not be checked:\n" + err;
-        })));
-        java.util.List<ModCatalog.Mod> ups = catalog.updates();
-        if (!ups.isEmpty()) bar.addView(small("Update all (" + ups.size() + ")", v -> installMods(ups, true)));
-        col.addView(bar);
+        }))));
+        page.addView(head);
 
-        // categories (7th Heaven's), plus All and Installed
-        LinearLayout chips = row();
-        chips.addView(chip("All", catCategory == null && !catInstalledOnly, v -> { catCategory = null; catInstalledOnly = false; refresh(); }));
-        chips.addView(chip("Installed", catInstalledOnly, v -> { catInstalledOnly = !catInstalledOnly; refresh(); }));
-        for (String c : ModCatalog.CATEGORIES) {
-            boolean any = false;
-            for (ModCatalog.Mod m : catalog.mods) if (c.equalsIgnoreCase(m.category)) { any = true; break; }
-            if (any) chips.addView(chip(c, c.equals(catCategory), v -> { catCategory = c.equals(catCategory) ? null : c; refresh(); }));
+        EditText q = new EditText(this);
+        q.setHint("🔍  Search by name, author or tag");
+        q.setText(catQuery);
+        q.setSingleLine(true);
+        q.setTextSize(16);
+        q.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        q.setOnEditorActionListener((v, id, ev) -> { catQuery = v.getText().toString(); refresh(); return true; });
+        page.addView(q, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        page.addView(space(6));
+
+        LinearLayout split = row();
+        split.setGravity(Gravity.TOP);
+        // categories: All, Installed, then 7th Heaven's that have mods, each with its count
+        LinearLayout cats = column();
+        java.util.Map<String, Integer> counts = new java.util.HashMap<>();
+        int installed = 0;
+        for (ModCatalog.Mod m : catalog.mods) {
+            counts.merge(m.category.toLowerCase(java.util.Locale.ROOT), 1, Integer::sum);
+            if (catalog.installedOf(m) != null) installed++;
         }
-        HorizontalScrollView hs = new HorizontalScrollView(this);
-        hs.addView(chips);
-        col.addView(hs);
+        cats.addView(category("All", total, catCategory == null && !catInstalledOnly, v -> { catCategory = null; catInstalledOnly = false; refresh(); }));
+        cats.addView(category("Installed", installed, catInstalledOnly, v -> { catCategory = null; catInstalledOnly = true; refresh(); }));
+        View line = new View(this);
+        line.setBackgroundColor(0x40FFFFFF);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1)));
+        lp.setMargins(dp(8), dp(6), dp(8), dp(6));
+        cats.addView(line, lp);
+        for (String c : ModCatalog.CATEGORIES) {
+            Integer n = counts.get(c.toLowerCase(java.util.Locale.ROOT));
+            if (n == null) continue;
+            cats.addView(category(c, n, c.equals(catCategory) && !catInstalledOnly, v -> { catCategory = c; catInstalledOnly = false; refresh(); }));
+        }
+        ScrollView catScroll = scroll(cats);
+        catScroll.setVerticalScrollBarEnabled(false);
+        split.addView(catScroll, new LinearLayout.LayoutParams(dp(132), ViewGroup.LayoutParams.MATCH_PARENT));
+        View vline = new View(this);
+        vline.setBackgroundColor(0x40FFFFFF);
+        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(Math.max(1, dp(1)), ViewGroup.LayoutParams.MATCH_PARENT);
+        vlp.setMargins(dp(8), 0, dp(12), 0);
+        split.addView(vline, vlp);
 
+        LinearLayout list = column();
         if (total == 0) {
-            col.addView(text("\nNo catalog loaded yet. Check the internet connection and press Refresh catalogs.", 16, DIM));
-            for (ModCatalog.Subscription sc : catalog.subs) if (sc.error != null) col.addView(text(sc.name + ": " + sc.error, 13, 0xFFFF8080));
+            list.addView(text("No catalog loaded yet. Check the internet connection and press Refresh.", 16, DIM));
+            for (ModCatalog.Subscription sc : catalog.subs) if (sc.error != null) list.addView(text(sc.name + ": " + sc.error, 13, 0xFFFF8080));
         }
         java.util.List<ModCatalog.Mod> found = catalog.search(catQuery, catCategory, catInstalledOnly);
-        if (total > 0 && found.isEmpty()) col.addView(text("\nNothing matches.", 16, DIM));
-        for (ModCatalog.Mod m : found) col.addView(catalogRow(m));
-        return scroll(col);
+        if (total > 0 && found.isEmpty()) list.addView(text("Nothing matches.", 16, DIM));
+        for (int i = 0; i < found.size(); i++) {
+            if (i > 0) {
+                View d = new View(this);
+                d.setBackgroundColor(0x30FFFFFF);
+                list.addView(d, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1))));
+            }
+            list.addView(catalogRow(found.get(i), catCategory == null));
+        }
+        split.addView(scroll(list), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        page.addView(split, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        return page;
     }
 
-    private View catalogRow(ModCatalog.Mod m) {
+    /** A category in the Get mods list: its name and count; the one shown is lit. */
+    private Button category(String label, int count, boolean on, View.OnClickListener l) {
+        Button b = new Button(this);
+        android.text.SpannableString t = new android.text.SpannableString(label + "  " + count);
+        t.setSpan(new android.text.style.ForegroundColorSpan(on ? TEXT : DIM), label.length(), t.length(), 0);
+        t.setSpan(new android.text.style.RelativeSizeSpan(0.8f), label.length(), t.length(), 0);
+        b.setText(t);
+        b.setAllCaps(false);
+        b.setTextSize(14);
+        b.setTextColor(TEXT);
+        shadow(b);
+        b.setSingleLine(true);
+        b.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        b.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        b.setPadding(dp(8), 0, dp(4), 0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setStateListAnimator(null);
+        android.graphics.drawable.StateListDrawable sl = new android.graphics.drawable.StateListDrawable();
+        sl.addState(new int[] { android.R.attr.state_focused }, window(HOT_TOP, HOT_BOTTOM, 6));
+        sl.addState(new int[] { android.R.attr.state_pressed }, window(HOT_TOP, HOT_BOTTOM, 6));
+        if (on) sl.addState(new int[] {}, window(BTN_TOP, BTN_BOTTOM, 6));
+        b.setBackground(sl);
+        b.setOnClickListener(l);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34));
+        lp.setMargins(0, dp(1), 0, dp(1));
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    private View catalogRow(ModCatalog.Mod m, boolean showCategory) {
         LinearLayout r = row();
-        r.setPadding(0, dp(8), 0, dp(8));
+        r.setPadding(0, dp(6), 0, dp(6));
+        // the name and details: tap (or A) for the mod's page
         LinearLayout info = column();
-        TextView name = text(m.name, 18, TEXT);
+        info.setPadding(dp(8), dp(6), dp(8), dp(6));
+        TextView name = text(m.name, 16, TEXT);
         name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setMaxLines(2);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         info.addView(name);
         StringBuilder b = new StringBuilder();
-        if (!m.author.isEmpty()) b.append("by ").append(m.author).append("  ·  ");
-        if (!m.category.isEmpty()) b.append(m.category).append("  ·  ");
-        if (!m.versionText.isEmpty()) b.append("v").append(m.versionText);
-        if (!m.sizeText().isEmpty()) b.append("  ·  ").append(m.sizeText());
-        info.addView(text(b.toString(), 13, DIM));
+        if (!m.author.isEmpty()) b.append(m.author);
+        if (showCategory && !m.category.isEmpty()) b.append(b.length() > 0 ? "  ·  " : "").append(m.category);
+        if (!m.sizeText().isEmpty()) b.append(b.length() > 0 ? "  ·  " : "").append(m.sizeText());
+        TextView meta = text(b.toString(), 13, DIM);
+        meta.setSingleLine(true);
+        meta.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        info.addView(meta);
+        info.setFocusable(true);
+        info.setClickable(true);
+        info.setOnClickListener(v -> modPage(m));
+        GradientDrawable hot = new GradientDrawable();
+        hot.setColor(0x33FFFFFF);
+        hot.setCornerRadius(dp(6));
+        android.graphics.drawable.StateListDrawable sl = new android.graphics.drawable.StateListDrawable();
+        sl.addState(new int[] { android.R.attr.state_focused }, hot);
+        sl.addState(new int[] { android.R.attr.state_pressed }, hot);
+        info.setBackground(sl);
         r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        r.addView(small("Details", v -> modPage(m)));
         LinearLayout slot = row();
+        slot.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
         fillAction(slot, m);
         actionSlots.put(m.id, slot);
-        r.addView(slot);
-        r.setFocusable(false);
+        r.addView(slot, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return r;
     }
 
@@ -448,14 +525,14 @@ public class LauncherActivity extends Activity {
         slot.setTag(label);
         slot.removeAllViews();
         if (q != null) {
-            Button b = small(label, v -> show("downloads"));
+            Button b = compact(small(label, v -> show("downloads")));
             slot.addView(b);
             if (hadFocus) b.requestFocus();
             return;
         }
-        if (in == null) slot.addView(small("Install", v -> installMods(java.util.Collections.singletonList(m), false)));
-        else if (catalog.updateAvailable(m)) slot.addView(small("Update to " + m.versionText, v -> installMods(java.util.Collections.singletonList(m), true)));
-        else slot.addView(text("Installed  ", 15, ACCENT));
+        if (in == null) slot.addView(compact(small("Install", v -> installMods(java.util.Collections.singletonList(m), false))));
+        else if (catalog.updateAvailable(m)) slot.addView(compact(small("Update", v -> installMods(java.util.Collections.singletonList(m), true))));
+        else slot.addView(text("✓ Installed", 14, ACCENT));
     }
 
     /** "Queued", "Downloading 40%", "Installing"; long: with sizes. */
@@ -593,11 +670,6 @@ public class LauncherActivity extends Activity {
         downloadsButton.setText(n > 0 ? "Downloads (" + n + ")" : "Downloads");
     }
 
-    private Button chip(String label, boolean on, View.OnClickListener l) {
-        Button b = small(label, l);
-        if (on) b.setBackground(window(HOT_TOP, HOT_BOTTOM, 6));
-        return b;
-    }
 
     /** One mod's page: preview, description, notes, links, install / update / remove. */
     private void modPage(ModCatalog.Mod m) {
@@ -855,7 +927,7 @@ public class LauncherActivity extends Activity {
         col.addView(space(16));
         col.addView(heading("Game boosters"));
         col.addView(text("How the game starts. In game: the bottom screen's Speed, Battles and Battle+ buttons, or L3 then "
-                + "R1/L1 (speed), Circle (random battles), Cross (battle enhancement). Icons in the top-right corner show what is on.", 14, DIM));
+                + "R1/L1 (speed), A (random battles), B (battle enhancement). Icons in the top-right corner show what is on.", 14, DIM));
         RadioGroup sg = new RadioGroup(this);
         sg.setOrientation(LinearLayout.HORIZONTAL);
         int curSpeed = boosterSpeed();
@@ -1216,7 +1288,7 @@ public class LauncherActivity extends Activity {
         Button b = new Button(this);
         b.setText(label);
         b.setAllCaps(false);
-        b.setTextSize(17);
+        b.setTextSize(16);
         b.setTextColor(new android.content.res.ColorStateList(
                 new int[][] { { -android.R.attr.state_enabled }, {} }, new int[] { 0xFF7F88AE, TEXT }));
         shadow(b);
@@ -1224,7 +1296,7 @@ public class LauncherActivity extends Activity {
         b.setBackground(null);
         b.setPadding(dp(4), 0, dp(4), 0);
         b.setCompoundDrawablesRelativeWithIntrinsicBounds(new HandCursor(getResources().getDisplayMetrics().density), null, null, null);
-        b.setCompoundDrawablePadding(dp(10));
+        b.setCompoundDrawablePadding(dp(6));
         b.setStateListAnimator(null);
         b.setFocusable(true);
         b.setMinHeight(0);
@@ -1294,6 +1366,17 @@ public class LauncherActivity extends Activity {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, dp(4), dp(8), dp(4));
         b.setLayoutParams(lp);
+        return b;
+    }
+
+    /** A row's button, as small as its label. */
+    private Button compact(Button b) {
+        b.setTextSize(14);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(14), dp(8), dp(14), dp(8));
         return b;
     }
 

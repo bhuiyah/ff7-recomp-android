@@ -22,8 +22,8 @@ final class HandCursor extends Drawable {
     private int alpha = 0;
 
     HandCursor(float density) {
-        width = Math.round(W * 1.25f * density);
-        height = Math.round(H * 1.25f * density);
+        width = Math.round(W * 1.0f * density);
+        height = Math.round(H * 1.0f * density);
         line.setStyle(Paint.Style.STROKE);
         line.setStrokeJoin(Paint.Join.ROUND);
         line.setStrokeCap(Paint.Cap.ROUND);

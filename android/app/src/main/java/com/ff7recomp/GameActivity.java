@@ -58,8 +58,11 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             case KeyEvent.KEYCODE_BUTTON_THUMBR: return 0x0080;
             case KeyEvent.KEYCODE_BUTTON_L1:    return 0x0100;
             case KeyEvent.KEYCODE_BUTTON_R1:    return 0x0200;
-            case KeyEvent.KEYCODE_BUTTON_A:     return 0x1000;
-            case KeyEvent.KEYCODE_BUTTON_B:     return 0x2000;
+            // FF7 confirms with Circle (XInput B, 0x2000) and cancels with Cross (XInput A,
+            // 0x1000), the Japanese PlayStation layout. Android pads confirm with A: A sends
+            // Circle, B sends Cross.
+            case KeyEvent.KEYCODE_BUTTON_A:     return 0x2000;
+            case KeyEvent.KEYCODE_BUTTON_B:     return 0x1000;
             case KeyEvent.KEYCODE_BUTTON_X:     return 0x4000;
             case KeyEvent.KEYCODE_BUTTON_Y:     return 0x8000;
             default: return 0;
