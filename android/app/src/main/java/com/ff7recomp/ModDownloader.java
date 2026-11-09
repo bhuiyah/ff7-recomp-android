@@ -117,6 +117,7 @@ final class ModDownloader {
                 return r;
             } catch (Exception e) {
                 if (cancel) { part.delete(); r.error = CANCELLED; return r; }
+                android.util.Log.w("FF7Mods", "install " + baseName, e);
                 lastError = e.getMessage() != null ? e.getMessage() : e.toString();
             }
         }
@@ -318,22 +319,17 @@ final class ModDownloader {
         }
     }
 
+    static { System.loadLibrary("ff7launcher"); }
+    private static native String nativeUn7z(String archive, String outDir);
+
+    /**
+     * In native code (src/android/un7z.c): Java's 7z decoder holds the LZMA window in one Java
+     * array, 256 MB for 7-Zip's Ultra preset (ChaOS), the whole default heap; the large heap is
+     * not an option (it moves ART's heap over the game's guest arena).
+     */
     private static void un7z(File archive, File into) throws IOException {
-        String canon = into.getCanonicalPath() + File.separator;
-        try (org.apache.commons.compress.archivers.sevenz.SevenZFile z =
-                 org.apache.commons.compress.archivers.sevenz.SevenZFile.builder().setFile(archive).get()) {
-            org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry e;
-            byte[] buf = new byte[1 << 16];
-            while ((e = z.getNextEntry()) != null) {
-                File out = target(into, canon, e.getName());
-                if (e.isDirectory()) { out.mkdirs(); continue; }
-                out.getParentFile().mkdirs();
-                try (OutputStream o = new FileOutputStream(out)) {
-                    int n;
-                    while ((n = z.read(buf)) > 0) o.write(buf, 0, n);
-                }
-            }
-        }
+        String err = nativeUn7z(archive.getAbsolutePath(), into.getAbsolutePath());
+        if (err != null) throw new IOException(err);
     }
 
     private static File findFirst(File dir, String ext) {

@@ -173,7 +173,7 @@ final class DownloadQueue {
                     if (total > 0) cur.total = total;
                     changed();
                 });
-            } catch (Exception e) {
+            } catch (Throwable e) {        // incl. OutOfMemoryError: fail the item, never the app
                 r = new ModDownloader.Result();
                 r.error = String.valueOf(e);
             }
@@ -193,6 +193,7 @@ final class DownloadQueue {
         synchronized (this) {
             it.error = error;
             it.state = s;
+            if (error != null) android.util.Log.w("FF7Mods", it.mod.name + ": " + error);
             it.phase = s == State.DONE ? "Installed" : s == State.CANCELLED ? "Cancelled" : "Failed";
             save();
             changed();

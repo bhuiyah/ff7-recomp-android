@@ -617,3 +617,14 @@
   rewritten at each start (ff7-local.txt); players' own additions go in ff7-custom.txt.
   Checked on the Thor: a custom achievement on the moment crossing 2 unlocked after the first
   battle; all 33 conditions parse.
+- 2026-11-09 ChaOS (.7z, 7-Zip Ultra: 256 MB LZMA2 dictionary) crashed the launcher at every
+  start: commons-compress/xz allocate the window as one Java array (OOM at the 256 MB growth
+  limit) on the download queue's thread, and the queue resumes the item at each launch.
+  android:largeHeap is NOT a fix: ART's main space then spans 0x12C00000-0x52C00000, over the
+  game's guest arena at 0x33000000 (":game" exits with 70, "cannot reserve"). Capping the xz
+  window does not work either (LZDecoder.reset writes buf[dictSize-1]). Now .7z is unpacked in
+  native code (src/android/un7z.c, LZMA SDK 24.09 7z reader in libff7launcher): each solid block
+  is decoded into a memory-mapped file; a block that is one file (an .iro) is renamed into place.
+  ChaOS.iro unpacks byte-identical; a multi-entry test archive too. commons-compress and xz are
+  gone from the app. The download queue now fails an item on any Throwable, and logs failures
+  (tag FF7Mods).

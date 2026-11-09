@@ -100,6 +100,20 @@ std::string mod_json(const std::string &path) {
 
 }  // namespace
 
+extern "C" int ff7_un7z(const char *archive, const char *outdir, char *err, size_t errlen);
+
+/** Unpack a .7z download into outDir (src/android/un7z.c): null on success, else the error. */
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_ff7recomp_ModDownloader_nativeUn7z(JNIEnv *env, jclass, jstring jarchive, jstring joutdir) {
+    const char *a = env->GetStringUTFChars(jarchive, nullptr);
+    const char *o = env->GetStringUTFChars(joutdir, nullptr);
+    char err[512];
+    int rc = ff7_un7z(a, o, err, sizeof err);
+    env->ReleaseStringUTFChars(jarchive, a);
+    env->ReleaseStringUTFChars(joutdir, o);
+    return rc == 0 ? nullptr : env->NewStringUTF(err);
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_ff7recomp_ModLibrary_nativeModInfo(JNIEnv *env, jclass, jstring jpath) {
     const char *p = env->GetStringUTFChars(jpath, nullptr);

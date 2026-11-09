@@ -7,7 +7,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 L="$ROOT/external/deps/lzma"
 mkdir -p "$L"
-for f in LzmaDec.c LzmaDec.h 7zTypes.h Precomp.h Compiler.h 7zWindows.h; do
+# the 7z reader too (src/android/un7z.c: the launcher unpacks .7z mods in native code)
+for f in LzmaDec.c LzmaDec.h 7zTypes.h Precomp.h Compiler.h 7zWindows.h          7z.h 7zArcIn.c 7zBuf.c 7zBuf.h 7zCrc.c 7zCrc.h 7zCrcOpt.c 7zDec.c 7zStream.c 7zAlloc.c 7zAlloc.h          7zFile.c 7zFile.h Bcj2.c Bcj2.h Bra.c Bra.h Bra86.c BraIA64.c CpuArch.c CpuArch.h Delta.c Delta.h          Lzma2Dec.c Lzma2Dec.h RotateDefs.h Alloc.h; do
   [ -f "$L/$f" ] || curl -sfL -o "$L/$f" "https://raw.githubusercontent.com/ip7z/7zip/24.09/C/$f"
 done
 if [ ! -d "$ROOT/external/7th-Heaven" ]; then

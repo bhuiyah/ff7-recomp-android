@@ -24,6 +24,4 @@ android {
 
 dependencies {
     // Catalog mods ship as .7z (and .zip): Commons Compress reads them, XZ provides LZMA/LZMA2.
-    implementation 'org.apache.commons:commons-compress:1.26.2'
-    implementation 'org.tukaani:xz:1.9'
 }
