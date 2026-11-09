@@ -75,6 +75,18 @@ and I would rather you know before you install it.
 
 Only the Steam release's 1.02 US `ff7_en` is supported; the launcher checks it before building.
 
+**FF7 downloaded with GameNative?** GameNative keeps games in its private internal storage by
+default, which other apps cannot read. Turn on GameNative's external storage (SD card) option and
+pick `GameNative/Steam/steamapps/common/FINAL FANTASY VII` on the card, or copy the folder from a PC.
+
+### Bringing your PlayStation saves
+
+**Save states** → **Import PlayStation saves…** takes a PS1 memory card: DuckStation (`.mcd`),
+ePSXe (`.mcr`), RetroArch (`.srm`), DexDrive (`.gme`) or PSP (`.vmp`). Its FF7 saves go into a new
+save file (Save 2, Save 3… under **Continue**), so none of yours are overwritten. DuckStation keeps
+its cards in `Android/data/com.github.stenzek.duckstation/files/memcards`; copy the card somewhere
+you can pick it, such as Download, first.
+
 ## Building the APK
 
 The APK is built on **Windows** (Git Bash) and needs no game files.

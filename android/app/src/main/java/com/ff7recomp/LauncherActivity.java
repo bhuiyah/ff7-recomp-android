@@ -35,7 +35,7 @@ import java.io.File;
  * quitting it lands back here and Play can start a fresh one.
  */
 public class LauncherActivity extends Activity {
-    private static final int PICK_GAME = 1, PICK_IRO = 2, PICK_FOLDER = 3;
+    private static final int PICK_GAME = 1, PICK_IRO = 2, PICK_FOLDER = 3, PICK_PSX = 4;
     // FF7-style menus: blue gradient windows with a light double border, white text with a drop
     // shadow, cyan labels, a pointing-glove cursor (HandCursor.java) on the menu.
     private static final int BG = 0xFF03050C, ACCENT = 0xFF7FD8FF, TEXT = 0xFFF4F6FF, DIM = 0xFFB4C0E4;
@@ -1202,6 +1202,10 @@ public class LauncherActivity extends Activity {
         }
     }
 
+    private static final String GAMENATIVE_HINT = "Downloaded FF7 with GameNative? Its internal storage is private to "
+            + "GameNative, so other apps cannot read it. Use GameNative's external storage (SD card) option, then pick "
+            + "GameNative/Steam/steamapps/common/FINAL FANTASY VII on the card. Or copy the folder from a PC.";
+
     private View gamePage() {
         LinearLayout col = column();
         buildBar = null;
@@ -1211,6 +1215,8 @@ public class LauncherActivity extends Activity {
             col.addView(text("Pick the FINAL FANTASY VII folder from your Steam copy (the folder that holds "
                     + "\"ff7\"). FF7Recomp copies the game files, then turns the game into a native Android "
                     + "app on this device. Nothing from the game is downloaded or shared.", 15, TEXT));
+            col.addView(space(8));
+            col.addView(text(GAMENATIVE_HINT, 13, DIM));
             col.addView(space(14));
             col.addView(button("Find my FF7 folder…", v -> pick(PICK_GAME)));
         } else if (GameBuild.running) {
@@ -1270,7 +1276,7 @@ public class LauncherActivity extends Activity {
     private void pick(int what) {
         if (busy) return;
         Intent i;
-        if (what == PICK_IRO) {
+        if (what == PICK_IRO || what == PICK_PSX) {
             i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
             i.setType("*/*");
@@ -1288,10 +1294,11 @@ public class LauncherActivity extends Activity {
         background(() -> {
             if (req == PICK_GAME) {
                 String err = install.importGame(data.getData(), this::progress);
-                if (err != null) return "Not imported: " + err;
+                if (err != null) return "Not imported: " + err + ".\n\n" + GAMENATIVE_HINT;
                 runOnUiThread(this::startBuild);
                 return null;
             }
+            if (req == PICK_PSX) return importPsx(data);
             if (req == PICK_IRO) {
                 int n = 0;
                 if (data.getClipData() != null) {
@@ -1310,6 +1317,38 @@ public class LauncherActivity extends Activity {
             File f = install.importFolder(data.getData(), library.dir, this::progress);
             return "Mod folder " + f.getName() + " added. Enable it in the list.";
         });
+    }
+
+    /** PlayStation memory cards picked on the Save states page, each into its own GAME file. */
+    private String importPsx(Intent data) throws java.io.IOException {
+        java.util.List<Uri> uris = new java.util.ArrayList<>();
+        if (data.getClipData() != null)
+            for (int k = 0; k < data.getClipData().getItemCount(); k++) uris.add(data.getClipData().getItemAt(k).getUri());
+        else if (data.getData() != null) uris.add(data.getData());
+        StringBuilder msg = new StringBuilder();
+        for (Uri u : uris) {
+            progress("Reading the memory card");
+            byte[] b;
+            try (java.io.InputStream in = getContentResolver().openInputStream(u)) {
+                if (in == null) throw new java.io.IOException("cannot open the file");
+                java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[65536];
+                for (int n; (n = in.read(buf)) > 0; ) {
+                    o.write(buf, 0, n);
+                    if (o.size() > (1 << 20)) throw new java.io.IOException("this file is too big to be a memory card");
+                }
+                b = o.toByteArray();
+            }
+            try {
+                PsxSaves.Result r = PsxSaves.importCard(b, new File(install.game, "save"));
+                String game = "Save " + r.gameNumber;
+                msg.append(r.saves).append(r.saves == 1 ? " save" : " saves").append(" imported into ").append(game)
+                   .append(". In game: Continue, then pick ").append(game).append(".\n");
+            } catch (java.io.IOException e) {
+                msg.append("Not imported: ").append(e.getMessage()).append("\n");
+            }
+        }
+        return msg.toString().trim();
     }
 
     // ------------------------------------------------------------------- save states
@@ -1344,6 +1383,13 @@ public class LauncherActivity extends Activity {
         col.addView(heading("Save states"));
         col.addView(text("In game: Select+L1 saves to the current slot, Select+R1 loads it, Select+Left / Right "
                 + "picks another slot. \"Play from here\" starts the game at that moment.", 14, DIM));
+        col.addView(space(10));
+        col.addView(button("Import PlayStation saves…", v -> pick(PICK_PSX)));
+        col.addView(text("From a PS1 memory card: DuckStation (.mcd), ePSXe (.mcr), RetroArch (.srm), DexDrive (.gme) "
+                + "or PSP (.vmp). DuckStation keeps its cards in Android/data/com.github.stenzek.duckstation/files/memcards; "
+                + "copy the card somewhere you can pick it (Download, for example) first. The saves go into a new "
+                + "save file (Save 2, Save 3… in the game), so none of yours are overwritten.", 13, DIM));
+        col.addView(space(10));
         int cur = states.current();
         for (int n = 1; n <= SaveStates.SLOTS; n++) {
             SaveStates.Slot sl = states.read(n);
