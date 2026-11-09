@@ -605,6 +605,16 @@ EDITS = [
      '\tname = hle_host_path(name, ffnx_host_name, sizeof(ffnx_host_name));\n'
      '#endif\n'
      '\tif(avformat_open_input(&format_ctx, name, NULL, NULL))'),
+    # Movies decode on the CPU (no MediaCodec): upscaled 30 fps movie mods (SYW Unified FMV)
+    # took 1.1 cores on one thread and ran the Thor's CPU to 70 C. Frame threads share the
+    # work, so the cores run at lower clocks. The decode loop already handles a decoder that
+    # holds frames back (EAGAIN); the last few frames of a movie stay in it (under 0.1 s).
+    ('video/movies.cpp', '\tavcodec_parameters_to_context(codec_ctx, format_ctx->streams[videostream]->codecpar);\n',
+     '\tavcodec_parameters_to_context(codec_ctx, format_ctx->streams[videostream]->codecpar);\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\tcodec_ctx->thread_count = 3;\n'
+     '\tcodec_ctx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;\n'
+     '#endif\n'),
     ('common.cpp', '\t\t\t\tif (strstr(basedir, "workingdir") != NULL)',
      '\t\t\t\tif (FFNX_ANDROID || strstr(basedir, "workingdir") != NULL)   // FF7Recomp: 2026 rerelease exe'),
     # Save states: which graphics objects carry button prompts is host state (prompt_resources)

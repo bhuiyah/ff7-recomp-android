@@ -650,3 +650,10 @@
   CompanionView fades a black layer to 85% over 1.2 s (out 0.7 s) on an ease-in-out curve,
   after the state holds 250 / 400 ms (no flicker from one-frame UC toggles). Checked on the
   Thor: Echo-S's intro scene dims, control at Sector 1 Station lights it again.
+- 2026-11-09 Movie mods: [Tsunamods] SYW Unified FMV 1.04 (4.0 GB .iro, AI upscaled and
+  interpolated to 30 fps) installs from Get mods and plays: the opening movie holds 30 FPS on the
+  Thor. Movies decode on the CPU (our FFmpeg has no MediaCodec): one thread took 1.1 cores and
+  the CPU sensor climbed 60 -> 70 C in 30 s. With 3 frame threads (ffnx_edit_android.py,
+  video/movies.cpp) it is about 1.3 cores in all and levels at 60-63 C. The catalogs have no
+  60 fps movie pack. Hardware decoding (MediaCodec) would be the next step if lesser devices
+  cannot keep up.
