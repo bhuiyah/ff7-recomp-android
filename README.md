@@ -9,21 +9,57 @@ Built for the AYN Thor (dual screen), and meant to run on other Android handheld
 > nothing derived from the game is ever published here.
 > Not affiliated with or endorsed by Square Enix. FINAL FANTASY is a trademark of Square Enix.
 
+![FF7Recomp on the AYN Thor: a battle on the top screen, the enemies' HP and a touch deck on the bottom screen](docs/images/dual-screen-battle.jpg)
+
+## Made with AI
+
+**This project was built with AI, start to finish.** I wanted a working way to play a modded
+FF7 on my AYN Thor, and over a weekend I directed an AI coding agent (Anthropic's Claude, in
+Claude Code) to build it. The AI wrote essentially all of the code here: the recompilation
+pipeline, the Android port of FFNx, the launcher, the on-device build and these docs. My part
+was deciding what to build, testing every step on the Thor, and saying what worked and what
+did not. Commits are credited to Claude for that reason.
+
+I know AI-written code is a real point of contention, so here it is up front:
+
+- **It has not been reviewed line by line by an experienced human developer.** It works on my
+  Thor: the game boots, plays and runs mods, but expect rough edges and bugs.
+- **The hard parts were built by people.** FFNx, pcrecomp and nfsu2-recompiled, 7th Heaven,
+  bgfx, and every mod in the catalogs are human work that this project stands on (see
+  [Credits](#credits-and-licenses)). Please support those projects.
+- **I am making it public to improve it,** and so people can play it. Bug reports, testing on
+  other devices, reviews and fixes are all welcome, from people and from people using AI tools.
+
+If AI-made software is not something you want to run or contribute to, that is a fair choice,
+and I would rather you know before you install it.
+
 ## What you get
 
 - The game running natively (no emulation, no Wine/FEX), at 30, 60 or 120 FPS.
 - A launcher: import your game files, browse and install mods from the 7th Heaven catalogs
-  (.iro, .zip, .7z), set mod order and options, settings, save states, achievements.
+  (.iro, .zip, .7z), set mod order and options, settings, save states, achievements. It plays
+  FF7's own menu sounds (or your mods' versions of them).
 - 16:9 widescreen, controller support (A confirms, B cancels), save states.
-- On the AYN Thor's bottom screen: party status, location, a touch deck (menu, save/load state,
-  speed, random battles, battle enhancement).
+- On the AYN Thor's bottom screen: party status, location, enemy HP in battle, a touch deck
+  (menu, save/load state, speed, random battles, battle enhancement); it dims during cutscenes.
 - Game boosters as in the console re-releases (speed, no random battles, battle enhancement).
-- Local achievements (RetroAchievements format; no online account until RetroAchievements
-  approves this port).
+- Local achievements (RetroAchievements format; offline only).
+
+## Screenshots
+
+| | |
+|---|---|
+| ![The field on the top screen, the party, location, playtime and touch deck on the bottom screen](docs/images/dual-screen-field.jpg) | ![A battle at 118 FPS; enemy HP on the bottom screen](docs/images/dual-screen-battle.jpg) |
+| **Dual screen: field** | **Dual screen: battle** |
+| ![Get mods: the 7th Heaven catalogs by category, with search](docs/images/launcher-get-mods.jpg) | ![Mods: enable, order, options; overlaps between mods are shown](docs/images/launcher-mods.jpg) |
+| **Get mods** | **Your mods** |
+| ![Building the game on the device from your own copy of FF7](docs/images/launcher-build.jpg) | ![Settings: frame rate, performance, menu sounds](docs/images/launcher-settings.jpg) |
+| **First run: building the game on the device** | **Settings** |
 
 ## Playing
 
-1. Install the APK.
+1. Download the APK from [Releases](../../releases/latest) and install it (allow installing
+   from your browser or file manager when Android asks).
 2. Put your FINAL FANTASY VII install folder from Steam on the device (internal storage, an SD card
    or a USB drive): the folder that contains `ff7/resources/ff7_1.02/ff7_en` and
    `ff7/workingdir/data`.
@@ -107,3 +143,6 @@ FF7Recomp is GPL-3.0 (it links FFNx). It builds on:
 [rcheevos](https://github.com/RetroAchievements/rcheevos) (MIT),
 the [LZMA SDK](https://www.7-zip.org/sdk.html) (public domain),
 [FFmpeg](https://ffmpeg.org/) (LGPL).
+The APK also carries, for the on-device build: [LLVM/clang and lld](https://llvm.org/) (Apache-2.0
+with LLVM exceptions), [Python for Android](https://www.python.org/downloads/android/) (PSF),
+[Capstone](https://www.capstone-engine.org/) (BSD-3) and [pefile](https://github.com/erocarrera/pefile) (MIT).

@@ -13,9 +13,29 @@ android {
         ndk { abiFilters 'arm64-v8a' }
         externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static', "-DFF7_BUNDLE_GAME=${project.findProperty('bundleGame') ?: 'OFF'}" } }
     }
+    // Release signing: the key stays off the repository, in ~/.ff7recomp/keystore.properties
+    // (storeFile, storePassword, keyAlias, keyPassword) or the file named by FF7_KEYSTORE_PROPERTIES.
+    // Without it a release build is left unsigned.
+    def ksFile = file(System.getenv('FF7_KEYSTORE_PROPERTIES') ?: "${System.getProperty('user.home')}/.ff7recomp/keystore.properties")
+    def ks = new Properties()
+    if (ksFile.isFile()) ksFile.withInputStream { ks.load(it) }
+    signingConfigs {
+        if (ks['storeFile']) {
+            release {
+                storeFile file(ks['storeFile'])
+                storePassword ks['storePassword']
+                keyAlias ks['keyAlias']
+                keyPassword ks['keyPassword']
+            }
+        }
+    }
     buildTypes {
         // The lifted game is ~10 M lines of C: build it optimised even for debug APKs.
         debug { jniDebuggable true }
+        release {
+            minifyEnabled false
+            if (ks['storeFile']) signingConfig signingConfigs.release
+        }
     }
     externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt'); version '3.30.5' } }
     // FFNx's run-time files (tools/stage_apk_assets.sh) ship in the APK as assets/ffnx.
