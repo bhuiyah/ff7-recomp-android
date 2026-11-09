@@ -671,3 +671,13 @@
   ChaOS + Echo-S + 6 more mods), from a 47 C baseline: game process 41% of a core and GPU 46% at
   401 MHz every minute; big-core sensors level at 56-58 C (spikes to 61), GPU 50-54 C, flat from
   minute 3 on. The Thor exposes no fan cooling device in sysfs, so fan speed is not measured.
+- 2026-11-09 Build from a fresh clone (tools/build_all.sh, run in ../FF7Clean): passes end to end,
+  APK boots into the field with mods on the Thor; libff7.so matches the dev build (128 bytes
+  apart). What a fresh clone lacked, now fixed: (1) patches checked out CRLF under Git for
+  Windows' core.autocrlf=true (bgfx patches failed): .gitattributes keeps *.patch / *.sh LF;
+  (2) 16 of FFNx's libraries in external/deps had been cloned by hand (CMake failed on cmrc),
+  and openpsf carried an unrecorded edit: fetch_deps.sh pins them by commit,
+  patches/openpsf holds the edit; (3) the FFNx code-patch manifests were only in analysis/
+  (collected on a device): they hold FFNx's own patch bytes and addresses, no game bytes, so
+  they are committed in config/ffnx_manifests; (4) machine paths in tools/*.sh: tools/env.sh
+  finds the SDK/NDK/JDK/LLVM/MSBuild. The catalog a fresh clone builds is byte-identical.
