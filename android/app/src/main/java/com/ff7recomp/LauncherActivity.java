@@ -1180,15 +1180,17 @@ public class LauncherActivity extends Activity {
     }
 
     /** The start speed (1-3); older settings had only the 2x "turbo" switch. */
-    /** Performance's render scale cap: the smallest 640x480 multiple that covers the screen
-     *  (Balanced; 3 on a 1080p Thor, 2 on a 720p device), one less (Cooler), none (Best). */
+    /** Performance's render scale cap: the 640x480 multiple nearest the screen (Balanced; 2 on
+     *  a 1080p Thor, 2 on a 720p device, 3 at 1440p), one less (Cooler), none (Best). Rounding
+     *  up drew 2560x1440 for the Thor's 1080p screen: 1.8x the pixels it shows (GPU 71% busy
+     *  in the field at 120 FPS with ChaOS). */
     private int renderScaleCap() {
         int perf = prefs.getInt("perf", 1);
         if (perf == 2) return 0;
         android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
         getWindowManager().getDefaultDisplay().getRealMetrics(dm);
         int shortSide = Math.min(dm.widthPixels, dm.heightPixels);
-        int match = Math.max(1, (shortSide + 479) / 480);
+        int match = Math.max(1, (shortSide + 240) / 480);
         return perf == 0 ? Math.max(1, match - 1) : match;
     }
 

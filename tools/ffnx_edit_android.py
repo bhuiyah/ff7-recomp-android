@@ -605,6 +605,53 @@ EDITS = [
      '\tname = hle_host_path(name, ffnx_host_name, sizeof(ffnx_host_name));\n'
      '#endif\n'
      '\tif(avformat_open_input(&format_ctx, name, NULL, NULL))'),
+    # Game lighting (per-vertex, on the GPU) needs normals, which FFNx recomputes on the CPU for
+    # every model draw (~7% of the game process with ChaOS at 120 FPS). FF7 models keep their
+    # vertices in model space (placed by matrices), so a model's normals rarely change: cache
+    # them per vertex/index buffer and recompute only when a fingerprint of the positions changes.
+    ('gl/gl.cpp', '#include <algorithm>\n', '#include <algorithm>\n#include <unordered_map>\n'),
+    ('gl/gl.cpp',
+     '\t// If the previous code was not able to fetch the model normal data, we have to calculate it on the CPU\n'
+     '\tif (!has_model_data)\n',
+     '#ifdef FFNX_ANDROID\n'
+     '\tstd::vector<vector3<float>> *ffnx_cached = nullptr;\n'
+     '\tif (!has_model_data && ip->vertexcount > 0)\n'
+     '\t{\n'
+     '\t\tconst uint64_t key = (uint64_t)(uintptr_t)&ip->vertices[0] * 0x9E3779B97F4A7C15ull ^\n'
+     '\t\t\t((uint64_t)(uintptr_t)&ip->indices[0] << 1) ^ ((uint64_t)ip->vertexcount << 40) ^ ip->indexcount;\n'
+     '\t\tuint32_t a = 0, b = 0, c = 0;   // three independent lanes: cheap next to the normals\n'
+     '\t\tfor (uint32_t i = 0; i < ip->vertexcount; i++)\n'
+     '\t\t{\n'
+     '\t\t\tconst uint32_t *p = (const uint32_t *)&ip->vertices[i]._;\n'
+     '\t\t\ta = ((a << 5) | (a >> 27)) ^ p[0];\n'
+     '\t\t\tb = ((b << 7) | (b >> 25)) ^ p[1];\n'
+     '\t\t\tc = ((c << 11) | (c >> 21)) ^ p[2];\n'
+     '\t\t}\n'
+     '\t\tconst uint64_t sig = ((uint64_t)a << 32 | b) ^ ((uint64_t)c * 0xC2B2AE3D27D4EB4Full);\n'
+     '\t\tstatic std::unordered_map<uint64_t, std::pair<uint64_t, std::vector<vector3<float>>>> cache;\n'
+     '\t\tif (cache.size() > 8192) cache.clear();\n'
+     '\t\tauto &entry = cache[key];\n'
+     '\t\tif (entry.first == sig && entry.second.size() == ip->vertexcount) { normals = entry.second; return; }\n'
+     '\t\tentry.first = sig;\n'
+     '\t\tffnx_cached = &entry.second;\n'
+     '\t}\n'
+     '#endif\n'
+     '\t// If the previous code was not able to fetch the model normal data, we have to calculate it on the CPU\n'
+     '\tif (!has_model_data)\n'),
+    ('gl/gl.cpp',
+     '\t\tfor (uint32_t idx = 0; idx < ip->vertexcount; idx++)\n'
+     '\t\t{\n'
+     '\t\t\tnormalize_vector(&normals[idx]);\n'
+     '\t\t}\n'
+     '\t}\n',
+     '\t\tfor (uint32_t idx = 0; idx < ip->vertexcount; idx++)\n'
+     '\t\t{\n'
+     '\t\t\tnormalize_vector(&normals[idx]);\n'
+     '\t\t}\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\t\tif (ffnx_cached) *ffnx_cached = normals;\n'
+     '#endif\n'
+     '\t}\n'),
     # Movies decode on the CPU (no MediaCodec): upscaled 30 fps movie mods (SYW Unified FMV)
     # took 1.1 cores on one thread and ran the Thor's CPU to 70 C. Frame threads share the
     # work, so the cores run at lower clocks. The decode loop already handles a decoder that

@@ -657,3 +657,13 @@
   video/movies.cpp) it is about 1.3 cores in all and levels at 60-63 C. The catalogs have no
   60 fps movie pack. Hardware decoding (MediaCodec) would be the next step if lesser devices
   cannot keep up.
+- 2026-11-09 Heat, round 2 (field, 120 FPS, ChaOS + Echo-S): GPU 71% busy at 401 MHz, game
+  process 42% of a core. (1) Balanced render scale rounds to the nearest 640x480 multiple, not
+  up: 2 on the Thor (1706x960 for a 1080p screen) instead of 3 (2560x1440, 1.8x the pixels shown):
+  GPU 71% -> 46%, no visible loss on the 6" screen. (2) FFNx recomputed every model's normals on
+  the CPU per draw for per-vertex game lighting (gl_calculate_normals + vector helpers ~7.6% of
+  the process); now cached per vertex/index buffer with a 3-lane fingerprint of the positions
+  (ffnx_edit_android.py, gl/gl.cpp): under 1%. (3) show_version / show_renderer_backend off (the
+  FPS line stays the launcher's choice). Left as is: sub_006465FB (field background tile walk,
+  10%: lifted game code at -O1), the Adreno vkResetDescriptorPool memset (6%, pool 1024 sets),
+  bgfx vertex copies (~7%), Android's own swapchain clock_gettime.

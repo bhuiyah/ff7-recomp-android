@@ -224,6 +224,9 @@ final class GameInstall {
         toml = set(toml, "ff7_fps_limiter", Integer.toString(fpsLimiter));
         toml = set(toml, "speedhack_min", turbo ? "2.0" : "1.0");
         toml = set(toml, "show_fps", showFps ? "true" : "false");
+        // FFNx's version and renderer lines: debug text drawn every frame, not worth the work
+        toml = set(toml, "show_version", "false");
+        toml = set(toml, "show_renderer_backend", "false");
         // 16:9 (FFNx aspect_ratio 2) also uncrops: the Thor's screen is 16:9 top to bottom.
         toml = set(toml, "aspect_ratio", Integer.toString(aspectRatio));
         toml = set(toml, "enable_uncrop", aspectRatio != 0 ? "true" : "false");
