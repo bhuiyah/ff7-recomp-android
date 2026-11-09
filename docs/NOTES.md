@@ -562,3 +562,11 @@
   battlewindows=off; companion_render.cpp also defaults to off without companion.txt. The split
   and whole-strip views remain in the code (companion.txt "split" / "whole") for testing. In
   battle the bottom screen shows the enemy gauges and the deck.
+- Battle windows "jumbled" with Finishing Touch's UI Theme on (+ Enhanced Stock UI): the name is
+  drawn under the HP numbers and a header sits off the left edge. Without the Theme (theme = 0,
+  with FT's "Theme off" variants icons/fieldicons/dialogue = 2) both battle windows and field text
+  are clean, so the user's profile uses that. Whether the Theme layout is a port bug or the mod
+  as on Windows is not settled (needs a Windows 7th Heaven comparison).
+- "Dark field" late in a session: Echo-S's Day Night option (on by default) drives FFNx's
+  time-of-day lighting from its in-game clock; the same field at the start of the game looks the
+  same with it on or off.
