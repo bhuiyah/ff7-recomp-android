@@ -6,7 +6,8 @@
 #            (FF7_TRACE_IMPORTS=1, one line per shim call, is on unless QUIET=1)
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK=/c/Users/%USERNAME%/AppData/Local/Android/Sdk
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
+SDK="$ANDROID_SDK_ROOT"
 ADB="$SDK/platform-tools/adb.exe"
 STRIP="$SDK/ndk/28.2.13676358/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-strip.exe"
 DIR="$ROOT/build/headless-arm64"

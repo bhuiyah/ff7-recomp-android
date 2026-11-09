@@ -5,7 +5,7 @@
 # usage: bash tools/play_newgame.sh [seconds after New Game = 60] [--no-install]
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ADB="/c/Users/%USERNAME%/AppData/Local/Android/Sdk/platform-tools/adb.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"   # ADB
 export MSYS_NO_PATHCONV=1
 AFTER="${1:-60}"
 SHOTS="$ROOT/build/shots"; rm -rf "$SHOTS"; mkdir -p "$SHOTS"

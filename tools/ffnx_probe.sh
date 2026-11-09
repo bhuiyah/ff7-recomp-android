@@ -3,7 +3,8 @@
 # usage: bash tools/ffnx_probe.sh "gl/texture.cpp;cfg.cpp" [max-errors]
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK=/c/Users/%USERNAME%/AppData/Local/Android/Sdk
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
+SDK="$ANDROID_SDK_ROOT"
 CM="$SDK/cmake/3.30.5/bin"
 OUT="$ROOT/build/ffnx-probe"
 SRCS="${1:-gl/texture.cpp}"

@@ -4,7 +4,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build/interp-test"
-CC="/c/Program Files/LLVM/bin/clang.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
+CC="$HOST_CC"
 RUNS="${1:-6000}"
 STATES="${2:-4}"
 mkdir -p "$OUT"

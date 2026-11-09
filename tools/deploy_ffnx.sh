@@ -6,7 +6,7 @@
 # usage: bash tools/deploy_ffnx.sh   (adb device connected)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ADB="/c/Users/%USERNAME%/AppData/Local/Android/Sdk/platform-tools/adb.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"   # ADB
 DEV=/sdcard/Android/data/com.ff7recomp/files/game
 STAGE="$ROOT/build/ffnx-runtime"
 MISC="$ROOT/external/FFNx/misc"

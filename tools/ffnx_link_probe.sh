@@ -3,7 +3,8 @@
 # build/ffnx-link/undefined.txt. usage: bash tools/ffnx_link_probe.sh
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK=/c/Users/%USERNAME%/AppData/Local/Android/Sdk
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
+SDK="$ANDROID_SDK_ROOT"
 CM="$SDK/cmake/3.30.5/bin"
 OUT="$ROOT/build/ffnx-link"
 "$CM/cmake.exe" -S "$ROOT/tests/ffnx_probe" -B "$OUT" -G Ninja -DCMAKE_MAKE_PROGRAM="$CM/ninja.exe" \

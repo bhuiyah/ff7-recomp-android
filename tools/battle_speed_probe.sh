@@ -6,7 +6,7 @@
 # usage: bash tools/battle_speed_probe.sh [modes = "1 3 4"]
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ADB="/c/Users/%USERNAME%/AppData/Local/Android/Sdk/platform-tools/adb.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"   # ADB
 export MSYS_NO_PATHCONV=1
 MODES="${1:-1 3 4}"
 key() { "$ADB" shell input keyevent --longpress "KEYCODE_$1"; }

@@ -6,7 +6,8 @@
 #            ring on, so crashes and STOPs print the path that led there
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK="${ANDROID_SDK_ROOT:-/c/Users/%USERNAME%/AppData/Local/Android/Sdk}"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
+SDK="$ANDROID_SDK_ROOT"
 NDK="$SDK/ndk/28.2.13676358"
 CMAKE="$SDK/cmake/3.30.5/bin/cmake.exe"
 NINJA="$SDK/cmake/3.30.5/bin/ninja.exe"

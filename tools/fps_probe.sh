@@ -7,7 +7,7 @@
 # usage: bash tools/fps_probe.sh
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ADB="/c/Users/%USERNAME%/AppData/Local/Android/Sdk/platform-tools/adb.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"   # ADB
 export MSYS_NO_PATHCONV=1
 key() { "$ADB" shell input keyevent --longpress "KEYCODE_$1"; }
 install=""

@@ -5,7 +5,8 @@
 # usage: bash tools/build_shaderc.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MSB="/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/MSBuild/Current/Bin/amd64/MSBuild.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
+MSB="${MSBUILD:?Visual Studio 2022 (Build Tools, C++) not found: set MSBUILD to its MSBuild.exe}"
 cd "$ROOT/external/bgfx"
 ../bx/tools/bin/windows/genie.exe --with-tools vs2022 > /dev/null
 # bx is built with /WX; MSVC 17.x warns C4505 on bx::crtReportHook. A host tool, so not fatal.

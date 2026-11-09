@@ -5,7 +5,7 @@
 # usage: bash tools/play_to_battle.sh [--no-install]
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ADB="/c/Users/%USERNAME%/AppData/Local/Android/Sdk/platform-tools/adb.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"   # ADB
 export MSYS_NO_PATHCONV=1
 SHOTS="$ROOT/build/shots"; rm -rf "$SHOTS"; mkdir -p "$SHOTS"
 key() { "$ADB" shell input keyevent --longpress "KEYCODE_$1"; }

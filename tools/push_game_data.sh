@@ -5,7 +5,7 @@
 # usage: bash tools/push_game_data.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ADB="/c/Users/%USERNAME%/AppData/Local/Android/Sdk/platform-tools/adb.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"   # ADB
 DEV=/sdcard/Android/data/com.ff7recomp/files/game
 SRC="$(cd "$ROOT/game/data" && pwd -P)"
 cd "$SRC"

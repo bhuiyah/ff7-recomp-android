@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$ROOT/external/deps/ffmpeg"
 OUT="$ROOT/build/ffmpeg-android"
-NDK="/c/Users/%USERNAME%/AppData/Local/Android/Sdk/ndk/28.2.13676358"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"   # NDK, HOST_CC
 TC="$NDK/toolchains/llvm/prebuilt/windows-x86_64/bin"
 MAKE="$NDK/prebuilt/windows-x86_64/bin/make.exe"
 API=29
@@ -19,7 +19,7 @@ mkdir -p "$OUT/build" "$OUT/tmp"
 export TMPDIR="$OUT/tmp" TMP="$OUT/tmp" TEMP="$OUT/tmp"
 # Host compiler for the build-time generators (libswscale/aarch64/ops_asmgen): LLVM's clang
 # for Windows, through a wrapper because configure cannot take a path with spaces.
-printf '#!/bin/sh\nexec "/c/Program Files/LLVM/bin/clang.exe" "$@"\n' > "$OUT/hostcc.sh"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$HOST_CC" > "$OUT/hostcc.sh"
 chmod +x "$OUT/hostcc.sh"
 cd "$OUT/build"
 "$SRC/configure" \

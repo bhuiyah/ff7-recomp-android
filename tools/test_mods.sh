@@ -4,8 +4,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build/mods-test"
-CC="/c/Program Files/LLVM/bin/clang.exe"
-CXX="/c/Program Files/LLVM/bin/clang++.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
+CC="$HOST_CC"
+CXX="$HOST_CXX"
 rm -rf "$OUT"; mkdir -p "$OUT"
 py -I "$ROOT/tests/mods/make_test_mods.py" "$OUT/data"
 cd "$OUT"

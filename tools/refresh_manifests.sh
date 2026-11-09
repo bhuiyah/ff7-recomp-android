@@ -10,14 +10,14 @@
 # usage: bash tools/refresh_manifests.sh [modes = "1 2 3 4 4b"] [aspects = "0 2"]
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ADB="/c/Users/%USERNAME%/AppData/Local/Android/Sdk/platform-tools/adb.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"   # ADB, JAVA_HOME
 FILES=/sdcard/Android/data/com.ff7recomp/files
-M="$ROOT/analysis/ffnx_manifests"
+M="$ROOT/config/ffnx_manifests"   # committed: FFNx's own patch bytes, no game bytes
 MODES="${1:-1 2 3 4 4b}"
 ASPECTS="${2:-0 2}"
 export MSYS_NO_PATHCONV=1
 mkdir -p "$M"
-build() { (cd "$ROOT/android" && JAVA_HOME="/c/Program Files/Microsoft/jdk-17.0.21.21-hotspot" ./gradlew assembleDebug --console=plain > "$ROOT/build/gradle.log" 2>&1) \
+build() { (cd "$ROOT/android" && ./gradlew assembleDebug --console=plain > "$ROOT/build/gradle.log" 2>&1) \
           || { grep -E 'error:' "$ROOT/build/gradle.log" | sort -u | head; exit 1; }; }
 build
 install=""

@@ -13,8 +13,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build/hext-manifest"
-CC="/c/Program Files/LLVM/bin/clang.exe"
-CXX="/c/Program Files/LLVM/bin/clang++.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
+CC="$HOST_CC"
+CXX="$HOST_CXX"
 [ $# -ge 1 ] || { sed -n 2,13p "$0"; exit 2; }
 mkdir -p "$OUT" "$ROOT/analysis/ffnx_manifests"
 if [ ! -x "$OUT/hext_manifest.exe" ] || [ -n "$(find "$ROOT/src/mods" "$ROOT/tools/hext_manifest.cpp" -newer "$OUT/hext_manifest.exe")" ]; then

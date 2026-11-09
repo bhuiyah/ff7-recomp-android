@@ -4,7 +4,7 @@
 # usage: bash tools/run_app.sh [seconds=20] [--no-install]
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ADB="/c/Users/%USERNAME%/AppData/Local/Android/Sdk/platform-tools/adb.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/env.sh"   # ADB
 APK="$ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
 FILES=/sdcard/Android/data/com.ff7recomp/files
 SECS="${1:-20}"
