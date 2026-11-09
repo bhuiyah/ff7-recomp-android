@@ -47,8 +47,10 @@ py -I tools/ffnx_seeds.py
 
 step "5/9 recompile the game to C (lift32, with FFNx's patch manifests)"
 if [ ! -f generated/recomp/recomp_dispatch.c ]; then
-  list=$(for f in config/ffnx_manifests/ffnx_manifest_l*.json analysis/ffnx_manifests/hext_*.json; do
-           [ -f "$f" ] && cygpath -m "$ROOT/$f"; done | tr '\n' ',' | sed 's/,$//')
+  list=""
+  for f in config/ffnx_manifests/ffnx_manifest_l*.json analysis/ffnx_manifests/hext_*.json; do
+    if [ -f "$f" ]; then list="${list:+$list,}$(cygpath -m "$ROOT/$f")"; fi
+  done
   py tools/run_lift.py lift game/ff7_en.exe analysis/catalog.json generated/recomp --manifests "$list"
   py tools/gen_retn_table.py
 fi
