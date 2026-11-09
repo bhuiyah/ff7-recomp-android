@@ -1,0 +1,13 @@
+diff --git a/include/openpsf/openpsf.h b/include/openpsf/openpsf.h
+index bb2df51..dae6ec0 100644
+--- a/include/openpsf/openpsf.h
++++ b/include/openpsf/openpsf.h
+@@ -53,7 +53,7 @@ private:
+ 	unsigned int data_written;
+ 	unsigned int song_len, fade_len;
+ 	uint16_t samplerate;
+-	char* last_error;
++	const char* last_error;   // FF7Recomp: holds string literals (C++11)
+ 	std::string last_status;
+ 	psf_info_meta_state info_state;
+ 	psf_file_callbacks psf_file_system;
