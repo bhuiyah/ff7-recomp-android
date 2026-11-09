@@ -137,6 +137,31 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         preferHighestRefreshRate(getWindow(), getDisplay());
         hideSystemBars(getWindow().getInsetsController());
         showCompanion();
+        startSteamSync();
+    }
+
+    /** Steam achievements the game unlocks (files/steam/pending.txt, src/ffnx_port/steam_android.cpp)
+     *  go to Steam while playing: checked every 20 s, sent when there are any (SteamLink.java). */
+    private volatile boolean steamSyncRunning;
+
+    private void startSteamSync() {
+        SteamLink steam = new SteamLink(this);
+        if (!steam.active()) return;
+        steamSyncRunning = true;
+        Thread t = new Thread(() -> {
+            while (steamSyncRunning) {
+                try { Thread.sleep(20_000); } catch (InterruptedException e) { return; }
+                if (steam.waiting() == 0) continue;
+                try {
+                    java.util.List<String> got = steam.sync();
+                    if (!got.isEmpty()) Log.i(TAG, "Steam achievements sent: " + got);
+                } catch (Exception e) {
+                    Log.w(TAG, "Steam achievements wait for the next try: " + SteamLink.message(e));
+                }
+            }
+        }, "steam-sync");
+        t.setDaemon(true);
+        t.start();
     }
 
     /** The display's fastest mode at its current resolution (the Thor's screens: 120 Hz;
@@ -237,6 +262,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onDestroy() {
         if (companion != null) companion.dismiss();
+        steamSyncRunning = false;
         super.onDestroy();
     }
 }

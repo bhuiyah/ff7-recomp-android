@@ -45,7 +45,8 @@ and I would rather you know before you install it.
 - On the AYN Thor's bottom screen: party status, location, enemy HP in battle, a touch deck
   (menu, save/load state, speed, random battles, battle enhancement); it dims during cutscenes.
 - Game boosters as in the console re-releases (speed, no random battles, battle enhancement).
-- Local achievements (RetroAchievements format; offline only).
+- Steam achievements on your own Steam account (see [Steam achievements](#steam-achievements)),
+  and a local achievement set (RetroAchievements format; offline only).
 
 ## Screenshots
 
@@ -132,6 +133,18 @@ has it, with `tools/run_lift.py catalog` and `tools/refresh_manifests.sh`.
 under **Mods** (higher in the list wins). Large mods download and unpack on the device; you
 can keep using the launcher meanwhile. You can also add your own `.iro` files or mod folders.
 
+## Steam achievements
+
+**Achievements** → **Sign in with the Steam app…** shows a QR code: scan it in the Steam mobile
+app (Steam Guard → Scan a QR code) and approve. You never type your Steam password into
+FF7Recomp; it keeps only Steam's sign-in token, in its private storage. **Sign out** removes it.
+
+FFNx's own achievement code decides when one is earned, exactly as it does on PC; FF7Recomp
+sends it to your Steam account (the FINAL FANTASY VII you own on Steam: the current release or
+the 2013 one, each with its own list). Unlocks show in game and as a notification, and are sent
+at once when online, or the next time you are. While it talks to Steam, your Steam profile may
+briefly show you playing FINAL FANTASY VII.
+
 ## Reporting problems
 
 Please open an issue with your device, Android version, the mods you have enabled, and what
@@ -145,6 +158,9 @@ build) and `game/FFNx.log`.
   Thor but run warmer.
 - The 120 FPS mode is experimental.
 - RetroAchievements: offline only, until the port is approved by RetroAchievements.
+- Steam achievements: tested with "First Blood" on the current release; the others use FFNx's
+  triggers unchanged but have not each been played through here. Steam playtime and cloud saves
+  are not synced.
 
 ## Credits and licenses
 
@@ -160,3 +176,6 @@ the [LZMA SDK](https://www.7-zip.org/sdk.html) (public domain),
 The APK also carries, for the on-device build: [LLVM/clang and lld](https://llvm.org/) (Apache-2.0
 with LLVM exceptions), [Python for Android](https://www.python.org/downloads/android/) (PSF),
 [Capstone](https://www.capstone-engine.org/) (BSD-3) and [pefile](https://github.com/erocarrera/pefile) (MIT).
+For Steam achievements: [JavaSteam](https://github.com/Longi94/JavaSteam) (MIT) with its libraries
+(protobuf, BSD-3; OkHttp, Ktor and Kotlin, Apache-2.0; Commons Lang, Apache-2.0) and
+[ZXing](https://github.com/zxing/zxing) (Apache-2.0) for the QR code.

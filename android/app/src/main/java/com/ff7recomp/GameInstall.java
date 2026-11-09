@@ -213,6 +213,9 @@ final class GameInstall {
      * the launcher's choices, then each enabled mod's FFNxConfig (later mods first, so the
      * highest-priority mod's values win, as files do).
      */
+    /** FFNx's Steam achievement code on (signed in to Steam: SteamLink.java). */
+    boolean steamAchievements;
+
     void writeFfnxToml(int fpsLimiter, boolean turbo, int aspectRatio, boolean showFps, List<ModLibrary.Mod> mods, int scaleCap) throws IOException {
         File template = new File(game, "FFNx.template.toml");
         String toml = new String(readAll(new java.io.FileInputStream(template)), StandardCharsets.UTF_8);
@@ -227,6 +230,8 @@ final class GameInstall {
         // FFNx's version and renderer lines: debug text drawn every frame, not worth the work
         toml = set(toml, "show_version", "false");
         toml = set(toml, "show_renderer_backend", "false");
+        toml = set(toml, "enable_steam_achievements", steamAchievements ? "true" : "false");
+        toml = set(toml, "trace_achievement", steamAchievements ? "true" : "false");
         // 16:9 (FFNx aspect_ratio 2) also uncrops: the Thor's screen is 16:9 top to bottom.
         toml = set(toml, "aspect_ratio", Integer.toString(aspectRatio));
         toml = set(toml, "enable_uncrop", aspectRatio != 0 ? "true" : "false");

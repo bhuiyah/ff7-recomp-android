@@ -953,6 +953,29 @@ EDITS = [
      '\t\tif (mode && mode->driver_mode == MODE_BATTLE) return ff7_externals.get_button_pressed(mask);\n'
      '\t}\n'
      '#endif\n'),
+    # Steam achievements: no steam_api library to validate (src/ffnx_port/steam_android.cpp
+    # stands in for the Steam client), and the achievement list is that of the FF7 the
+    # player's Steam account owns (the 2013 release, app 39140, or the 2026 re-release, whose
+    # package carries the same 1.02 exe), not the one FFNx detects from the files.
+    ('steam.cpp',
+     '\tstatic const bool is_valid = [] {\n',
+     '#ifdef FFNX_ANDROID\n'
+     '\treturn true;   // FF7Recomp: src/ffnx_port/steam_android.cpp\n'
+     '#endif\n'
+     '\tstatic const bool is_valid = [] {\n'),
+    ('common.cpp',
+     '\t\t\tg_FF7SteamAchievements = std::make_unique<SteamAchievementsFF7>(steam_edition);\n',
+     '#ifdef FFNX_ANDROID\n'
+     '\t\t\tg_FF7SteamAchievements = std::make_unique<SteamAchievementsFF7>(ff7r_steam_is_2013());   // FF7Recomp: the owned FF7\'s list\n'
+     '#else\n'
+     '\t\t\tg_FF7SteamAchievements = std::make_unique<SteamAchievementsFF7>(steam_edition);\n'
+     '#endif\n'),
+    ('common.cpp',
+     'int common_create_window(HINSTANCE hInstance, struct game_obj* game_object)\n{\n',
+     '#ifdef FFNX_ANDROID\n'
+     'extern "C" int ff7r_steam_is_2013();   // FF7Recomp: src/ffnx_port/steam_android.cpp\n'
+     '#endif\n'
+     'int common_create_window(HINSTANCE hInstance, struct game_obj* game_object)\n{\n'),
 ]
 
 

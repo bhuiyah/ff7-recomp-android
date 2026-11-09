@@ -8,8 +8,8 @@ android {
         applicationId 'com.ff7recomp'
         minSdk 29
         targetSdk 35
-        versionCode 2
-        versionName '0.1.1'
+        versionCode 3
+        versionName '0.1.2'
         ndk { abiFilters 'arm64-v8a' }
         externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static', "-DFF7_BUNDLE_GAME=${project.findProperty('bundleGame') ?: 'OFF'}" } }
     }
@@ -52,5 +52,10 @@ android {
 }
 
 dependencies {
+    // Steam achievements (SteamLink.java): JavaSteam (MIT) signs in by QR code and sends unlocks;
+    // ZXing (Apache-2.0) draws the QR code.
+    implementation 'in.dragonbra:javasteam:1.8.0'
+    implementation 'com.google.protobuf:protobuf-java:4.31.1'   // JavaSteam's, for its message classes
+    implementation 'com.google.zxing:core:3.5.3'
     // Catalog mods ship as .7z (and .zip): Commons Compress reads them, XZ provides LZMA/LZMA2.
 }

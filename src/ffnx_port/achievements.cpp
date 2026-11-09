@@ -213,6 +213,14 @@ extern "C" unsigned ff7_achievements_last(char *title, unsigned size, unsigned *
     return g_seq;
 }
 
+// A Steam achievement FFNx unlocked (src/ffnx_port/steam_android.cpp): the same in-game
+// banner as the local set's.
+extern "C" void ff7_achievements_banner(const char *title) {
+    g_last_title = title;
+    g_last_points = 0;
+    g_seq++;
+}
+
 // A save state was loaded (src/ffnx_port/savestate_ffnx.cpp): the savemap jumped, so every
 // achievement must be false again for a frame before it may unlock (as after a game load).
 extern "C" void ff7_achievements_reset() {

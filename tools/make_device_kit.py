@@ -237,16 +237,24 @@ def main():
         add_tree(z, os.path.join(cfg, 'ffnx_manifests'), 'lift/config/ffnx_manifests')
     data = buf.getvalue()
     # VERSION: the hash of every entry's name and content, in a zip of its own appended last
-    h = hashlib.sha1()
+    # LIFT VERSION: the same without the engine (rt/, link.args): what the lifted and compiled
+    # game depends on. An engine-only change then only relinks on the device (GameBuild.java).
+    h, hl = hashlib.sha1(), hashlib.sha1()
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         for i in sorted(z.infolist(), key=lambda i: i.filename):
-            h.update(i.filename.encode() + b'\0' + z.read(i))
+            entry = i.filename.encode() + b'\0' + z.read(i)
+            h.update(entry)
+            if not (i.filename.startswith('rt/') or i.filename == 'link.args'):
+                hl.update(entry)
     for f in sorted(os.listdir(jni)):
-        h.update(open(os.path.join(jni, f), 'rb').read())
+        b = open(os.path.join(jni, f), 'rb').read()
+        h.update(b)
+        hl.update(b)
     with zipfile.ZipFile(buf, 'a') as z:
         z.writestr('VERSION', h.hexdigest()[:16] + '\n')
     open(os.path.join(OUT, 'assets', 'kit.zip'), 'wb').write(buf.getvalue())
     open(os.path.join(OUT, 'assets', 'kit.version'), 'w').write(h.hexdigest()[:16] + '\n')
+    open(os.path.join(OUT, 'assets', 'kit.liftversion'), 'w').write(hl.hexdigest()[:16] + '\n')
     print(f'kit {h.hexdigest()[:16]}: {len(buf.getvalue()) >> 20} MB zip, {len(rt_files)} runtime files')
 
 

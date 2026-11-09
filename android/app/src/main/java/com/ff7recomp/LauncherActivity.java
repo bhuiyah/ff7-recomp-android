@@ -1241,10 +1241,13 @@ public class LauncherActivity extends Activity {
         } else {
             col.addView(text(GameBuild.error != null
                     ? "The last build stopped: " + GameBuild.error
+                    : build.relinkOnly()
+                    ? "The app was updated: link the game with the new engine (a few seconds)."
                     : "Your game files are here. One more step: build the game for this device (once: about 8 "
                       + "minutes on an AYN Thor).", 15, GameBuild.error != null ? DIM : TEXT));
             col.addView(space(14));
-            col.addView(button(GameBuild.error != null ? "Try again" : "Build for this device", v -> startBuild()));
+            col.addView(button(GameBuild.error != null ? "Try again" : build.relinkOnly() ? "Update the game" : "Build for this device",
+                    v -> startBuild()));
             col.addView(space(8));
             col.addView(button("Import again from another folder…", v -> pick(PICK_GAME)));
         }
@@ -1319,6 +1322,103 @@ public class LauncherActivity extends Activity {
         });
     }
 
+    // ------------------------------------------------------------------- Steam achievements
+    private SteamLink steam;
+
+    private SteamLink steam() {
+        if (steam == null) steam = new SteamLink(this);
+        return steam;
+    }
+
+    private void steamSection(LinearLayout col) {
+        SteamLink s = steam();
+        if (!s.signedIn()) {
+            col.addView(text("Earn FINAL FANTASY VII's Steam achievements here, on your Steam account (the Steam "
+                    + "release you built the game from). Sign in once by scanning a QR code with the Steam app on your "
+                    + "phone: you never type your Steam password into FF7Recomp. Unlocks made offline are sent the next "
+                    + "time you are online.", 14, DIM));
+            col.addView(space(10));
+            col.addView(button("Sign in with the Steam app…", v -> steamSignIn()));
+            return;
+        }
+        int[] c = s.counts();
+        col.addView(text("Signed in as " + s.account() + (c != null ? "  ·  " + c[0] + " of " + c[1] + " unlocked on Steam" : ""), 16, ACCENT));
+        int w = s.waiting();
+        if (w > 0) col.addView(text(w + " unlock(s) waiting to be sent to Steam", 13, DIM));
+        if (c == null) col.addView(text("Your achievements have not been read from Steam yet: press Sync now while online.", 13, DIM));
+        col.addView(space(8));
+        LinearLayout r = row();
+        r.addView(small("Sync now", v -> background(() -> {
+            progress("Talking to Steam");
+            java.util.List<String> got = steam().sync();
+            return got.isEmpty() ? "Steam achievements are up to date." : "Sent to Steam: " + String.join(", ", got);
+        })));
+        r.addView(small("Sign out", v -> ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setMessage("Sign out of Steam? Steam achievements stop until you sign in again.")
+                .setPositiveButton("Sign out", (d, x) -> { steam().signOut(); refresh(); })
+                .setNegativeButton("Cancel", null)
+                .show())));
+        col.addView(r);
+    }
+
+    private void steamSignIn() {
+        LinearLayout box = column();
+        box.setPadding(dp(16), dp(12), dp(16), dp(4));
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView how = text("On your phone: open the Steam app, tap the Steam Guard shield, then \"Scan a QR code\", "
+                + "and approve the sign-in.", 15, TEXT);
+        box.addView(how);
+        ImageView qr = new ImageView(this);
+        qr.setBackgroundColor(Color.WHITE);
+        int size = dp(260);
+        box.addView(qr, new LinearLayout.LayoutParams(size, size));
+        TextView st = text("Connecting to Steam…", 13, DIM);
+        box.addView(st);
+        final java.util.concurrent.Future<?>[] cancel = new java.util.concurrent.Future<?>[1];
+        final boolean[] open = { true };
+        AlertDialog dlg = ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Sign in to Steam")
+                .setView(box)
+                .setNegativeButton("Cancel", null)
+                .show());
+        dlg.setOnDismissListener(d -> {
+            open[0] = false;
+            if (cancel[0] != null) cancel[0].cancel(true);
+        });
+        new Thread(() -> steam().signInQr(new SteamLink.QrListener() {
+            @Override public void qr(String url) {
+                android.graphics.Bitmap bm = qrBitmap(url, size);
+                runOnUiThread(() -> { qr.setImageBitmap(bm); st.setText("Waiting for the Steam app…"); });
+            }
+            @Override public void done(String error) {
+                runOnUiThread(() -> {
+                    if (open[0]) dlg.dismiss();
+                    refresh();
+                    if (error == null) {
+                        int[] c = steam().counts();
+                        toastDialog("Signed in to Steam as " + steam().account() + "."
+                                + (c != null ? " " + c[0] + " of " + c[1] + " FINAL FANTASY VII achievements unlocked." : ""));
+                    } else if (!error.equals("cancelled")) {
+                        toastDialog(error.startsWith("signed in") ? "S" + error.substring(1) : "Not signed in: " + error);
+                    }
+                });
+            }
+        }, cancel), "steam-sign-in").start();
+    }
+
+    private static android.graphics.Bitmap qrBitmap(String text, int size) {
+        try {
+            com.google.zxing.common.BitMatrix m = new com.google.zxing.qrcode.QRCodeWriter()
+                    .encode(text, com.google.zxing.BarcodeFormat.QR_CODE, size, size);
+            int[] px = new int[size * size];
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++) px[y * size + x] = m.get(x, y) ? Color.BLACK : Color.WHITE;
+            return android.graphics.Bitmap.createBitmap(px, size, size, android.graphics.Bitmap.Config.ARGB_8888);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** PlayStation memory cards picked on the Save states page, each into its own GAME file. */
     private String importPsx(Intent data) throws java.io.IOException {
         java.util.List<Uri> uris = new java.util.ArrayList<>();
@@ -1356,6 +1456,9 @@ public class LauncherActivity extends Activity {
     private View achievementsPage() {
         Achievements ach = new Achievements(install.files);
         LinearLayout col = column();
+        col.addView(heading("Steam achievements"));
+        steamSection(col);
+        col.addView(space(18));
         col.addView(heading("Achievements"));
         col.addView(text("Unlocked while you play; a notice shows in game. This is a local set, kept on this device: "
                 + "RetroAchievements accounts and their official set need RetroAchievements to approve this port first.", 14, DIM));
@@ -1434,6 +1537,13 @@ public class LauncherActivity extends Activity {
             library.load();
             library.save();
             install.installRuntime();
+            boolean steamOn = false;
+            if (steam().signedIn()) {
+                progress("Checking Steam achievements");
+                try { steam().sync(); } catch (Exception e) { android.util.Log.w("FF7Steam", "offline: " + SteamLink.message(e)); }
+                steamOn = steam().active();
+            }
+            install.steamAchievements = steamOn;
             install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods,
                                   renderScaleCap());
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));

@@ -76,10 +76,34 @@ final class GameBuild {
         }
     }
 
+    /** What the lifted, compiled game depends on in this APK's kit (assets/kit.liftversion): the
+     *  kit without the engine. Same lift version, new kit: only the link runs again. */
+    String liftVersion() {
+        try (InputStream in = ctx.getAssets().open("kit.liftversion")) {
+            return new String(readAll(in), StandardCharsets.UTF_8).trim();
+        } catch (IOException e) {
+            return kitVersion();
+        }
+    }
+
+    /** Builds from APKs before the lift version (their work stamp holds the whole kit's
+     *  version): kit version -> its lift version. */
+    private static final java.util.Map<String, String> LEGACY_LIFT = java.util.Map.of(
+            "78bd54ab776e925f", "4fccebb48f648461");    // 0.1.0, 0.1.1
+
     /** The game is built for this APK's kit (or a dev APK bundles libff7.so itself). */
     boolean built() {
         if (new File(nativeDir, "libff7.so").isFile()) return true;
         return lib.isFile() && kitVersion().equals(readText(new File(lib.getParentFile(), "libff7.stamp")));
+    }
+
+    /** Not built for this kit, but the lifted game is still good: only the link runs (an app
+     *  update that changed the engine). */
+    boolean relinkOnly() {
+        if (built() || !new File(work, "lifted").isFile() || gen.isDirectory()) return false;
+        String[] o = readText(new File(work, "stamp")).split(" ", 2);
+        String lift = liftVersion();
+        return o.length == 2 && (lift.equals(o[0]) || lift.equals(LEGACY_LIFT.get(o[0])));
     }
 
     private void set(String what, int pct) {
@@ -107,12 +131,18 @@ final class GameBuild {
 
             unpackKit(ver);
 
-            String stamp = ver + " " + sha;
-            if (!stamp.equals(readText(new File(work, "stamp")))) {
+            String lift = liftVersion();
+            String stamp = lift + " " + sha;
+            String old = readText(new File(work, "stamp"));
+            String[] o = old.split(" ", 2);
+            boolean same = stamp.equals(old)
+                    || (o.length == 2 && o[1].equals(sha) && lift.equals(LEGACY_LIFT.get(o[0])));
+            lw.println("lift " + lift + (same ? " (lifted objects kept)" : " (lifting from the start)"));
+            if (!same) {
                 deleteTree(work);
                 work.mkdirs();
-                writeText(new File(work, "stamp"), stamp);
             }
+            if (!stamp.equals(old)) writeText(new File(work, "stamp"), stamp);
             if (!new File(work, "lifted").isFile() || gen.isDirectory()) liftAndCompile(exe);
             link(ver);
             deleteTree(gen);                 // the C (~500 MB); the objects stay for relinks
