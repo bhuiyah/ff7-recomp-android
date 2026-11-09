@@ -12,7 +12,8 @@ source "$ROOT/tools/env.sh"
 export NDK NDK_BIN SDK_CMAKE_DIR
 TC=(-G Ninja -DCMAKE_MAKE_PROGRAM="$SDK_CMAKE_DIR/ninja.exe"
     -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"
-    -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=29 -DANDROID_STL=c++_static)
+    -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=29 -DANDROID_STL=c++_static
+    -DCMAKE_C_FLAGS="$FF7_PREFIX_MAP" -DCMAKE_CXX_FLAGS="$FF7_PREFIX_MAP")
 
 bash "$ROOT/tools/build_device_clang.sh"
 

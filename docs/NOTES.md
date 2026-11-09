@@ -681,3 +681,35 @@
   (collected on a device): they hold FFNx's own patch bytes and addresses, no game bytes, so
   they are committed in config/ffnx_manifests; (4) machine paths in tools/*.sh: tools/env.sh
   finds the SDK/NDK/JDK/LLVM/MSBuild. The catalog a fresh clone builds is byte-identical.
+- 2026-11-09 The game is built on the device; the APK carries no game code. Launcher: Game files
+  > Find my FF7 folder (SAF) imports the Steam folder, then BuildService (foreground, wake lock,
+  progress notification) runs GameBuild: check ff7_en's SHA-1 (1.02 US), unpack assets/kit.zip
+  into files/kit, lift with python.org's Python 3.14 for Android (libpyrun.so + libpython3.14.so,
+  capstone 5.0.7 built for Android, pefile), compile with clang 20.1.8 built for Android (one
+  llvm-driver binary, libllvm.so, run as `libllvm.so clang` / `libllvm.so ld.lld`), and link
+  with the runtime's archives (android/kit, FF7_NO_GUEST) exactly as the PC links libff7.so: the
+  kit's link.args is clang++ -### of the PC link, paths mapped (tools/make_device_kit.py).
+  GameActivity System.load()s files/game/libff7.so (or a bundled one: gradle -PbundleGame=ON).
+  config/catalog.json.gz (addresses only) is committed; the device lift is byte-identical to the
+  PC's. APK 74 MB (clean build). First Thor build: 582 s (lift 3.4 min on one core, compile
+  6 min, 5 at a time, link 1 s).
+- 2026-11-09 Faster and cooler device build. (1) run_lift.py --chunk-bytes 4000000: files by size,
+  not 200 functions (one held 58 MB of C and set the compile's floor); --shard I/N lifts every
+  Nth function (verified: all 25257 bodies and every table identical to the unsharded lift).
+  (2) Pipeline: each C file is compiled as soon as it is written; one lift process is enough (it
+  writes C several times faster than 4 compiles use it; each extra shard repeats ~35 s of setup).
+  (3) Cores and heat, measured (compiles finished in 90 s, average CPU sensor after 90 s): 2 on
+  0-6 16/71 C, 4 on 0-6 30/84 C, 6 on 0-6 33/88 C, 4 on the four 2.8 GHz cores 30/77 C. The
+  efficiency cores add little but heat, the prime core the least work per watt: builds run on
+  the middle cluster (taskset), nice 10, 4 at once, fewer if the average CPU sensor passes 86 C
+  (the Thor's thermal HAL reports no headroom; the hottest single sensor spikes to 90+ under any
+  full load, so the average decides). "Quiet build": 2 at once. (4) The device clang is built
+  with PGO (tools/train_device_clang.sh: an instrumented build compiling a sample of the lift on
+  the Thor; config/clang-device.profdata.gz, clang's own counts only) and ThinLTO: 9.55 s -> 7.07 s
+  per 4 MB file on a 2.8 GHz core, same objects. (5) Binaries the APK carries had the build PC's
+  paths (clang's version string named the repository and its revision; __FILE__ in the runtime's
+  archives): LLVM_APPEND_VC_REV=OFF, and -ffile-prefix-map (tools/env.sh FF7_PREFIX_MAP) in the
+  clang, kit, FFmpeg, capstone and launcher builds; FFmpeg's compiled-in configure line
+  (avcodec_configuration()) is replaced after configure. The APK has no build-PC paths left.
+  Result on the Thor: 486 s at an average CPU sensor of ~80 C (was 582 s, unmanaged), boots into
+  the field at 119 FPS. APK 67.7 MB.

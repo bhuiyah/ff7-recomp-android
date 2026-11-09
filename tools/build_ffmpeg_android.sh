@@ -38,10 +38,13 @@ cd "$OUT/build"
   --enable-decoder=vp8,vp9,vorbis,opus,h264,mpeg4,aac,mp3,pcm_s16le,adpcm_ms \
   --enable-parser=vp8,vp9,vorbis,opus,h264,mpeg4video,aac,mpegaudio \
   --enable-neon --disable-vulkan --disable-mediacodec --disable-jni \
-  --extra-cflags="-O2 -fPIC" > "$OUT/configure.log" 2>&1 || { tail -30 "$OUT/configure.log"; exit 1; }
+  --extra-cflags="-O2 -fPIC $FF7_PREFIX_MAP" > "$OUT/configure.log" 2>&1 || { tail -30 "$OUT/configure.log"; exit 1; }
 # The NDK's make.exe is a native Windows make: it cannot open the MSYS /c/... paths configure
 # writes into the makefiles. C:/... works for it and for the sh that runs the recipes.
 sed -i 's|/\([a-z]\)/Users/|\U\1\E:/Users/|g' Makefile ffbuild/config.mak
+# FFmpeg compiles its configure line into the libraries (avcodec_configuration()): it names this
+# PC's folders. The APK carries these, so a neutral line instead.
+sed -i 's|^#define FFMPEG_CONFIGURATION .*|#define FFMPEG_CONFIGURATION "FF7Recomp tools/build_ffmpeg_android.sh"|' config.h
 echo "configured; building with $(nproc) jobs"
 "$MAKE" -j"$(nproc)" > "$OUT/make.log" 2>&1 || { tail -30 "$OUT/make.log"; exit 1; }
 # install-*-headers overflows the Windows command line partway through libavutil; the

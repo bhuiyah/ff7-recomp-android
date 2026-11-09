@@ -18,6 +18,12 @@ Adapted from codepdbh/nfsu2-recompiled scripts/run_lift.py (MIT License).
         recomp_variants.c      patched-code variants lifted (checked by ff7_hext.cpp)
         recomp_extents.c       guest ranges each function's body covers (tools/gen_extents.py)
         lift_stats.json        counts for docs/LIFT_REPORT.md
+      --chunk-bytes B  end a file once its C reaches B bytes (else every --split functions):
+                       even files, so parallel compiles finish together
+      --shard I/N      lift every Nth function from the I-th (several processes at once, the
+                       on-device build): files recomp_I###.c, written whole (temp + rename) so
+                       a compile can start on each as it appears; shard 0 writes the tables
+                       (recomp_funcs.h first); recomp_extents.c is left to gen_extents.py
       --prefix P names a second module's output (P + every file and table
       above, e.g. server_recomp_dispatch_table for server.dll) so it links
       next to SPEED2.EXE's.
@@ -206,7 +212,8 @@ def manifest_patches(manifest_paths, img, base, md, fds):
     return patch_sites, variants
 
 
-def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manifests=None):
+def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manifests=None,
+             chunk_bytes=0, shard=None):
     import pefile
     from lift32 import Lifter
     info = analyze_pe(exe)
@@ -218,6 +225,19 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
     cat = json.load(gzip.open(catalog, "rt") if catalog.endswith(".gz") else open(catalog))
     fds = cat["functions"]
     lifted = {fd["address"] for fd in fds}
+    si, sn = shard if shard else (0, 1)
+    os.makedirs(outdir, exist_ok=True)
+
+    def write(name, text):
+        tmp = os.path.join(outdir, name + ".tmp")
+        with open(tmp, "w", newline="\n") as fh:
+            fh.write(text)
+        os.replace(tmp, os.path.join(outdir, name))
+
+    # first: every file of the lift includes it
+    if si == 0:
+        write(f"{prefix}recomp_funcs.h", "/* AUTO-GENERATED. DO NOT EDIT. */\n#pragma once\n#include <stdint.h>\n"
+              + "".join(f"void sub_{fd['address']:08X}(void);\n" for fd in fds))
     names = {}
     if names_path and os.path.exists(names_path):
         names = {int(k, 16): v for k, v in json.load(open(names_path)).items()}
@@ -230,10 +250,10 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
     patch_sites, code_variants = manifest_patches(manifests, img, base, md, fds)
     lifter = Lifter(iat_map=iat, func_names={}, lifted=lifted, precise_carry=True,
                     hook_sites=set(hooks), patch_sites=patch_sites, code_variants=code_variants)
-    os.makedirs(outdir, exist_ok=True)
-    for fn in os.listdir(outdir):
-        if fn.startswith(prefix + "recomp_") and fn.endswith((".c", ".h")):
-            os.remove(os.path.join(outdir, fn))
+    if not shard:
+        for fn in os.listdir(outdir):
+            if fn.startswith(prefix + "recomp_") and fn.endswith(".c"):
+                os.remove(os.path.join(outdir, fn))
 
     stats = collections.Counter()
     unimpl = collections.Counter()
@@ -241,24 +261,26 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
     failed = []
     entries = []
     t0 = time.time()
-    chunk, idx, lines_total = [], 0, 0
+    chunk, idx, lines_total, chunk_len = [], 0, 0, 0
 
     def flush():
-        nonlocal chunk, idx, lines_total
+        nonlocal chunk, idx, lines_total, chunk_len
         if not chunk:
             return
-        p = os.path.join(outdir, f"{prefix}recomp_{idx:04d}.c")
-        with open(p, "w", newline="\n") as fh:
-            fh.write(f"/* AUTO-GENERATED from {module} by run_lift.py (pcrecomp lift32). DO NOT EDIT, DO NOT COMMIT. */\n")
-            fh.write(f'#define RECOMP_GENERATED_CODE\n#include "recomp_types.h"\n#include "{prefix}recomp_funcs.h"\n#include <math.h>\n#include <string.h>\n\n')
-            body = "\n\n".join(chunk)
-            fh.write(body)
-            lines_total += body.count("\n")
+        name = f"{prefix}recomp_{si}{idx:03d}.c" if shard else f"{prefix}recomp_{idx:04d}.c"
+        body = "\n\n".join(chunk)
+        write(name, f"/* AUTO-GENERATED from {module} by run_lift.py (pcrecomp lift32). DO NOT EDIT, DO NOT COMMIT. */\n"
+              + f'#define RECOMP_GENERATED_CODE\n#include "recomp_types.h"\n#include "{prefix}recomp_funcs.h"\n#include <math.h>\n#include <string.h>\n\n'
+              + body)
+        lines_total += body.count("\n")
         idx += 1
-        chunk = []
+        chunk, chunk_len = [], 0
 
     for n, fd in enumerate(fds):
         a = fd["address"]
+        entries.append(a)
+        if n % sn != si:
+            continue
         try:
             if a in overrides:
                 code = (f"/* OVERRIDE: {overrides[a]} */\n"
@@ -287,17 +309,16 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
         if names.get(a):
             code = f"/* {names[a]} */\n" + code
         chunk.append(code)
-        entries.append(a)
-        if len(chunk) >= split:
+        chunk_len += len(code)
+        if (chunk_len >= chunk_bytes) if chunk_bytes else (len(chunk) >= split):
             flush()
             el = time.time() - t0
             print(f"[*] {n + 1}/{len(fds)} lifted ({el:.0f}s)", flush=True)
     flush()
+    if si != 0:
+        print(f"[*] shard {si}/{sn}: {idx} files", flush=True)
+        return
 
-    with open(os.path.join(outdir, f"{prefix}recomp_funcs.h"), "w", newline="\n") as fh:
-        fh.write("/* AUTO-GENERATED. DO NOT EDIT. */\n#pragma once\n#include <stdint.h>\n")
-        for a in entries:
-            fh.write(f"void sub_{a:08X}(void);\n")
     with open(os.path.join(outdir, f"{prefix}recomp_dispatch.c"), "w", newline="\n") as fh:
         fh.write(f'/* AUTO-GENERATED. DO NOT EDIT. */\n#include "recomp_types.h"\n#include "{prefix}recomp_funcs.h"\n\n')
         fh.write(f"const recomp_dispatch_entry_t {prefix}recomp_dispatch_table[] = {{\n")
@@ -329,6 +350,9 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
         fh.write(f"const uint32_t {prefix}ff7_code_variant_count = {len(rows)};\n")
     # Which functions hold each guest address (inline copies included): ff7_hext.cpp switches
     # every one of them to the interpreter for a patch the lift has no variant for.
+    if shard:
+        print(f"[*] shard {si}/{sn}: {idx} files, tables written", flush=True)
+        return
     import gen_extents
     gen_extents.main(outdir, prefix)
 
@@ -353,6 +377,8 @@ if __name__ == "__main__":
         names = a[a.index("--names") + 1] if "--names" in a else None
         prefix = a[a.index("--prefix") + 1] if "--prefix" in a else ""
         manifests = a[a.index("--manifests") + 1].split(",") if "--manifests" in a else None
-        cmd_lift(a[1], a[2], a[3], split, names, prefix, manifests)
+        chunk_bytes = int(a[a.index("--chunk-bytes") + 1]) if "--chunk-bytes" in a else 0
+        shard = tuple(int(x) for x in a[a.index("--shard") + 1].split("/")) if "--shard" in a else None
+        cmd_lift(a[1], a[2], a[3], split, names, prefix, manifests, chunk_bytes, shard)
     else:
         sys.exit(__doc__)

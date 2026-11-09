@@ -73,8 +73,8 @@ def guest_compile_args(build):
         if x in ('-MT', '-MF', '-o', '-c'):
             skip = 1
             continue
-        if x in ('-MD', '-g', '-fno-limit-debug-info'):
-            continue
+        if x in ('-MD', '-g', '-fno-limit-debug-info') or x.startswith('-ffile-prefix-map='):
+            continue   # (the PC's path maps mean nothing on the device)
         if x.startswith('--sysroot='):
             out.append('--sysroot=@KIT@/sysroot')
         elif x.startswith('-I'):

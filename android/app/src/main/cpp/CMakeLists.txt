@@ -3,6 +3,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(FF7App C CXX)
 get_filename_component(FF7_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../.." ABSOLUTE)
+# no build-machine paths in the binaries (__FILE__ in asserts); tools/env.sh FF7_PREFIX_MAP
+add_compile_options("-ffile-prefix-map=${FF7_ROOT}=ff7recomp")
 
 # The APK carries no game code: the device builds libff7.so from the player's own exe
 # (BuildService.java, with the kit from tools/build_device_kit.sh). FF7_BUNDLE_GAME (gradle

@@ -14,7 +14,11 @@ SRC="$ROOT/external/llvm-project-$LLVM_VER.src"
 OUT="$ROOT/build/device-clang"
 B="$ROOT/build/llvm-device"
 NATIVE="$ROOT/build/llvm-native"
-[ -x "$OUT/llvm" ] && [ -f "$OUT/include/stddef.h" ] && { echo "device clang ok ($OUT/llvm)"; exit 0; }
+# up to date: built, with the profile that is there now (or none)
+PSTAMP="$( [ -f "$ROOT/config/clang-device.profdata.gz" ] && sha1sum < "$ROOT/config/clang-device.profdata.gz" | cut -c1-16 || echo none)"
+if [ "${1:-}" != "--instrumented" ] && [ -f "$OUT/llvm" ] && [ -f "$OUT/include/stddef.h" ] && [ "$(cat "$OUT/.profile" 2>/dev/null)" = "$PSTAMP" ]; then
+  echo "device clang ok ($OUT/llvm)"; exit 0
+fi
 
 if [ ! -f "$SRC/llvm/CMakeLists.txt" ]; then
   mkdir -p "$ROOT/external"
@@ -42,20 +46,35 @@ if [ ! -f "$NATIVE/bin/clang-tblgen.exe" ]; then
     cmake --build "$NATIVE" --target llvm-tblgen llvm-min-tblgen clang-tblgen )
 fi
 
-# 2. the cross build: one `llvm` multicall binary holding clang and lld
-cmake -S "$SRC/llvm" -B "$B" "${COMMON[@]}" -DLLVM_ENABLE_PROJECTS="clang;lld" \
-  -DCMAKE_MAKE_PROGRAM="$SDK_CMAKE_DIR/ninja.exe" \
-  -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=29 \
-  -DANDROID_STL=c++_static -DLLVM_HOST_TRIPLE=aarch64-linux-android29 -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-android29 \
-  -DLLVM_NATIVE_TOOL_DIR="$NATIVE/bin" -DLLVM_TABLEGEN="$NATIVE/bin/llvm-tblgen.exe" \
-  -DCLANG_TABLEGEN="$NATIVE/bin/clang-tblgen.exe" -DLLVM_TOOL_LLVM_DRIVER_BUILD=ON \
-  -DLLVM_BUILD_TOOLS=OFF -DLLVM_BUILD_UTILS=OFF -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBEDIT=OFF \
-  -DLLVM_ENABLE_PIC=ON -DLLVM_ENABLE_THREADS=ON -DCLANG_ENABLE_OBJC_REWRITER=OFF \
-  -DCMAKE_EXE_LINKER_FLAGS="-Wl,--gc-sections -s"
-cmake --build "$B" --target llvm-driver clang-resource-headers
+# 2. the cross build: one `llvm` multicall binary holding clang and lld.
+#    Profile-guided and ThinLTO-optimised with config/clang-device.profdata.gz (the counts of
+#    this clang compiling FF7's lifted code on a Thor, made by tools/train_device_clang.sh with
+#    the --instrumented build): about a third faster per file, which is a third less heat.
+cross() {   # cross <build dir> <extra cmake args...>
+  local dir="$1"; shift
+  cmake -S "$SRC/llvm" -B "$dir" "${COMMON[@]}" -DLLVM_ENABLE_PROJECTS="clang;lld"     -DCMAKE_MAKE_PROGRAM="$SDK_CMAKE_DIR/ninja.exe"     -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=29     -DANDROID_STL=c++_static -DLLVM_HOST_TRIPLE=aarch64-linux-android29 -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-android29     -DLLVM_NATIVE_TOOL_DIR="$NATIVE/bin" -DLLVM_TABLEGEN="$NATIVE/bin/llvm-tblgen.exe"     -DCLANG_TABLEGEN="$NATIVE/bin/clang-tblgen.exe" -DLLVM_TOOL_LLVM_DRIVER_BUILD=ON     -DLLVM_BUILD_TOOLS=OFF -DLLVM_BUILD_UTILS=OFF -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBEDIT=OFF     -DLLVM_ENABLE_PIC=ON -DLLVM_ENABLE_THREADS=ON -DCLANG_ENABLE_OBJC_REWRITER=OFF \
+    -DLLVM_APPEND_VC_REV=OFF "$@"   # no repository path or revision in clang's version string
+  cmake --build "$dir" --target llvm-driver clang-resource-headers
+}
+
+if [ "${1:-}" = "--instrumented" ]; then
+  cross "$ROOT/build/llvm-device-instr" -DCMAKE_C_FLAGS="-fprofile-generate $FF7_PREFIX_MAP" -DCMAKE_CXX_FLAGS="-fprofile-generate $FF7_PREFIX_MAP"     -DCMAKE_EXE_LINKER_FLAGS="-fprofile-generate -Wl,--gc-sections"
+  echo "instrumented: $ROOT/build/llvm-device-instr/bin/llvm"
+  exit 0
+fi
+
+PROF="$ROOT/config/clang-device.profdata.gz"
+if [ -f "$PROF" ]; then
+  mkdir -p "$B"; gzip -dc "$PROF" > "$B/clang.profdata"
+  PF="-fprofile-use=$(cygpath -m "$B/clang.profdata") -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date -Wno-backend-plugin $FF7_PREFIX_MAP"
+  cross "$B" -DLLVM_ENABLE_LTO=Thin -DCMAKE_C_FLAGS="$PF" -DCMAKE_CXX_FLAGS="$PF"     -DCMAKE_EXE_LINKER_FLAGS="-Wl,--gc-sections -Wl,--icf=all -s"
+else
+  cross "$B" -DCMAKE_C_FLAGS="$FF7_PREFIX_MAP" -DCMAKE_CXX_FLAGS="$FF7_PREFIX_MAP" -DCMAKE_EXE_LINKER_FLAGS="-Wl,--gc-sections -s"
+fi
 mkdir -p "$OUT"
 cp "$B/bin/llvm" "$OUT/llvm"
 "$NDK_BIN/llvm-strip.exe" "$OUT/llvm"
 rm -rf "$OUT/include"; cp -r "$B/lib/clang/20/include" "$OUT/include"
+echo "$PSTAMP" > "$OUT/.profile"
 ls -la "$OUT/llvm"
 echo "device clang ok"

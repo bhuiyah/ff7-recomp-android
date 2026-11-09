@@ -2,6 +2,7 @@ package com.ff7recomp;
 
 import android.app.ActivityManager;
 import android.content.Context;
+import android.os.PowerManager;
 import android.util.Log;
 import java.io.BufferedReader;
 import java.io.File;
@@ -112,11 +113,7 @@ final class GameBuild {
                 work.mkdirs();
                 writeText(new File(work, "stamp"), stamp);
             }
-            if (!new File(work, "lifted").isFile()) {
-                lift(exe);
-                writeText(new File(work, "lifted"), "1");
-            }
-            compileAll();
+            if (!new File(work, "lifted").isFile() || gen.isDirectory()) liftAndCompile(exe);
             link(ver);
             deleteTree(gen);                 // the C (~500 MB); the objects stay for relinks
             set("Ready", 100);
@@ -158,39 +155,67 @@ final class GameBuild {
         if (!tmp.renameTo(kit)) throw new IOException("cannot install the build tools");
     }
 
-    // ------------------------------------------------------------------ 3. lift
+    // ------------------------------------------------------------------ 3+4. lift and compile
+    /*
+     * One pipeline: the lift runs as SHARDS Python processes (run_lift.py --shard, every Nth
+     * function each, files of about CHUNK bytes written whole), and every C file is compiled as
+     * soon as it appears. How many processes run at once follows the device's thermal headroom
+     * (PowerManager.getThermalHeadroom): all of them while the device is cool, fewer as it nears
+     * throttling, so the build runs about as fast as the device can stay cool and the fan quiet.
+     */
+    /* One lift process: it writes C several times faster than the compiles use it, and each
+       extra shard repeats the lifter's setup (~35 s on a Thor). */
+    private static final int SHARDS = 1;
+    private static final int CHUNK = 4_000_000;
+    private static final long EXPECTED_C = 520L << 20;   // the lift writes ~520 MB of C
     private static final Pattern LIFTED = Pattern.compile("\\[\\*\\] (\\d+)/(\\d+) lifted");
 
-    private void lift(File exe) throws IOException, InterruptedException {
-        set("Translating the game's code", 4);
-        deleteTree(gen);
-        gen.mkdirs();
-        List<String> manifests = new ArrayList<>();
-        File[] ms = new File(kit, "lift/config/ffnx_manifests").listFiles();
-        if (ms != null) {
-            Arrays.sort(ms);
-            for (File m : ms) if (m.getName().endsWith(".json")) manifests.add(m.getPath());
+    /** A running child process; its output goes to the log (whole, when it ends). */
+    private final class Job {
+        final String name;
+        final long bytes;           // for compiles: the C file's size
+        final Thread thread;
+        volatile boolean done;
+        volatile int rc = -1;
+        volatile String tail = "";
+        volatile Process proc;
+
+        Job(String name, long bytes, ProcessBuilder pb, Lines lines) {
+            this.name = name;
+            this.bytes = bytes;
+            pb.redirectErrorStream(true);
+            thread = new Thread(() -> {
+                StringBuilder out = new StringBuilder();
+                try {
+                    proc = pb.start();
+                    try (BufferedReader r = new BufferedReader(new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
+                        for (String l; (l = r.readLine()) != null; ) {
+                            if (lines != null) lines.line(l);
+                            out.append(l).append('\n');
+                            if (out.length() > 20000) out.delete(0, out.length() - 10000);
+                        }
+                    }
+                    rc = proc.waitFor();
+                } catch (Exception e) {
+                    out.append(e).append('\n');
+                    rc = -2;
+                }
+                tail = out.toString().trim();
+                synchronized (lw) {
+                    lw.println("[" + name + "] exit " + rc);
+                    if (rc != 0 || !name.startsWith("cc ")) lw.println(tail);
+                }
+                done = true;
+            }, name);
         }
-        String catalog = new File(kit, "lift/config/catalog.json.gz").getPath();
-        // --split 200: smaller files than the PC's 400 spread the compile over the cores
-        python(new String[] { new File(kit, "lift/tools/run_lift.py").getPath(), "lift", exe.getPath(),
-                catalog, gen.getPath(), "--split", "200", "--manifests", String.join(",", manifests) }, null,
-                line -> {
-                    Matcher m = LIFTED.matcher(line);
-                    if (m.find()) set("Translating the game's code", 4 + 26 * Integer.parseInt(m.group(1)) / Integer.parseInt(m.group(2)));
-                });
-        set("Translating the game's code", 30);
-        python(new String[] { new File(kit, "lift/tools/gen_retn_table.py").getPath() },
-               new String[] { "FF7_CATALOG=" + catalog, "FF7_EXE=" + exe.getPath(),
-                              "FF7_RETN_OUT=" + new File(gen, "recomp_retn.c").getPath() }, null);
-        if (!new File(gen, "recomp_dispatch.c").isFile() || !new File(gen, "recomp_retn.c").isFile())
-            throw new IOException("the translation wrote no code (see build.log)");
+
+        Job start() { thread.start(); return this; }
+
+        void kill() { Process p = proc; if (p != null) p.destroyForcibly(); }
     }
 
-    private interface Lines { void line(String l); }
-
-    private void python(String[] args, String[] env, Lines lines) throws IOException, InterruptedException {
-        List<String> cmd = new ArrayList<>();
+    private ProcessBuilder pythonPb(String[] args, String[] env) {
+        List<String> cmd = new ArrayList<>(prefix);
         cmd.add(new File(nativeDir, "libpyrun.so").getPath());
         cmd.add("-u");
         cmd.add("-B");
@@ -205,8 +230,230 @@ final class GameBuild {
         e.put("HOME", work.getPath());
         e.put("TMPDIR", ctx.getCacheDir().getPath());
         if (env != null) for (String kv : env) { int i = kv.indexOf('='); e.put(kv.substring(0, i), kv.substring(i + 1)); }
-        run(pb, lines);
+        return pb;
     }
+
+    private ProcessBuilder clangPb(List<String> flags, File c, File o) {
+        List<String> cmd = new ArrayList<>(prefix);
+        cmd.add(new File(nativeDir, "libllvm.so").getPath());
+        cmd.add("clang");
+        cmd.addAll(flags);
+        cmd.add("-c");
+        cmd.add(c.getPath());
+        cmd.add("-o");
+        cmd.add(o.getPath());
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.environment().put("LD_LIBRARY_PATH", nativeDir);
+        return pb;
+    }
+
+    // ---- staying cool
+    /** Before every build process: low priority (the launcher and anything else stay smooth)
+     *  and only the middle cores. Measured on a Thor (8 Gen 2), compiles in 90 s / average CPU
+     *  temperature: 4 on cores 0-6 30 / 84 °C, 6 on 0-6 33 / 88 °C, 4 on the four 2.8 GHz cores
+     *  30 / 77 °C. The prime core does the least work per watt and the efficiency cores add
+     *  little but heat (their slow compiles also hold up the end of the build). */
+    private final List<String> prefix = new ArrayList<>();
+    private int coreCount;
+    private List<File> cpuZones;
+    /** °C, the average CPU sensor: fewer at once above HOT, more again below COOL. */
+    private static final float HOT = 86f, COOL = 80f;
+    /** The player's "Quiet build": two at once and cooler limits, about twice as long. */
+    static volatile boolean quiet;
+
+    private void setupCooling() {
+        prefix.clear();
+        int n = Runtime.getRuntime().availableProcessors();
+        long[] f = new long[n];
+        long top = 0;
+        for (int i = 0; i < n; i++) {
+            try { f[i] = Long.parseLong(readText(new File("/sys/devices/system/cpu/cpu" + i + "/cpufreq/cpuinfo_max_freq"))); }
+            catch (NumberFormatException e) { f[i] = 0; }
+            top = Math.max(top, f[i]);
+        }
+        long low = Long.MAX_VALUE;
+        int atTop = 0;
+        for (int i = 0; i < n; i++) { if (f[i] == top) atTop++; if (f[i] > 0) low = Math.min(low, f[i]); }
+        long mask = 0;
+        for (int i = 0; i < n; i++) if (f[i] > 0 && !(f[i] == top && atTop == 1) && f[i] != low) mask |= 1L << i;
+        if (Long.bitCount(mask) < 4) {            // no middle cluster worth it: all but a lone prime
+            mask = 0;
+            for (int i = 0; i < n; i++) if (!(f[i] == top && atTop == 1)) mask |= 1L << i;
+        }
+        coreCount = n;
+        if (top > 0 && Long.bitCount(mask) >= 2 && Long.bitCount(mask) < n && new File("/system/bin/taskset").exists()) {
+            prefix.add("/system/bin/taskset");
+            prefix.add(Long.toHexString(mask));
+            coreCount = Long.bitCount(mask);
+        }
+        if (new File("/system/bin/nice").exists()) {
+            prefix.add("/system/bin/nice");
+            prefix.add("-n");
+            prefix.add("10");
+        }
+        cpuZones = new ArrayList<>();
+        File[] zs = new File("/sys/class/thermal").listFiles((d, nm) -> nm.startsWith("thermal_zone"));
+        if (zs != null) for (File z : zs) {
+            String type = readText(new File(z, "type"));
+            if (type.startsWith("cpu") && !readText(new File(z, "temp")).isEmpty()) cpuZones.add(new File(z, "temp"));
+        }
+        lw.println("cooling: " + (prefix.isEmpty() ? "none" : String.join(" ", prefix)) + ", " + cpuZones.size() + " CPU sensors");
+    }
+
+    /** The average CPU sensor in °C (single cores spike to 90+ under any full load), or NaN
+     *  when the device shows none: then the system's thermal headroom decides. */
+    private float cpuTemp() {
+        float sum = 0;
+        int n = 0;
+        for (File z : cpuZones) {
+            try {
+                float v = Long.parseLong(readText(z)) / 1000f;
+                if (v > 0 && v < 150) { sum += v; n++; }
+            } catch (NumberFormatException ignored) { }
+        }
+        return n > 0 ? sum / n : Float.NaN;
+    }
+
+    private void liftAndCompile(File exe) throws Exception {
+        setupCooling();
+        boolean lifted = new File(work, "lifted").isFile();
+        if (!lifted) { deleteTree(gen); deleteTree(obj); }
+        gen.mkdirs();
+        obj.mkdirs();
+        List<String> flags = new ArrayList<>();
+        for (String a : readText(new File(kit, "compile.args")).split("\n"))
+            if (!a.isEmpty()) flags.add(a.replace("@KIT@", kit.getPath()).replace("@GEN@", gen.getPath()));
+        List<String> manifests = new ArrayList<>();
+        File[] ms = new File(kit, "lift/config/ffnx_manifests").listFiles();
+        if (ms != null) {
+            Arrays.sort(ms);
+            for (File m : ms) if (m.getName().endsWith(".json")) manifests.add(m.getPath());
+        }
+        String catalog = new File(kit, "lift/config/catalog.json.gz").getPath();
+        String liftPy = new File(kit, "lift/tools/run_lift.py").getPath();
+
+        int maxJobs = jobs();
+        int target = maxJobs;
+        PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+        lw.println("pipeline: " + SHARDS + " lift process, up to " + maxJobs + " at once" + (quiet ? " (quiet)" : ""));
+
+        List<Job> lifts = new ArrayList<>();
+        List<Job> running = new ArrayList<>();
+        java.util.Set<String> queued = new java.util.HashSet<>();
+        List<File> queue = new ArrayList<>();
+        final float[] shardFrac = new float[SHARDS];
+        Job extents = null;
+        long compiledBytes = 0, seenBytes = 0;
+        long lastThermal = 0, lastRaise = 0, lastLog = 0, tStart = System.currentTimeMillis();
+        float headroom = Float.NaN;
+        if (!lifted) {
+            set("Translating the game's code", 4);
+            for (int i = 0; i < SHARDS; i++) {
+                final int si = i;
+                lifts.add(new Job("lift " + i, 0, pythonPb(new String[] { liftPy, "lift", exe.getPath(), catalog, gen.getPath(),
+                        "--shard", i + "/" + SHARDS, "--chunk-bytes", String.valueOf(CHUNK),
+                        "--manifests", String.join(",", manifests) }, null), line -> {
+                    Matcher m = LIFTED.matcher(line);
+                    if (m.find()) shardFrac[si] = (float) Integer.parseInt(m.group(1)) / Integer.parseInt(m.group(2));
+                }));
+            }
+            lifts.add(new Job("retn", 0, pythonPb(new String[] { new File(kit, "lift/tools/gen_retn_table.py").getPath() },
+                    new String[] { "FF7_CATALOG=" + catalog, "FF7_EXE=" + exe.getPath(),
+                                   "FF7_RETN_OUT=" + new File(gen, "recomp_retn.c").getPath() }), null));
+            for (Job j : lifts) running.add(j.start());
+        }
+        try {
+            while (true) {
+                // finished processes
+                for (java.util.Iterator<Job> it = running.iterator(); it.hasNext(); ) {
+                    Job j = it.next();
+                    if (!j.done) continue;
+                    it.remove();
+                    if (j.rc != 0) {
+                        String t = j.tail;
+                        int cut = t.lastIndexOf('\n');
+                        throw new IOException(j.name + " failed (" + j.rc + "): " + (cut >= 0 ? t.substring(cut + 1) : t));
+                    }
+                    if (j.name.startsWith("cc ")) compiledBytes += j.bytes;
+                }
+                boolean liftsDone = true;
+                for (Job j : lifts) liftsDone &= j.done;
+                if (liftsDone && !lifted && extents == null) {
+                    extents = new Job("extents", 0, pythonPb(new String[] { new File(kit, "lift/tools/gen_extents.py").getPath(), gen.getPath() }, null), null);
+                    running.add(extents.start());
+                }
+                if (extents != null && extents.done && !lifted) {
+                    if (!new File(gen, "recomp_dispatch.c").isFile() || !new File(gen, "recomp_retn.c").isFile()
+                            || !new File(gen, "recomp_extents.c").isFile())
+                        throw new IOException("the translation wrote no code (see build.log)");
+                    writeText(new File(work, "lifted"), "1");
+                    lifted = true;
+                }
+                // new C files: complete ones only (the lift writes .tmp and renames); everything
+                // includes recomp_funcs.h, which shard 0 writes first
+                if (new File(gen, "recomp_funcs.h").isFile()) {
+                    File[] cs = gen.listFiles((d, n) -> n.startsWith("recomp_") && n.endsWith(".c"));
+                    if (cs != null) for (File c : cs) {
+                        if (!queued.add(c.getName())) continue;
+                        seenBytes += c.length();
+                        File o = new File(obj, c.getName().replace(".c", ".o"));
+                        if (o.isFile() && o.lastModified() >= c.lastModified()) { compiledBytes += c.length(); continue; }
+                        queue.add(c);
+                    }
+                    queue.sort((a, b) -> Long.compare(b.length(), a.length()));
+                }
+                // how many processes the device's temperature allows
+                long now = System.currentTimeMillis();
+                if (now - lastThermal >= 2000) {
+                    lastThermal = now;
+                    float t = cpuTemp();
+                    boolean hot, cool;
+                    if (!Float.isNaN(t)) { hot = t >= (quiet ? 74f : HOT); cool = t <= (quiet ? 68f : COOL); headroom = t; }
+                    else if (android.os.Build.VERSION.SDK_INT >= 30 && !Float.isNaN(headroom = pm.getThermalHeadroom(10))) {
+                        hot = headroom >= 0.85f; cool = headroom < 0.7f;
+                    } else { hot = false; cool = true; }
+                    if (hot && target > 2 && now - lastRaise >= 6000) { target--; lastRaise = now; }
+                    else if (cool && target < maxJobs && now - lastRaise >= 10000) { target++; lastRaise = now; }
+                    if (now - lastLog >= 10000) {
+                        lastLog = now;
+                        lw.println(String.format(java.util.Locale.ROOT, "t+%ds %.1f %s, %d at once", (now - tStart) / 1000,
+                                headroom, Float.isNaN(t) ? "headroom" : "C", target));
+                    }
+                }
+                while (running.size() < target && !queue.isEmpty()) {
+                    File c = queue.remove(0);
+                    File o = new File(obj, c.getName().replace(".c", ".o"));
+                    File tmp = new File(o.getPath() + ".tmp");
+                    Job j = new Job("cc " + c.getName(), c.length(), clangPb(flags, c, tmp), null);
+                    running.add(j.start());
+                    pendingRename.put(j, new File[] { tmp, o });
+                }
+                for (java.util.Iterator<Map.Entry<Job, File[]>> it = pendingRename.entrySet().iterator(); it.hasNext(); ) {
+                    Map.Entry<Job, File[]> e = it.next();
+                    if (e.getKey().done && e.getKey().rc == 0) {
+                        if (!e.getValue()[0].renameTo(e.getValue()[1])) throw new IOException("cannot write " + e.getValue()[1]);
+                        it.remove();
+                    }
+                }
+                // progress: lift ~15%, compile ~85% of the time
+                float lf = 0;
+                for (float f : shardFrac) lf += f / SHARDS;
+                if (lifted) lf = 1;
+                long total = lifted ? Math.max(seenBytes, 1) : Math.max(EXPECTED_C, seenBytes);
+                float cf = Math.min(1f, (float) compiledBytes / total);
+                set(lifted ? "Compiling for this device" : "Translating and compiling", 4 + (int) (92 * (0.15f * lf + 0.85f * cf)));
+                if (lifted && queue.isEmpty() && running.isEmpty() && pendingRename.isEmpty()) break;
+                Thread.sleep(250);
+            }
+        } finally {
+            for (Job j : running) j.kill();
+        }
+        lw.println("compiled " + (compiledBytes >> 20) + " MB of C in " + (System.currentTimeMillis() - tStart) / 1000 + " s");
+    }
+
+    private final Map<Job, File[]> pendingRename = new java.util.HashMap<>();
+
+    private interface Lines { void line(String l); }
 
     private void run(ProcessBuilder pb, Lines lines) throws IOException, InterruptedException {
         pb.redirectErrorStream(true);
@@ -230,87 +477,16 @@ final class GameBuild {
         }
     }
 
-    // ------------------------------------------------------------------ 4. compile
-    private void compileAll() throws Exception {
-        obj.mkdirs();
-        List<String> flags = new ArrayList<>();
-        for (String a : readText(new File(kit, "compile.args")).split("\n")) {
-            if (a.isEmpty()) continue;
-            flags.add(a.replace("@KIT@", kit.getPath()).replace("@GEN@", gen.getPath()));
-        }
-        File[] cs = gen.listFiles((d, n) -> n.startsWith("recomp_") && n.endsWith(".c"));
-        if (cs == null || cs.length == 0) {
-            if (objects().size() > 0 && new File(work, "compiled").isFile()) return;   // relink only
-            throw new IOException("no translated code to compile");
-        }
-        // biggest first, so the long files do not start last
-        Arrays.sort(cs, (a, b) -> Long.compare(b.length(), a.length()));
-        long total = 0;
-        for (File c : cs) total += c.length();
-        AtomicLong done = new AtomicLong();
-        int jobs = jobs();
-        lw.println("compile: " + cs.length + " files, " + (total >> 20) + " MB, " + jobs + " at a time");
-        set("Compiling for this device", 31);
-        ExecutorService pool = Executors.newFixedThreadPool(jobs);
-        List<Future<?>> fs = new ArrayList<>();
-        final long tot = total;
-        for (File c : cs) {
-            fs.add(pool.submit(() -> {
-                File o = new File(obj, c.getName().replace(".c", ".o"));
-                if (!o.isFile() || o.lastModified() < c.lastModified()) {
-                    File tmp = new File(o.getPath() + ".tmp");
-                    List<String> cmd = new ArrayList<>();
-                    cmd.add(new File(nativeDir, "libllvm.so").getPath());
-                    cmd.add("clang");
-                    cmd.addAll(flags);
-                    cmd.add("-c");
-                    cmd.add(c.getPath());
-                    cmd.add("-o");
-                    cmd.add(tmp.getPath());
-                    ProcessBuilder pb = new ProcessBuilder(cmd);
-                    pb.environment().put("LD_LIBRARY_PATH", nativeDir);
-                    runQuiet(pb, c.getName());
-                    if (!tmp.renameTo(o)) throw new IOException("cannot write " + o);
-                }
-                long d = done.addAndGet(c.length());
-                set("Compiling for this device", 31 + (int) (64 * d / tot));
-                return null;
-            }));
-        }
-        pool.shutdown();
-        try {
-            for (Future<?> f : fs) f.get();
-        } catch (java.util.concurrent.ExecutionException e) {
-            pool.shutdownNow();
-            throw e.getCause() instanceof Exception ? (Exception) e.getCause() : e;
-        }
-        writeText(new File(work, "compiled"), "1");
-    }
-
-    /** One compile; its output goes to the log only when it fails (they run in parallel). */
-    private void runQuiet(ProcessBuilder pb, String name) throws IOException, InterruptedException {
-        pb.redirectErrorStream(true);
-        Process p = pb.start();
-        byte[] out = readAll(p.getInputStream());
-        int rc = p.waitFor();
-        synchronized (lw) {
-            lw.println("cc " + name + " -> " + rc);
-            if (rc != 0) lw.println(new String(out, StandardCharsets.UTF_8));
-        }
-        if (rc != 0) {
-            String t = new String(out, StandardCharsets.UTF_8).trim();
-            throw new IOException("compiling " + name + " failed (" + rc + "): " + (t.length() > 300 ? t.substring(0, 300) : t));
-        }
-    }
-
-    /** Parallel compiles: one per big core, fewer when memory is short (~2 GB each at worst). */
+    /** Processes at once at most: one per core but two, fewer when memory is short (~1.5 GB
+     *  each at worst: a lift shard holds the catalog and the decoded exe). */
     private int jobs() {
         int cores = Runtime.getRuntime().availableProcessors();
         ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
         ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
         am.getMemoryInfo(mi);
-        int byMem = (int) Math.max(1, (mi.availMem - (1L << 30)) / (2L << 30));
-        return Math.max(1, Math.min(Math.min(cores - 2, 6), byMem));
+        int byMem = (int) Math.max(2, (mi.availMem - (1L << 30)) / (3L << 29));
+        if (quiet) return 2;
+        return Math.max(2, Math.min(Math.min(coreCount < cores ? coreCount : cores - 2, 6), byMem));
     }
 
     private List<File> objects() {

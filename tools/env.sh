@@ -43,3 +43,7 @@ if [ -z "${MSBUILD:-}" ]; then
 fi
 
 export ANDROID_SDK_ROOT ANDROID_HOME="$ANDROID_SDK_ROOT" NDK NDK_BIN ADB SDK_CMAKE_DIR JAVA_HOME LLVM_DIR HOST_CC HOST_CXX MSBUILD
+
+# Source paths baked into binaries (__FILE__ in asserts and traces) name the build machine's
+# folders: map them to neutral names in everything the APK carries.
+FF7_PREFIX_MAP="-ffile-prefix-map=$(cygpath -m "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)")=ff7recomp -ffile-prefix-map=$(cygpath -m "$ANDROID_SDK_ROOT")=android-sdk"

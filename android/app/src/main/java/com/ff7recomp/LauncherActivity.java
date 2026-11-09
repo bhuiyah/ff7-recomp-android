@@ -1077,8 +1077,8 @@ public class LauncherActivity extends Activity {
             col.addView(space(14));
             col.addView(button("Find my FF7 folder…", v -> pick(PICK_GAME)));
         } else if (GameBuild.running) {
-            col.addView(text("Building the game for this device. This happens once and takes about 10 to 20 "
-                    + "minutes. You can leave the launcher; it keeps going in the background.", 15, TEXT));
+            col.addView(text("Building the game for this device. This happens once: about 8 minutes on an AYN "
+                    + "Thor. You can leave the launcher; it keeps going in the background.", 15, TEXT));
             col.addView(space(14));
             buildLine = text(GameBuild.stage + " · " + GameBuild.percent + "%", 15, ACCENT);
             col.addView(buildLine);
@@ -1094,16 +1094,24 @@ public class LauncherActivity extends Activity {
             col.addView(space(14));
             col.addView(button("Import again from another folder…", v -> pick(PICK_GAME)));
             col.addView(space(8));
-            col.addView(button("Build again", v -> startBuild()));
+            col.addView(button("Build again", v -> { new File(build.work, "stamp").delete(); startBuild(); }));
         } else {
             col.addView(text(GameBuild.error != null
                     ? "The last build stopped: " + GameBuild.error
-                    : "Your game files are here. One more step: build the game for this device (about 10 to 20 "
-                      + "minutes, once).", 15, GameBuild.error != null ? DIM : TEXT));
+                    : "Your game files are here. One more step: build the game for this device (once: about 8 "
+                      + "minutes on an AYN Thor).", 15, GameBuild.error != null ? DIM : TEXT));
             col.addView(space(14));
             col.addView(button(GameBuild.error != null ? "Try again" : "Build for this device", v -> startBuild()));
             col.addView(space(8));
             col.addView(button("Import again from another folder…", v -> pick(PICK_GAME)));
+        }
+        if (install.hasGame() && !GameBuild.running) {
+            col.addView(space(14));
+            android.widget.CheckBox q = new android.widget.CheckBox(this);
+            q.setText("Quiet build: about twice as long, cooler and quieter");
+            q.setChecked(prefs.getBoolean("quiet_build", false));
+            q.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("quiet_build", on).apply());
+            col.addView(q);
         }
         col.addView(space(14));
         col.addView(text("Game files: " + install.game.getAbsolutePath() + "\nBuild log: "
@@ -1113,6 +1121,7 @@ public class LauncherActivity extends Activity {
 
     private void startBuild() {
         if (GameBuild.running || !install.hasGame()) return;
+        GameBuild.quiet = prefs.getBoolean("quiet_build", false);
         if (android.os.Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[] { android.Manifest.permission.POST_NOTIFICATIONS }, 9);
