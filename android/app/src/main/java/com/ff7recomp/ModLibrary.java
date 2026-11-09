@@ -81,7 +81,9 @@ final class ModLibrary {
     }
 
     final File dir, profile;
-    final List<Mod> mods = new ArrayList<>();
+    // Replaced whole (never emptied and refilled) and copy-on-write: the conflict check reads it
+    // on a background thread while the launcher reloads it.
+    volatile List<Mod> mods = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     ModLibrary(File filesDir) {
         dir = new File(filesDir, "mods");
@@ -91,7 +93,7 @@ final class ModLibrary {
 
     /** Re-read the folder and the saved profile. New mods are added at the end, disabled. */
     void load() {
-        mods.clear();
+        List<Mod> loaded = new ArrayList<>();
         Map<String, Mod> saved = new LinkedHashMap<>();
         if (profile.exists()) {
             try {
@@ -121,28 +123,29 @@ final class ModLibrary {
             if (f.isDirectory() || n.toLowerCase(Locale.ROOT).endsWith(".iro")) present.add(n);
         }
         for (Mod m : saved.values()) {                        // saved order first
-            for (String p : present) if (p.equalsIgnoreCase(m.file)) { m.file = p; mods.add(m); break; }
+            for (String p : present) if (p.equalsIgnoreCase(m.file)) { m.file = p; loaded.add(m); break; }
         }
         List<Mod> added = new ArrayList<>();
         for (String p : present) {                             // then anything new
             if (saved.containsKey(p.toLowerCase(Locale.ROOT))) continue;
             Mod m = new Mod();
             m.file = p;
-            mods.add(m);
+            loaded.add(m);
             added.add(m);
         }
-        for (Mod m : mods) readInfo(m);
-        // A new user interface mod goes above the content mods: its fonts and menu textures
+        for (Mod m : loaded) readInfo(m);
+        // A new user interface mod goes above the content loaded: its fonts and menu textures
         // pair with its own hext (the letter widths), so a content mod above it that ships the
         // game's fonts too (Echo-S) would draw them with the wrong widths. 7th Heaven's
-        // catalog order puts interface mods first as well.
+        // catalog order puts interface loaded first as well.
         for (Mod m : added) {
             if (!m.isUi()) continue;
-            int at = firstContent();
-            if (at < 0 || at >= mods.indexOf(m)) continue;
-            mods.remove(m);
-            mods.add(at, m);
+            int at = firstContent(loaded);
+            if (at < 0 || at >= loaded.indexOf(m)) continue;
+            loaded.remove(m);
+            loaded.add(at, m);
         }
+        mods = new java.util.concurrent.CopyOnWriteArrayList<>(loaded);
         readHextStatus();
     }
 
@@ -245,7 +248,7 @@ final class ModLibrary {
     }
 
     /** The first mod that is not a user interface mod, or -1. */
-    private int firstContent() {
+    private static int firstContent(List<Mod> mods) {
         for (int i = 0; i < mods.size(); i++) if (!mods.get(i).isUi()) return i;
         return -1;
     }
@@ -257,8 +260,7 @@ final class ModLibrary {
         List<Mod> now = new ArrayList<>(ui);
         now.addAll(rest);
         if (now.equals(mods)) return false;
-        mods.clear();
-        mods.addAll(now);
+        mods = new java.util.concurrent.CopyOnWriteArrayList<>(now);
         return true;
     }
 

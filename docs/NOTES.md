@@ -628,3 +628,11 @@
   ChaOS.iro unpacks byte-identical; a multi-entry test archive too. commons-compress and xz are
   gone from the app. The download queue now fails an item on any Throwable, and logs failures
   (tag FF7Mods).
+- 2026-11-09 Launcher restyle, FF7-inspired (original drawing, no game assets): blue gradient
+  windows with a light double border (window() in LauncherActivity), white text with a hard
+  drop shadow, cyan labels; the left menu is a command window (Play first) with a pointing-glove
+  cursor (HandCursor.java: full on the focused item, faint on the page on screen); the status is
+  a one-line info bar above the page; dialogs, checkboxes, radios and fields themed (theme(),
+  ff()). Fixed on the way: ModLibrary.load() emptied and refilled the list the background
+  conflict check iterates (ConcurrentModificationException at launch); the list is now built
+  aside and published whole, copy-on-write.

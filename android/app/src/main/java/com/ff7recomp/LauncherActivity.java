@@ -36,7 +36,13 @@ import java.io.File;
  */
 public class LauncherActivity extends Activity {
     private static final int PICK_GAME = 1, PICK_IRO = 2, PICK_FOLDER = 3;
-    private static final int BG = 0xFF0B1020, PANEL = 0xFF141B33, ACCENT = 0xFF3D7BFF, TEXT = 0xFFE8ECF8, DIM = 0xFF8C96B4;
+    // FF7-style menus: blue gradient windows with a light double border, white text with a drop
+    // shadow, cyan labels, a pointing-glove cursor (HandCursor.java) on the menu.
+    private static final int BG = 0xFF03050C, ACCENT = 0xFF7FD8FF, TEXT = 0xFFF4F6FF, DIM = 0xFFB4C0E4;
+    private static final int WIN_TOP = 0xFF3B5CB4, WIN_BOTTOM = 0xFF0E1C64;          // windows
+    private static final int BTN_TOP = 0xFF2C4594, BTN_BOTTOM = 0xFF101E5E;          // buttons
+    private static final int HOT_TOP = 0xFF6286E6, HOT_BOTTOM = 0xFF2A43A0;          // focused / on
+    private final java.util.Map<String, Button> nav = new java.util.HashMap<>();
 
     private GameInstall install;
     private ModLibrary library;
@@ -95,36 +101,51 @@ public class LauncherActivity extends Activity {
 
         LinearLayout side = new LinearLayout(this);
         side.setOrientation(LinearLayout.VERTICAL);
-        side.setPadding(0, 0, dp(24), 0);
-        TextView title = text("FINAL FANTASY VII", 30, TEXT);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
+        side.setPadding(0, 0, dp(20), 0);
+        TextView title = text("FINAL FANTASY VII", 22, TEXT);
+        title.setTypeface(Typeface.create("serif", Typeface.BOLD));
+        title.setLetterSpacing(0.04f);
+        title.setSingleLine(true);
         side.addView(title);
-        side.addView(text("native ARM64 · FFNx · Vulkan", 14, DIM));
-        status = text("", 15, DIM);
-        status.setPadding(0, dp(16), 0, dp(16));
-        side.addView(status);
-        playButton = button("▶  Play", v -> play());
-        playButton.setTextSize(24);
-        side.addView(playButton, new LinearLayout.LayoutParams(dp(280), dp(72)));
-        side.addView(space(16));
-        side.addView(button("Mods", v -> show("mods")), navParams());
-        side.addView(button("Get mods", v -> show("catalog")), navParams());
-        downloadsButton = button("Downloads", v -> show("downloads"));
-        side.addView(downloadsButton, navParams());
-        side.addView(button("Save states", v -> show("states")), navParams());
-        side.addView(button("Achievements", v -> show("achievements")), navParams());
-        side.addView(button("Settings", v -> show("settings")), navParams());
-        side.addView(button("Game files", v -> show("game")), navParams());
-        // the menu scrolls when it is taller than the screen (Play, five pages, the status)
+        side.addView(text("native ARM64 · FFNx · Vulkan", 12, ACCENT));
+        side.addView(space(10));
+        // the command window, Play first (the cursor starts there)
+        LinearLayout menu = column();
+        menu.setBackground(window(WIN_TOP, WIN_BOTTOM, 8));
+        menu.setPadding(dp(8), dp(6), dp(8), dp(6));
+        playButton = menuItem("Play", null);
+        playButton.setTextSize(21);
+        playButton.setTypeface(Typeface.DEFAULT_BOLD);
+        menu.addView(playButton);
+        menu.addView(menuItem("Mods", "mods"));
+        menu.addView(menuItem("Get mods", "catalog"));
+        downloadsButton = menuItem("Downloads", "downloads");
+        menu.addView(downloadsButton);
+        menu.addView(menuItem("Save states", "states"));
+        menu.addView(menuItem("Achievements", "achievements"));
+        menu.addView(menuItem("Settings", "settings"));
+        menu.addView(menuItem("Game files", "game"));
+        side.addView(menu, new LinearLayout.LayoutParams(dp(280), ViewGroup.LayoutParams.WRAP_CONTENT));
+        // the menu scrolls when it is taller than the screen
         ScrollView sideScroll = new ScrollView(this);
         sideScroll.setVerticalScrollBarEnabled(false);
         sideScroll.addView(side);
         root.addView(sideScroll, new LinearLayout.LayoutParams(dp(300), ViewGroup.LayoutParams.MATCH_PARENT));
 
+        // right: the info bar (FF7's one-line help window) over the page's window
+        LinearLayout right = column();
+        status = text("", 14, TEXT);
+        status.setBackground(window(WIN_TOP, WIN_BOTTOM, 8));
+        status.setPadding(dp(16), dp(8), dp(16), dp(8));
+        status.setMaxLines(2);
+        status.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        right.addView(status, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        right.addView(space(10));
         content = new FrameLayout(this);
-        content.setBackground(rounded(PANEL));
-        content.setPadding(dp(20), dp(16), dp(20), dp(16));
-        root.addView(content, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        content.setBackground(window(WIN_TOP, WIN_BOTTOM, 10));
+        content.setPadding(dp(22), dp(18), dp(22), dp(18));
+        right.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        root.addView(right, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
         setContentView(root);
         hideSystemBars();
         show(install.hasGame() ? "mods" : "game");
@@ -171,6 +192,8 @@ public class LauncherActivity extends Activity {
             case "catalog": content.addView(catalogPage()); break;
             default: content.addView(modsPage()); break;
         }
+        for (java.util.Map.Entry<String, Button> e : nav.entrySet()) e.getValue().setSelected(e.getKey().equals(page));
+        theme(content);
     }
 
     private View modsPage() {
@@ -293,13 +316,13 @@ public class LauncherActivity extends Activity {
     private void showConflicts() {
         ConflictChecker.Report r = conflictReport;
         if (r == null) return;
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Mod conflicts")
                 .setView(scroll(warningList(r.lines, "Where two mods replace the same game file, the one higher in the Mods list is used "
                         + "(use ▲ ▼ to change it). Overlaps are often fine, such as a texture pack over a model pack; "
                         + "a ⚠ means a mod itself says something is wrong.")))
                 .setPositiveButton("OK", null)
-                .show();
+                .show());
     }
 
     private void options(ModLibrary.Mod m) {
@@ -331,13 +354,12 @@ public class LauncherActivity extends Activity {
             }
             col.addView(space(12));
         }
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle(m.title())
                 .setView(scroll(col))
                 .setPositiveButton("Done", (d, w) -> { saveProfile(); refresh(); })
-                .show();
+                .show());
     }
-
 
     // ------------------------------------------------------------------- Get mods (catalogs)
     private View catalogPage() {
@@ -566,19 +588,14 @@ public class LauncherActivity extends Activity {
             s.append("\nBoosters: ").append(prefs.getBoolean("no_encounters", false) ? "no random battles" : "")
                     .append(prefs.getBoolean("no_encounters", false) && prefs.getBoolean("battle_plus", false) ? ", " : "")
                     .append(prefs.getBoolean("battle_plus", false) ? "battle enhancement" : "");
-        status.setText(s);
+        status.setText(s.toString().replace("\n", "   ·   "));
         int n = queue.pendingCount();
         downloadsButton.setText(n > 0 ? "Downloads (" + n + ")" : "Downloads");
     }
 
     private Button chip(String label, boolean on, View.OnClickListener l) {
         Button b = small(label, l);
-        if (on) {
-            GradientDrawable d = new GradientDrawable();
-            d.setColor(ACCENT);
-            d.setCornerRadius(dp(10));
-            b.setBackground(d);
-        }
+        if (on) b.setBackground(window(HOT_TOP, HOT_BOTTOM, 6));
         return b;
     }
 
@@ -639,7 +656,7 @@ public class LauncherActivity extends Activity {
                 try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); } catch (Exception e) { toastDialog("No browser to open " + url); }
             });
         }
-        d.show();
+        ff(d.show());
     }
 
     private void loadPreview(ModCatalog.Mod m, ImageView img) {
@@ -685,13 +702,13 @@ public class LauncherActivity extends Activity {
         // conflicts with the mods already enabled (and within this batch): ask first
         java.util.List<ConflictChecker.Warning> warn = ConflictChecker.beforeInstall(catalog, library, todo);
         if (warn.isEmpty()) { enqueue(todo); return; }
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Possible conflicts")
                 .setView(scroll(warningList(warn, "Catalogs do not list the files inside a mod, so this is a guess from what the mods are. "
                         + "After the download, the Mods page shows the exact files they share.")))
                 .setPositiveButton(todo.size() == 1 ? "Install anyway" : "Install all anyway", (d, w) -> enqueue(todo))
                 .setNegativeButton("Cancel", null)
-                .show();
+                .show());
     }
 
     private LinearLayout warningList(java.util.List<ConflictChecker.Warning> warn, String footer) {
@@ -735,7 +752,7 @@ public class LauncherActivity extends Activity {
         ModCatalog.Installed in = catalog.installedOf(m);
         if (in == null) return;
         if (queue.pending(m) != null) { toastDialog(m.name + " is in Downloads; cancel it there first."); return; }
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setMessage("Remove " + m.name + "? Its file is deleted from the device.")
                 .setPositiveButton("Remove", (x, w) -> {
                     ModDownloader.deleteTree(new File(library.dir, in.file));
@@ -745,7 +762,7 @@ public class LauncherActivity extends Activity {
                     refresh();
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+                .show());
     }
 
     /** Settings: the catalogs subscribed to. */
@@ -773,7 +790,7 @@ public class LauncherActivity extends Activity {
             url.setHint("iros://Url/https$... or https://...catalog.xml");
             f.addView(name);
             f.addView(url);
-            new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                     .setTitle("Add a mod catalog")
                     .setView(f)
                     .setPositiveButton("Add", (x, w) -> {
@@ -782,7 +799,7 @@ public class LauncherActivity extends Activity {
                         background(() -> { progress("Checking the new catalog"); String e = catalog.refresh(false); return e; });
                     })
                     .setNegativeButton("Cancel", null)
-                    .show();
+                    .show());
         }));
         return col;
     }
@@ -1050,11 +1067,11 @@ public class LauncherActivity extends Activity {
                 try { states.setCurrent(k); } catch (Exception e) { toastDialog("Could not set the slot: " + e); }
                 refresh();
             }));
-            if (sl.exists) r.addView(small("Delete", v -> new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            if (sl.exists) r.addView(small("Delete", v -> ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                     .setMessage("Delete save state slot " + k + "? This cannot be undone.")
                     .setPositiveButton("Delete", (d, w) -> { states.delete(k); refresh(); })
                     .setNegativeButton("Cancel", null)
-                    .show()));
+                    .show())));
             col.addView(r);
         }
         return scroll(col);
@@ -1129,8 +1146,8 @@ public class LauncherActivity extends Activity {
     }
 
     private void toastDialog(String msg) {
-        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setMessage(msg).setPositiveButton("OK", null).show();
+        ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setMessage(msg).setPositiveButton("OK", null).show());
     }
 
     /** The pad: A confirms, B goes back, Start plays (D-pad focus navigation is Android's). */
@@ -1163,7 +1180,87 @@ public class LauncherActivity extends Activity {
         t.setText(s);
         t.setTextSize(sp);
         t.setTextColor(color);
+        shadow(t);
         return t;
+    }
+
+    /** FF7's menu text: a hard drop shadow down and to the right. */
+    private void shadow(TextView t) {
+        float d = getResources().getDisplayMetrics().density;
+        t.setShadowLayer(1.2f * d, 1.4f * d, 1.4f * d, 0xE0000000);
+    }
+
+    /** A window: diagonal blue gradient, light outer border, darker inner line. */
+    private android.graphics.drawable.Drawable window(int top, int bottom, int cornerDp) {
+        GradientDrawable fill = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[] { top, bottom });
+        fill.setCornerRadius(dp(cornerDp));
+        fill.setStroke(dp(2), 0xFFE2E6F0);
+        GradientDrawable inner = new GradientDrawable();
+        inner.setColor(0);
+        inner.setCornerRadius(Math.max(0, dp(cornerDp) - dp(2)));
+        inner.setStroke(Math.max(1, dp(1)), 0xFF4C5576);
+        android.graphics.drawable.LayerDrawable l = new android.graphics.drawable.LayerDrawable(
+                new android.graphics.drawable.Drawable[] { fill, inner });
+        l.setLayerInset(1, dp(2), dp(2), dp(2), dp(2));
+        return l;
+    }
+
+    /** A command in the menu window: plain text, the glove cursor points at it. which: the page
+     *  it shows, or null for Play. */
+    private Button menuItem(String label, String which) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setTextSize(17);
+        b.setTextColor(new android.content.res.ColorStateList(
+                new int[][] { { -android.R.attr.state_enabled }, {} }, new int[] { 0xFF7F88AE, TEXT }));
+        shadow(b);
+        b.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        b.setBackground(null);
+        b.setPadding(dp(4), 0, dp(4), 0);
+        b.setCompoundDrawablesRelativeWithIntrinsicBounds(new HandCursor(getResources().getDisplayMetrics().density), null, null, null);
+        b.setCompoundDrawablePadding(dp(10));
+        b.setStateListAnimator(null);
+        b.setFocusable(true);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setOnClickListener(v -> { if (which == null) play(); else show(which); });
+        b.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(which == null ? 42 : 34)));
+        if (which != null) nav.put(which, b);
+        return b;
+    }
+
+    /** Checkboxes, radio buttons and text fields inside v, in the window colours. */
+    private void theme(View v) {
+        if (v instanceof CheckBox || v instanceof RadioButton) {
+            android.widget.CompoundButton c = (android.widget.CompoundButton) v;
+            c.setButtonTintList(new android.content.res.ColorStateList(
+                    new int[][] { { android.R.attr.state_checked }, {} }, new int[] { ACCENT, 0xFFE2E6F0 }));
+            c.setTextColor(TEXT);
+            shadow(c);
+        } else if (v instanceof EditText) {
+            EditText e = (EditText) v;
+            e.setTextColor(TEXT);
+            e.setHintTextColor(DIM);
+            e.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFE2E6F0));
+        } else if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) theme(g.getChildAt(i));
+        }
+    }
+
+    /** A dialog in a window like the rest of the launcher. */
+    private AlertDialog ff(AlertDialog d) {
+        if (d.getWindow() != null) {
+            android.graphics.drawable.InsetDrawable bg = new android.graphics.drawable.InsetDrawable(window(WIN_TOP, WIN_BOTTOM, 10), dp(16));
+            d.getWindow().setBackgroundDrawable(bg);
+            theme(d.getWindow().getDecorView());
+        }
+        for (int which : new int[] { AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL }) {
+            Button b = d.getButton(which);
+            if (b != null) { b.setTextColor(ACCENT); shadow(b); }
+        }
+        return d;
     }
 
     private TextView heading(String s) {
@@ -1178,17 +1275,14 @@ public class LauncherActivity extends Activity {
         b.setText(label);
         b.setAllCaps(false);
         b.setTextSize(17);
-        b.setTextColor(Color.WHITE);
-        GradientDrawable normal = new GradientDrawable();
-        normal.setColor(0xFF24304F);
-        normal.setCornerRadius(dp(10));
-        GradientDrawable focused = new GradientDrawable();
-        focused.setColor(ACCENT);
-        focused.setCornerRadius(dp(10));
+        b.setTextColor(new android.content.res.ColorStateList(
+                new int[][] { { -android.R.attr.state_enabled }, {} }, new int[] { 0xFF8088A8, Color.WHITE }));
+        shadow(b);
+        b.setStateListAnimator(null);
         android.graphics.drawable.StateListDrawable sl = new android.graphics.drawable.StateListDrawable();
-        sl.addState(new int[] { android.R.attr.state_focused }, focused);
-        sl.addState(new int[] { android.R.attr.state_pressed }, focused);
-        sl.addState(new int[] {}, normal);
+        sl.addState(new int[] { android.R.attr.state_focused }, window(HOT_TOP, HOT_BOTTOM, 6));
+        sl.addState(new int[] { android.R.attr.state_pressed }, window(HOT_TOP, HOT_BOTTOM, 6));
+        sl.addState(new int[] {}, window(BTN_TOP, BTN_BOTTOM, 6));
         b.setBackground(sl);
         b.setFocusable(true);
         b.setOnClickListener(l);
@@ -1202,12 +1296,6 @@ public class LauncherActivity extends Activity {
         Button b = button(label, l);
         b.setTextSize(15);
         return b;
-    }
-
-    private LinearLayout.LayoutParams navParams() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(280), dp(56));
-        lp.setMargins(0, dp(4), 0, dp(4));
-        return lp;
     }
 
     private LinearLayout column() {
@@ -1235,10 +1323,4 @@ public class LauncherActivity extends Activity {
         return s;
     }
 
-    private GradientDrawable rounded(int color) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(dp(16));
-        return d;
-    }
 }
