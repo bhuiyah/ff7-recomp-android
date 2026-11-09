@@ -127,7 +127,7 @@ final class GameBuild {
             String sha = sha1(exe);
             lw.println("exe " + sha);
             if (!EXE_SHA1.equals(sha))
-                throw new IOException("this ff7_en is not the Steam release's 1.02 US exe (ff7/resources/ff7_1.02/ff7_en)");
+                throw new IOException("this ff7_en is not the one the game is built from: import again. " + GameInstall.WHICH_FOLDER);
 
             unpackKit(ver);
 

@@ -77,26 +77,47 @@ final class GameInstall {
         return d;
     }
 
+    /** What to pick, said when the exe found is not the one the game is built from. */
+    static final String WHICH_FOLDER = "FF7Recomp needs FINAL FANTASY VII as Steam installs it today, unpatched: "
+            + "pick its main folder (the one that holds \"ff7\"). Inside it, ff7/resources/ff7_1.02/ff7_en is the "
+            + "original 1.02 exe the game is built from (ff7/workingdir/ff7_en.exe is a different one). No patch "
+            + "is needed; patched exes and the 2013 release's exe are not supported yet";
+
     /**
-     * Import from the folder the player picked: the Steam "FINAL FANTASY VII" folder, its
-     * ff7/workingdir, or any folder holding ff7_en(.exe) and data/. Other languages' data
-     * folders are skipped. Returns null on success, else what is missing.
+     * Import from the folder the player picked: the Steam "FINAL FANTASY VII" folder, its ff7
+     * folder, or any folder holding the 1.02 ff7_en(.exe) and data/. The exe is checked before
+     * anything is copied. Other languages' data folders are skipped. Returns null on success,
+     * else what is wrong.
      */
     String importGame(Uri tree, Progress p) throws IOException {
         String root = DocumentsContract.getTreeDocumentId(tree);
+        // the Steam release keeps the original 1.02 exe in ff7/resources/ff7_1.02; its
+        // ff7/workingdir/ff7_en.exe is the re-release's own exe
         Doc exe = path(tree, root, "ff7", "resources", "ff7_1.02", "ff7_en");
-        Doc data = path(tree, root, "ff7", "workingdir", "data");
-        if (exe == null) exe = path(tree, root, "ff7_en.exe");
+        if (exe == null) exe = path(tree, root, "resources", "ff7_1.02", "ff7_en");       // picked ff7
+        if (exe == null) exe = path(tree, root, "ff7_en.exe");                            // a plain 1.02 folder
         if (exe == null) exe = path(tree, root, "ff7_en");
+        Doc data = path(tree, root, "ff7", "workingdir", "data");
+        if (data == null) data = path(tree, root, "workingdir", "data");
         if (data == null) data = path(tree, root, "data");
-        if (exe == null && data != null) {                      // picked workingdir itself
-            exe = path(tree, root, "..", "resources", "ff7_1.02", "ff7_en");
-        }
-        if (exe == null) return "ff7_en (ff7/resources/ff7_1.02/ff7_en in the Steam folder) was not found";
-        if (data == null) return "the data folder (ff7/workingdir/data in the Steam folder) was not found";
+        if (exe == null) return "ff7_en (ff7/resources/ff7_1.02/ff7_en in the Steam folder) was not found. " + WHICH_FOLDER;
+        if (data == null) return "the data folder (ff7/workingdir/data in the Steam folder) was not found. " + WHICH_FOLDER;
         game.mkdirs();
-        p.update("Copying ff7_en.exe");
-        copyDoc(tree, exe.id, new File(game, "ff7_en.exe"));
+        p.update("Checking ff7_en");
+        File tmp = new File(game, "ff7_en.exe.new");
+        copyDoc(tree, exe.id, tmp);
+        String sha = GameBuild.sha1(tmp);
+        if (!GameBuild.EXE_SHA1.equals(sha)) {
+            tmp.delete();
+            boolean pickedWorkingdir = path(tree, root, "ff7_en.exe") != null && path(tree, root, "data") != null
+                    && path(tree, root, "ff7") == null && path(tree, root, "resources") == null;
+            return (pickedWorkingdir ? "this is ff7/workingdir, whose ff7_en.exe is not the one the game is built from. "
+                                     : "this ff7_en (SHA-1 " + sha.substring(0, 12) + "…) is not the one the game is built from. ")
+                    + WHICH_FOLDER;
+        }
+        File exeOut = new File(game, "ff7_en.exe");
+        exeOut.delete();
+        if (!tmp.renameTo(exeOut)) throw new IOException("cannot write " + exeOut);
         copyTree(tree, data.id, new File(game, "data"), p, "data");
         return null;
     }

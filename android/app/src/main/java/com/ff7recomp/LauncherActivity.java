@@ -1297,7 +1297,7 @@ public class LauncherActivity extends Activity {
         background(() -> {
             if (req == PICK_GAME) {
                 String err = install.importGame(data.getData(), this::progress);
-                if (err != null) return "Not imported: " + err + ".\n\n" + GAMENATIVE_HINT;
+                if (err != null) return "Not imported: " + err + "." + (err.contains("was not found") ? "\n\n" + GAMENATIVE_HINT : "");
                 runOnUiThread(this::startBuild);
                 return null;
             }

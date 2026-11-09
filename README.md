@@ -74,7 +74,10 @@ and I would rather you know before you install it.
    speed to keep the fan low.
 5. Press **Play**.
 
-Only the Steam release's 1.02 US `ff7_en` is supported; the launcher checks it before building.
+No patch is needed: pick the main folder of FINAL FANTASY VII as Steam installs it today. FF7Recomp
+uses the original 1.02 exe that it carries in `ff7/resources/ff7_1.02/ff7_en` (the `ff7_en.exe` in
+`ff7/workingdir` is the re-release's own and is not used). Patched exes and the 2013 release's exe
+are not supported yet; the launcher checks the exe when you import.
 
 **FF7 downloaded with GameNative?** GameNative keeps games in its private internal storage by
 default, which other apps cannot read. Turn on GameNative's external storage (SD card) option and
