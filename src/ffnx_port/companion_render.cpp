@@ -158,21 +158,24 @@ std::string ffnx_companion_layout_json() {
 }
 
 // From Renderer::show, after a frame: set up the bottom screen's views for the next one.
-// files/companion.txt (the launcher, at Play): "battlewindows=split" (the windows enlarged in two
-// parts, the default), "whole" (the window strip as the game draws it: UI mods such as Finishing
-// Touch move the windows, so cutting at the original positions mixes them up) or "off".
+// files/companion.txt: "battlewindows=off" (the windows stay on the top screen: the default,
+// and what the launcher writes), "split" (enlarged in two parts on the bottom screen) or "whole"
+// (the window strip as the game draws it). The bottom-screen views are kept for testing; with
+// UI mods moving the windows they looked cluttered, so the launcher no longer offers them.
 static bool g_force_whole;
 static void read_companion_settings() {
     char cwd[512], path[600], line[96];
     if (!getcwd(cwd, sizeof cwd)) return;
     std::snprintf(path, sizeof path, "%s/../companion.txt", cwd);
+    g_enabled = false;
     FILE *f = fopen(path, "rb");
-    if (!f) return;
-    while (std::fgets(line, sizeof line, f)) {
-        if (!std::strncmp(line, "battlewindows=whole", 19)) g_force_whole = true;
-        else if (!std::strncmp(line, "battlewindows=off", 17)) g_enabled = false;
+    if (f) {
+        while (std::fgets(line, sizeof line, f)) {
+            if (!std::strncmp(line, "battlewindows=whole", 19)) { g_enabled = true; g_force_whole = true; }
+            else if (!std::strncmp(line, "battlewindows=split", 19)) g_enabled = true;
+        }
+        std::fclose(f);
     }
-    std::fclose(f);
     std::fprintf(stderr, "[companion] battle windows: %s\n", !g_enabled ? "off" : g_force_whole ? "whole strip" : "split");
 }
 

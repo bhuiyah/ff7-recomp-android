@@ -838,29 +838,6 @@ public class LauncherActivity extends Activity {
         bplus.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("battle_plus", on).apply());
         col.addView(bplus);
         col.addView(space(16));
-        col.addView(heading("Bottom screen in battle"));
-        col.addView(text("Where the battle windows go on the Thor's second screen. Mods that restyle the battle "
-                + "windows (Finishing Touch, Enhanced Stock UI) need them shown as the game draws them.", 14, DIM));
-        RadioGroup bw = new RadioGroup(this);
-        String[][] bwModes = {
-            { "auto", "Automatic (as drawn when a user interface mod is on)" },
-            { "split", "Enlarged: names and commands above, HP/MP below" },
-            { "whole", "As the game draws them (one strip)" },
-            { "off", "Off: the windows stay on the top screen" },
-        };
-        String curBw = prefs.getString("battle_windows", "auto");
-        for (String[] mde : bwModes) {
-            RadioButton rb = new RadioButton(this);
-            rb.setText(mde[1]);
-            rb.setTextColor(TEXT);
-            rb.setTextSize(16);
-            rb.setId(View.generateViewId());
-            rb.setOnClickListener(x -> prefs.edit().putString("battle_windows", mde[0]).apply());
-            bw.addView(rb);
-            if (mde[0].equals(curBw)) rb.setChecked(true);
-        }
-        col.addView(bw);
-        col.addView(space(16));
         col.addView(heading("Display"));
         RadioGroup ar = new RadioGroup(this);
         String[][] aspects = {
@@ -1049,26 +1026,10 @@ public class LauncherActivity extends Activity {
             install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods);
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
             install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false));
-            install.writeCompanion(battleWindowsMode());
+            install.writeCompanion("off");   // battle windows stay on the top screen
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)));
             return null;
         });
-    }
-
-    /** The bottom screen's battle windows for this game: "split", "whole" or "off". Automatic
-     *  shows the strip as drawn when an enabled mod restyles the user interface. */
-    private String battleWindowsMode() {
-        String m = prefs.getString("battle_windows", "auto");
-        if (!m.equals("auto")) return m;
-        for (ModLibrary.Mod lm : library.mods) {
-            if (!lm.enabled || lm.error != null) continue;
-            String cat = lm.category == null ? "" : lm.category;
-            ModCatalog.Installed in = catalog.installedByFile(lm.file);
-            ModCatalog.Mod cm = in == null ? null : catalog.byId(in.id);
-            if (cm != null && cat.isEmpty()) cat = cm.category;
-            if (cat.equalsIgnoreCase("User Interface")) return "whole";
-        }
-        return "split";
     }
 
     /** The start speed (1-3); older settings had only the 2x "turbo" switch. */

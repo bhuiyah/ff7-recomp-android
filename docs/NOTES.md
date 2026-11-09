@@ -557,3 +557,8 @@
 - Still open with Finishing Touch + Enhanced Stock UI in battle: the party window draws the
   name under the HP numbers (same on the top screen, so the game's layout with these options,
   not the bottom-screen crop); "ME" at the left edge. To compare with Windows 7th Heaven.
+- Battle windows stay on the top screen (user decision 2026-11-08: the bottom-screen views looked
+  cluttered, more so with UI mods). The launcher setting is gone and Play writes
+  battlewindows=off; companion_render.cpp also defaults to off without companion.txt. The split
+  and whole-strip views remain in the code (companion.txt "split" / "whole") for testing. In
+  battle the bottom screen shows the enemy gauges and the deck.
