@@ -2,7 +2,7 @@
 
 # FF7Recomp
 
-FINAL FANTASY VII (PC, 1.02 US) statically recompiled to native ARM64 Android, rendered by
+FINAL FANTASY VII (PC, the Steam release) statically recompiled to native ARM64 Android, rendered by
 [FFNx](https://github.com/julianxhokaxhiu/FFNx) on Vulkan, with a 7th Heaven-style mod launcher.
 Built for the AYN Thor (dual screen), and meant to run on other Android handhelds and phones.
 
@@ -66,10 +66,10 @@ and I would rather you know before you install it.
 
 1. Download the APK from [Releases](../../releases/latest) and install it (allow installing
    from your browser or file manager when Android asks).
-2. Put your FINAL FANTASY VII install folder from Steam on the device (internal storage, an SD card
-   or a USB drive): the folder that contains `ff7/resources/ff7_1.02/ff7_en` and
-   `ff7/workingdir/data`.
-3. Open FF7Recomp → **Game files** → **Find my FF7 folder…** and pick it.
+2. Install FINAL FANTASY VII from Steam (the version sold today) and put its install folder,
+   `FINAL FANTASY VII Steam Edition` (the one with `ff7` inside), on the device: internal storage,
+   an SD card or a USB drive.
+3. Open FF7Recomp → **Game files** → **Find my FF7 folder…** and pick that folder.
 4. The launcher copies the game files, then builds the game for your device: it translates your
    `ff7_en.exe` to C, compiles it with the clang it carries and links it with the engine (FFNx,
    the renderer, the runtime). This happens once; on an AYN Thor it takes about 8 minutes and
@@ -77,10 +77,10 @@ and I would rather you know before you install it.
    speed to keep the fan low.
 5. Press **Play**.
 
-No patch is needed: pick the main folder of FINAL FANTASY VII as Steam installs it today. FF7Recomp
-uses the original 1.02 exe that it carries in `ff7/resources/ff7_1.02/ff7_en` (the `ff7_en.exe` in
-`ff7/workingdir` is the re-release's own and is not used). Patched exes and the 2013 release's exe
-are not supported yet; the launcher checks the exe when you import.
+No patch or older version is needed: FINAL FANTASY VII as Steam installs it today has everything
+FF7Recomp uses. Pick its main folder (not `ff7/workingdir`); the launcher checks the game files
+when you import and tells you if the folder is not the right one. Patched game files and the 2013
+release are not supported yet.
 
 **FF7 downloaded with GameNative?** GameNative keeps games in its private internal storage by
 default, which other apps cannot read. Turn on GameNative's external storage (SD card) option and
@@ -129,7 +129,7 @@ and the APK. If a step fails, fix the cause and run it again; finished steps are
 
 The APK ends up in `android/app/build/outputs/apk/debug/app-debug.apk`.
 
-`config/catalog.json.gz` (the function boundaries of the 1.02 exe: addresses only) and
+`config/catalog.json.gz` (the function boundaries of the game's exe: addresses only) and
 `config/ffnx_manifests/` (FFNx's patch sites) come from the game's exe and are made on a PC that
 has it, with `tools/run_lift.py catalog` and `tools/refresh_manifests.sh`.
 
@@ -159,7 +159,7 @@ build) and `game/FFNx.log`.
 
 ## Known limitations
 
-- Only the Steam release's 1.02 US exe (`ff7_en`) is supported.
+- Only FINAL FANTASY VII as sold on Steam today (English) is supported, unpatched.
 - Movies decode on the CPU (no hardware decoding yet): upscaled 30 FPS movie mods work on the
   Thor but run warmer.
 - The 120 FPS mode is experimental.

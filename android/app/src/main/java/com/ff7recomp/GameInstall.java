@@ -78,10 +78,10 @@ final class GameInstall {
     }
 
     /** What to pick, said when the exe found is not the one the game is built from. */
-    static final String WHICH_FOLDER = "FF7Recomp needs FINAL FANTASY VII as Steam installs it today, unpatched: "
-            + "pick its main folder (the one that holds \"ff7\"). Inside it, ff7/resources/ff7_1.02/ff7_en is the "
-            + "original 1.02 exe the game is built from (ff7/workingdir/ff7_en.exe is a different one). No patch "
-            + "is needed; patched exes and the 2013 release's exe are not supported yet";
+    static final String WHICH_FOLDER = "FF7Recomp needs FINAL FANTASY VII as Steam sells and installs it today, "
+            + "unpatched: pick its main folder, \"FINAL FANTASY VII Steam Edition\" (the one that holds \"ff7\"), not "
+            + "ff7/workingdir. No patch or older version is needed; patched game files and the 2013 release are not "
+            + "supported yet";
 
     /**
      * Import from the folder the player picked: the Steam "FINAL FANTASY VII" folder, its ff7
