@@ -34,6 +34,9 @@ final class Achievements {
         }
         List<String> set = lines(new File(dir, "ff7-local.txt"));
         haveSet = !set.isEmpty();
+        List<String> custom = lines(new File(dir, "ff7-custom.txt"));
+        if (custom.size() > 2) set.addAll(custom.subList(2, custom.size()));
+        java.util.Set<Long> seen = new java.util.HashSet<>();
         for (int i = 2; i < set.size(); i++) {                  // after the version and title lines
             String line = set.get(i);
             if (line.isEmpty() || !Character.isDigit(line.charAt(0))) continue;
@@ -41,6 +44,7 @@ final class Achievements {
             if (f.size() < 4) continue;
             Ach a = new Ach();
             try { a.id = Long.parseLong(f.get(0)); } catch (NumberFormatException e) { continue; }
+            if (!seen.add(a.id)) continue;
             a.title = f.get(2);
             a.description = f.get(3);
             try { a.points = f.size() > 8 ? Integer.parseInt(f.get(8).trim()) : 0; } catch (NumberFormatException ignored) { }

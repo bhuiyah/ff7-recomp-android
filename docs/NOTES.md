@@ -604,3 +604,16 @@
   from the title screen and loading a save state reset the runtime. The official RA set cannot
   be fetched without their API: the starter set is ours. RA's local format: after the
   description come progress, max, format, then author and points (four colons, not five).
+- M6 story and boss achievements: 22 more, on the Game Moment (story progress; field bank 1
+  word 0 = savemap +0xBA4 = PS1 0x9D288; watched on the Thor: 1, 2, 6 through the opening).
+  Values from the FF7 speedrun community's Game Moment sheet (linked from ff7speedruns.com
+  "Game Moment"): Guard Scorpion 27, reactor 33, Air Buster 140, Wall Market 188, Aps 209, plate
+  236, Shinra HQ 260, Rufus 320, left Midgar 341, Kalm done 385, Bottomswell 388, Dyne 463,
+  Gi Nattak 514, Temple 604, Demons Gate 630, Jenova LIFE 673, end of disc 1 677, Diamond Weapon
+  1570, Proud Clod 1603, Hojo 1604, end of disc 2 1620, bottom of the crater 1999. Each unlocks
+  when the moment crosses its value. The sheet has some values far out of order (disc 2
+  flashbacks and revisits in the 1100-1400s), so a late one could fire early if the moment
+  passes its value during one of those; to be checked by players. The built-in set is now
+  rewritten at each start (ff7-local.txt); players' own additions go in ff7-custom.txt.
+  Checked on the Thor: a custom achievement on the moment crossing 2 unlocked after the first
+  battle; all 33 conditions parse.

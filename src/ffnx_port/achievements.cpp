@@ -10,7 +10,8 @@
 // The rcheevos runtime (RetroAchievements' own evaluation library, MIT) evaluates the set; no
 // server, no account: RetroAchievements has not approved this client, and connecting before it
 // does is against their rules. The set is a local file in RA's own local-achievements format
-// (files/achievements/ff7-local.txt, written with a starter set when absent):
+// (files/achievements/ff7-local.txt, the built-in set, rewritten at each start; your own
+// additions go in files/achievements/ff7-custom.txt, same format, ids not used by the set):
 //   1.0                      (format version)
 //   Final Fantasy VII        (title)
 //   id:"memaddr":"title":"description":progress:max:format:author:points:created:modified:up:down:badge
@@ -62,7 +63,34 @@ const char *k_starter =
     "111000007:\"0x 9c75e>d0x 9c75e\":\"Limit Break!\":\"Use one of Cloud's Limit Breaks\"::::FF7Recomp:5:::::\n"
     "111000008:\"0xX9d260>=10000\":\"Pocket Money\":\"Hold 10,000 gil\"::::FF7Recomp:5:::::\n"
     "111000009:\"0xX9d260>=1000000\":\"Shinra's Envy\":\"Hold 1,000,000 gil\"::::FF7Recomp:25:::::\n"
-    "111000010:\"0xX9d264>=36000\":\"Long Journey\":\"Play for 10 hours\"::::FF7Recomp:10:::::\n";
+    "111000010:\"0xX9d264>=36000\":\"Long Journey\":\"Play for 10 hours\"::::FF7Recomp:10:::::\n"
+    // Story and bosses: the Game Moment (the story progress the field scripts test; field bank 1
+    // word 0, savemap +0xBA4 = PS1 0x9D288), values from the FF7 speedrun community's Game Moment
+    // list. Each unlocks when the moment crosses its value (below last frame, at or above now):
+    // a save already past it does not unlock it on loading.
+    "111000101:\"d0x 9d288<27_0x 9d288>=27\":\"Scorpion Hunter\":\"Defeat the Guard Scorpion\"::::FF7Recomp:10:::::\n"
+    "111000102:\"d0x 9d288<33_0x 9d288>=33\":\"Mission Accomplished\":\"Blow up Mako Reactor 1\"::::FF7Recomp:5:::::\n"
+    "111000103:\"d0x 9d288<140_0x 9d288>=140\":\"Grounded\":\"Defeat Air Buster\"::::FF7Recomp:10:::::\n"
+    "111000104:\"d0x 9d288<188_0x 9d288>=188\":\"Welcome to Wall Market\":\"Arrive at Wall Market\"::::FF7Recomp:5:::::\n"
+    "111000105:\"d0x 9d288<209_0x 9d288>=209\":\"Sewer Rat\":\"Defeat Aps\"::::FF7Recomp:10:::::\n"
+    "111000106:\"d0x 9d288<236_0x 9d288>=236\":\"The Plate Falls\":\"Witness the fall of the Sector 7 plate\"::::FF7Recomp:5:::::\n"
+    "111000107:\"d0x 9d288<260_0x 9d288>=260\":\"Corporate Raid\":\"Break into Shinra Headquarters\"::::FF7Recomp:5:::::\n"
+    "111000108:\"d0x 9d288<320_0x 9d288>=320\":\"Hostile Takeover\":\"Defeat Rufus\"::::FF7Recomp:10:::::\n"
+    "111000109:\"d0x 9d288<341_0x 9d288>=341\":\"Beyond the Walls\":\"Escape Midgar\"::::FF7Recomp:10:::::\n"
+    "111000110:\"d0x 9d288<385_0x 9d288>=385\":\"Five Years Ago\":\"Finish the Kalm flashback\"::::FF7Recomp:5:::::\n"
+    "111000111:\"d0x 9d288<388_0x 9d288>=388\":\"Deep Trouble\":\"Defeat Bottomswell\"::::FF7Recomp:10:::::\n"
+    "111000112:\"d0x 9d288<463_0x 9d288>=463\":\"Old Friends\":\"Defeat Dyne\"::::FF7Recomp:10:::::\n"
+    "111000113:\"d0x 9d288<514_0x 9d288>=514\":\"Spirits at Rest\":\"Defeat Gi Nattak\"::::FF7Recomp:10:::::\n"
+    "111000114:\"d0x 9d288<604_0x 9d288>=604\":\"Ancient Ruins\":\"Enter the Temple of the Ancients\"::::FF7Recomp:5:::::\n"
+    "111000115:\"d0x 9d288<630_0x 9d288>=630\":\"Gatekeeper\":\"Defeat Demons Gate\"::::FF7Recomp:10:::::\n"
+    "111000116:\"d0x 9d288<673_0x 9d288>=673\":\"Jenova's Shadow\":\"Defeat Jenova LIFE\"::::FF7Recomp:25:::::\n"
+    "111000117:\"d0x 9d288<677_0x 9d288>=677\":\"End of Disc One\":\"Reach the end of disc one\"::::FF7Recomp:10:::::\n"
+    "111000118:\"d0x 9d288<1570_0x 9d288>=1570\":\"Weapon Down\":\"Defeat Diamond Weapon\"::::FF7Recomp:25:::::\n"
+    "111000119:\"d0x 9d288<1603_0x 9d288>=1603\":\"Heavy Metal\":\"Defeat Proud Clod\"::::FF7Recomp:25:::::\n"
+    "111000120:\"d0x 9d288<1604_0x 9d288>=1604\":\"Mad Science\":\"Defeat Hojo\"::::FF7Recomp:25:::::\n"
+    "111000121:\"d0x 9d288<1620_0x 9d288>=1620\":\"End of Disc Two\":\"Reach the end of disc two\"::::FF7Recomp:10:::::\n"
+    "111000122:\"d0x 9d288<1999_0x 9d288>=1999\":\"Into the Planet\":\"Reach the bottom of the Northern Crater to face Sephiroth\"::::FF7Recomp:50:::::\n"
+    ;
 
 // One field of an RA local-achievements line: "quoted" (with \" and \\) or up to the next ':'.
 std::string field(const char *&p) {
@@ -91,13 +119,7 @@ std::string read_file(const std::string &path) {
     return s;
 }
 
-void load_set() {
-    const std::string path = g_dir + "/ff7-local.txt";
-    std::string text = read_file(path);
-    if (text.empty()) {
-        text = k_starter;
-        if (FILE *f = fopen(path.c_str(), "wb")) { std::fwrite(text.data(), 1, text.size(), f); std::fclose(f); }
-    }
+void parse_set(const std::string &text) {
     int line_no = 0;
     for (const char *p = text.c_str(); *p;) {
         const char *eol = std::strchr(p, '\n');
@@ -109,8 +131,18 @@ void load_set() {
         while (*q) f.push_back(field(q));
         if (f.size() < 4) continue;
         Ach a{ (uint32_t)std::strtoul(f[0].c_str(), nullptr, 10), f[1], f[2], f[3], f.size() > 8 ? (unsigned)std::atoi(f[8].c_str()) : 0 };
-        if (a.id && !a.memaddr.empty()) g_set.push_back(a);
+        bool dup = false;
+        for (const Ach &x : g_set) dup |= x.id == a.id;
+        if (a.id && !a.memaddr.empty() && !dup) g_set.push_back(a);
     }
+}
+
+void load_set() {
+    // the built-in set, written out for the launcher (and as an example of the format)
+    const std::string text = k_starter;
+    if (FILE *f = fopen((g_dir + "/ff7-local.txt").c_str(), "wb")) { std::fwrite(text.data(), 1, text.size(), f); std::fclose(f); }
+    parse_set(text);
+    parse_set(read_file(g_dir + "/ff7-custom.txt"));
     for (const std::string &l : { read_file(g_dir + "/unlocks.txt") })
         for (const char *p = l.c_str(); *p;) {
             g_unlocked.insert((uint32_t)std::strtoul(p, nullptr, 10));
