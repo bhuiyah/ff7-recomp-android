@@ -55,6 +55,7 @@ public class LauncherActivity extends Activity {
     private static ModDownloader sDownloader;
     private static DownloadQueue sQueue;
     private Button downloadsButton;
+    private Button settingsButton;                 // shows a dot when an FF7Recomp update is out
     private String queueSig = "";                            // ids+states the page was built with
     private final java.util.Map<String, LinearLayout> actionSlots = new java.util.HashMap<>();   // Get mods rows
     private final java.util.Map<DownloadQueue.Item, Object[]> progressViews = new java.util.HashMap<>(); // Downloads page
@@ -259,7 +260,8 @@ public class LauncherActivity extends Activity {
         menu.addView(downloadsButton);
         menu.addView(menuItem("Save states", "states"));
         menu.addView(menuItem("Achievements", "achievements"));
-        menu.addView(menuItem("Settings", "settings"));
+        settingsButton = menuItem("Settings", "settings");
+        menu.addView(settingsButton);
         menu.addView(menuItem("Game files", "game"));
         side.addView(menu, new LinearLayout.LayoutParams(dp(200), ViewGroup.LayoutParams.WRAP_CONTENT));
         // the menu scrolls when it is taller than the screen
@@ -815,6 +817,16 @@ public class LauncherActivity extends Activity {
         status.setText(s.toString().replace("\n", "   ·   "));
         int n = queue.pendingCount();
         downloadsButton.setText(n > 0 ? "Downloads (" + n + ")" : "Downloads");
+        // an FF7Recomp update is out: a gold dot beside Settings, where the update button is
+        if (Updater.available != null) {
+            android.text.SpannableString t = new android.text.SpannableString("Settings  ●");
+            t.setSpan(new android.text.style.ForegroundColorSpan(0xFFFFD24A), t.length() - 1, t.length(), 0);
+            settingsButton.setText(t);
+            settingsButton.setContentDescription("Settings, FF7Recomp " + Updater.available.version + " available");
+        } else {
+            settingsButton.setText("Settings");
+            settingsButton.setContentDescription(null);
+        }
     }
 
 
