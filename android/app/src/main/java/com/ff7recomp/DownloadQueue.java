@@ -73,7 +73,18 @@ final class DownloadQueue {
                 String[] f = line.trim().split("\t");
                 if (f.length == 0 || f[0].isEmpty()) continue;
                 ModCatalog.Mod m = catalog.byId(f[0]);
-                if (m != null) add(m, f.length > 1 && f[1].equals("1"));
+                if (m == null) continue;
+                boolean update = f.length > 1 && f[1].equals("1");
+                File marker = downloader.installingMarker(m.id);
+                if (marker.exists()) {
+                    // the app died while unpacking this mod: starting it again would only loop
+                    marker.delete();
+                    Item it = new Item(m, update);
+                    synchronized (this) { items.add(it); }
+                    finish(it, State.FAILED, "the launcher closed while installing this mod. Retry, or remove it from the list");
+                    continue;
+                }
+                add(m, update);
             }
         } catch (Exception e) {
             Log.w(TAG, "download queue unreadable: " + e);
@@ -121,7 +132,7 @@ final class DownloadQueue {
     /** Cancel a waiting item, or stop the running one (its partial download is deleted). */
     synchronized void cancel(Item it) {
         if (it.state == State.QUEUED) { it.state = State.CANCELLED; save(); changed(); }
-        else if (it.state == State.RUNNING) downloader.cancel = true;
+        else if (it.state == State.RUNNING) downloader.requestCancel();   // the download or the unpack
     }
 
     /** Move a waiting item up (-1) or down (+1) among the waiting ones. */
@@ -139,10 +150,11 @@ final class DownloadQueue {
         if (it.state == State.FAILED || it.state == State.CANCELLED) add(it.mod, it.update);
     }
 
-    /** Drop finished, failed and cancelled entries from the list. */
+    /** Drop finished, failed and cancelled entries from the list (and failed ones' partial downloads). */
     synchronized void clearFinished() {
         for (int i = items.size() - 1; i >= 0; i--) {
             State s = items.get(i).state;
+            if (s == State.FAILED) downloader.discard(items.get(i).mod.id);
             if (s != State.QUEUED && s != State.RUNNING) items.remove(i);
         }
         changed();

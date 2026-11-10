@@ -102,6 +102,23 @@ std::string mod_json(const std::string &path) {
 }  // namespace
 
 extern "C" int ff7_un7z(const char *archive, const char *outdir, char *err, size_t errlen);
+extern "C" void ff7_un7z_cancel(void);
+extern "C" void ff7_un7z_progress(unsigned long long *done, unsigned long long *total);
+
+/** Stop the running unpack (its nativeUn7z returns "cannot unpack: cancelled"). */
+extern "C" JNIEXPORT void JNICALL
+Java_com_ff7recomp_ModDownloader_nativeUn7zCancel(JNIEnv *, jclass) { ff7_un7z_cancel(); }
+
+/** The running unpack's progress: { bytes unpacked, bytes in all }. */
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_ff7recomp_ModDownloader_nativeUn7zProgress(JNIEnv *env, jclass) {
+    unsigned long long d, t;
+    ff7_un7z_progress(&d, &t);
+    jlong v[2] = { (jlong)d, (jlong)t };
+    jlongArray a = env->NewLongArray(2);
+    if (a) env->SetLongArrayRegion(a, 0, 2, v);
+    return a;
+}
 
 /** Unpack a .7z download into outDir (src/android/un7z.c): null on success, else the error. */
 extern "C" JNIEXPORT jstring JNICALL

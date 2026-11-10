@@ -109,20 +109,40 @@ final class ModDownloader {
             String url = resolve(link);
             if (url == null) { lastError = "this mod's download needs a browser (" + host(link) + ")"; continue; }
             File part = new File(downloads, safe(id) + ".part");
+            File marker = installingMarker(id);
             try {
                 String name = fetch(url, part, p);
                 p.update("Installing", 0, 0);
-                r.file = place(part, name, baseName);
+                // left behind only if the app dies while unpacking (DownloadQueue.restore)
+                try { marker.createNewFile(); } catch (IOException ignored) { }
+                r.file = place(part, name, baseName, p);
                 part.delete();
                 return r;
             } catch (Exception e) {
                 if (cancel) { part.delete(); r.error = CANCELLED; return r; }
                 android.util.Log.w("FF7Mods", "install " + baseName, e);
                 lastError = e.getMessage() != null ? e.getMessage() : e.toString();
+            } finally {
+                marker.delete();
             }
         }
         r.error = lastError;
         return r;
+    }
+
+    /** Stop the running download or unpack (from any thread). */
+    void requestCancel() {
+        cancel = true;
+        nativeUn7zCancel();
+    }
+
+    /** Exists while a mod unpacks: found at start-up, the app died installing it. */
+    File installingMarker(String id) { return new File(downloads, safe(id) + ".installing"); }
+
+    /** Drop a mod's partial download (a cancelled or abandoned install). */
+    void discard(String id) {
+        new File(downloads, safe(id) + ".part").delete();
+        installingMarker(id).delete();
     }
 
     // ---- HTTP -----------------------------------------------------------------------------------
@@ -246,7 +266,7 @@ final class ModDownloader {
     // ---- into the library -----------------------------------------------------------------------
 
     /** Move the download into files/mods (unpacking archives). Returns the mod's name there. */
-    private String place(File part, String serverName, String baseName) throws IOException {
+    private String place(File part, String serverName, String baseName, Progress p) throws IOException {
         String base = safe(baseName);
         byte[] sig = new byte[6];
         try (InputStream in = new java.io.FileInputStream(part)) { if (in.read(sig) < 4) throw new IOException("empty download"); }
@@ -263,7 +283,13 @@ final class ModDownloader {
         File tmp = new File(downloads, base + ".unpack");
         deleteTree(tmp);
         tmp.mkdirs();
-        if (zip) unzip(part, tmp); else un7z(part, tmp);
+        try {
+            if (zip) unzip(part, tmp); else un7z(part, tmp, p);
+        } catch (IOException e) {
+            deleteTree(tmp);                                 // a half-unpacked mod can be gigabytes
+            if (cancel) throw new IOException(CANCELLED);
+            throw e;
+        }
         String result;
         File iro = findFirst(tmp, ".iro");
         if (iro != null) {
@@ -302,12 +328,13 @@ final class ModDownloader {
         return out;
     }
 
-    private static void unzip(File zip, File into) throws IOException {
+    private void unzip(File zip, File into) throws IOException {
         String canon = into.getCanonicalPath() + File.separator;
         try (ZipInputStream z = new ZipInputStream(new java.io.FileInputStream(zip))) {
             ZipEntry e;
             byte[] buf = new byte[1 << 16];
             while ((e = z.getNextEntry()) != null) {
+                if (cancel) throw new IOException(CANCELLED);
                 File out = target(into, canon, e.getName());
                 if (e.isDirectory()) { out.mkdirs(); continue; }
                 out.getParentFile().mkdirs();
@@ -321,14 +348,35 @@ final class ModDownloader {
 
     static { System.loadLibrary("ff7launcher"); }
     private static native String nativeUn7z(String archive, String outDir);
+    private static native void nativeUn7zCancel();
+    private static native long[] nativeUn7zProgress();
 
     /**
      * In native code (src/android/un7z.c): Java's 7z decoder holds the LZMA window in one Java
      * array, 256 MB for 7-Zip's Ultra preset (ChaOS), the whole default heap; the large heap is
-     * not an option (it moves ART's heap over the game's guest arena).
+     * not an option (it moves ART's heap over the game's guest arena). Progress is polled from
+     * the unpacker once a second (a large texture mod unpacks for minutes).
      */
-    private static void un7z(File archive, File into) throws IOException {
-        String err = nativeUn7z(archive.getAbsolutePath(), into.getAbsolutePath());
+    private void un7z(File archive, File into, Progress p) throws IOException {
+        final boolean[] running = { true };
+        Thread poll = new Thread(() -> {
+            while (true) {
+                synchronized (running) {
+                    if (!running[0]) return;
+                    try { running.wait(1000); } catch (InterruptedException e) { return; }
+                    if (!running[0]) return;
+                }
+                long[] v = nativeUn7zProgress();
+                if (v != null && v[1] > 0) p.update("Installing", v[0], v[1]);
+            }
+        }, "un7z-progress");
+        poll.start();
+        String err;
+        try {
+            err = nativeUn7z(archive.getAbsolutePath(), into.getAbsolutePath());
+        } finally {
+            synchronized (running) { running[0] = false; running.notifyAll(); }
+        }
         if (err != null) throw new IOException(err);
     }
 
