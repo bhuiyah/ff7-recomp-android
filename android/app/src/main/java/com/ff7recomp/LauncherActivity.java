@@ -1204,6 +1204,27 @@ public class LauncherActivity extends Activity {
         fps.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("show_fps", on).apply());
         col.addView(fps);
         col.addView(space(16));
+        col.addView(heading("Screen"));
+        RadioGroup or = new RadioGroup(this);
+        String[][] orientations = {
+            { "0", "Landscape", "The game fills the screen" },
+            { "1", "Portrait (phones)", "The game on top; below it the party, location and enemy HP, a touch deck "
+                    + "(menu, save/load state, speed) and the on-screen controls" },
+        };
+        boolean curPortrait = prefs.getBoolean("portrait", false);
+        for (String[] o : orientations) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(o[1] + "\n" + o[2]);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            final boolean v = o[0].equals("1");
+            rb.setOnClickListener(x -> prefs.edit().putBoolean("portrait", v).apply());
+            or.addView(rb);
+            if (v == curPortrait) rb.setChecked(true);
+        }
+        col.addView(or);
+        col.addView(space(16));
         col.addView(heading("On-screen controls"));
         RadioGroup tc = new RadioGroup(this);
         String[][] touchModes = {
@@ -1631,7 +1652,9 @@ public class LauncherActivity extends Activity {
                                   prefs.getInt("perf", 1) != 2);
             install.writeCompanion("off");   // battle windows stay on the top screen
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)
-                    .putExtra("touch_controls", prefs.getInt("touch_controls", 0))));
+                    .putExtra("touch_controls", prefs.getInt("touch_controls", 0))
+                    .putExtra("portrait", prefs.getBoolean("portrait", false))
+                    .putExtra("aspect", prefs.getInt("aspect", 2))));
             return null;
         });
     }

@@ -47,6 +47,8 @@ and I would rather you know before you install it.
 - On-screen touch controls for devices with one screen and no controller (D-pad, A/B/X/Y,
   L1/L2/R1/R2, Start/Select); they hide when a controller is used. **Settings** → **On-screen
   controls**: Automatic, Always or Off.
+- Portrait on phones (**Settings** → **Screen**): the game at the top; below it the party, location,
+  enemy HP and a touch deck (menu, save/load state, speed), then the on-screen controls.
 - On the AYN Thor's bottom screen: party status, location, enemy HP in battle, a touch deck
   (menu, save/load state, speed, random battles, battle enhancement); it dims during cutscenes.
 - Game boosters as in the console re-releases (speed, no random battles, battle enhancement).

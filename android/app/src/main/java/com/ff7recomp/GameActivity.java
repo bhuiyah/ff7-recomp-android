@@ -83,6 +83,67 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private TouchControls touch;
     /** Launcher setting: 0 auto (one screen and no controller), 1 always, 2 off. */
     private int touchMode;
+    private boolean portrait;
+
+    private android.widget.FrameLayout gameFrame;   // the game's SurfaceView and the booster icons
+    private CompanionView panel;                     // portrait: the panels below the game
+    private boolean surfaceReady, waitPosted, arrangedTall;
+
+    /** The game's frame: the whole window, or (portrait) as wide as the window and as tall as
+     *  the game's aspect ratio makes it. */
+    private static final class AspectFrame extends android.widget.FrameLayout {
+        private final float ratio;   // height / width
+        boolean fill = true;
+        AspectFrame(Context c, float ratio) { super(c); this.ratio = ratio; }
+        @Override protected void onMeasure(int w, int h) {
+            if (fill) { super.onMeasure(w, h); return; }
+            int width = MeasureSpec.getSize(w);
+            int height = Math.round(width * ratio);
+            super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+        }
+    }
+
+    /** The window is taller than wide (a phone held upright, or a split-screen half). */
+    private boolean isTall() {
+        return getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT;
+    }
+
+    /**
+     * Lay the screen out: landscape (the game fills the window, the on-screen pad over it) or
+     * tall (portrait setting: the game on top at its own aspect ratio; below it the panels and
+     * touch deck the AYN Thor shows on its second screen, CompanionView, then the on-screen
+     * pad; with the pad hidden, a controller in use, the panels take the space).
+     */
+    private void arrange(boolean tall) {
+        arrangedTall = tall;
+        for (android.view.View v : new android.view.View[] { gameFrame, panel, touch })
+            if (v != null && v.getParent() != null) ((android.view.ViewGroup) v.getParent()).removeView(v);
+        ((AspectFrame) gameFrame).fill = !tall;
+        if (!tall) {
+            if (touch != null)
+                gameFrame.addView(touch, new android.widget.FrameLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+            setContentView(gameFrame);
+            return;
+        }
+        android.widget.LinearLayout col = new android.widget.LinearLayout(this);
+        col.setOrientation(android.widget.LinearLayout.VERTICAL);
+        col.setBackgroundColor(0xFF000000);
+        col.addView(gameFrame, new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        col.addView(panel, new android.widget.LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 2f));
+        if (touch != null)
+            col.addView(touch, new android.widget.LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 3f));
+        setContentView(col);
+    }
+
+    /** Portrait chosen: follow the window's shape until the game starts (its renderer is made at
+     *  the first size). */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration c) {
+        super.onConfigurationChanged(c);
+        if (portrait && !started && isTall() != arrangedTall) arrange(isTall());
+    }
 
     private void sendPad() {
         nativePad(padButtons | hatButtons | touchButtons, Math.max(padLt, touchLt), Math.max(padRt, touchRt),
@@ -166,12 +227,14 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         loadGame(this);
+        portrait = getIntent().getBooleanExtra("portrait", false);
+        if (portrait) setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
         SurfaceView view = new SurfaceView(this);
         view.getHolder().addCallback(this);
         // the game, and the game boosters' icons over its top-right corner (BoosterIcons)
-        android.widget.FrameLayout layers = new android.widget.FrameLayout(this);
-        layers.addView(view);
-        layers.addView(new BoosterIcons(this), new android.widget.FrameLayout.LayoutParams(
+        gameFrame = new AspectFrame(this, getIntent().getIntExtra("aspect", 2) == 0 ? 3f / 4f : 9f / 16f);
+        gameFrame.addView(view);
+        gameFrame.addView(new BoosterIcons(this), new android.widget.FrameLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         touchMode = getIntent().getIntExtra("touch_controls", 0);
         if (touchMode != 2) {
@@ -181,13 +244,12 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
                 touchRt = rt;
                 sendPad();
             });
-            layers.addView(touch, new android.widget.FrameLayout.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         }
-        setContentView(layers);
+        if (portrait) panel = new CompanionView(this);
+        arrange(portrait && isTall());
         preferHighestRefreshRate(getWindow(), getDisplay());
         hideSystemBars(getWindow().getInsetsController());
-        showCompanion();
+        if (!portrait) showCompanion();   // in portrait the panels are on this screen
         updateTouch();
         ((android.hardware.input.InputManager) getSystemService(Context.INPUT_SERVICE)).registerInputDeviceListener(deviceListener, null);
         startSteamSync();
@@ -299,16 +361,36 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         Log.i(TAG, "surface " + width + "x" + height);
         requestFrameRate(holder.getSurface(), getDisplay());
         nativeSetSurface(holder.getSurface(), width, height);
-        if (!started) {
-            started = true;
-            File base = Storage.root(this);
-            File game = new File(base, "game");
-            nativeStart(game.getAbsolutePath(), base.getAbsolutePath());
+        surfaceReady = true;
+        // Portrait chosen: start once the window is tall (the renderer is made at the first size).
+        // Some devices keep their screen's rotation (large screens may ignore the request, the
+        // AYN Thor's is fixed): after a moment the game starts in landscape.
+        if (portrait && !started && !isTall()) {
+            if (!waitPosted) {
+                waitPosted = true;
+                new android.os.Handler(getMainLooper()).postDelayed(() -> {
+                    if (started) return;
+                    Log.i(TAG, "the screen stayed landscape: starting in landscape");
+                    if (arrangedTall) arrange(false);
+                    if (surfaceReady) startGame();
+                }, 1500);
+            }
+            return;
         }
+        startGame();
+    }
+
+    private void startGame() {
+        if (started) return;
+        started = true;
+        File base = Storage.root(this);
+        File game = new File(base, "game");
+        nativeStart(game.getAbsolutePath(), base.getAbsolutePath());
     }
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
+        surfaceReady = false;
         nativeSetSurface(null, 0, 0);
     }
 
