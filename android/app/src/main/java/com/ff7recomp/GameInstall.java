@@ -78,10 +78,9 @@ final class GameInstall {
     }
 
     /** What to pick, said when the exe found is not the one the game is built from. */
-    static final String WHICH_FOLDER = "FF7Recomp needs FINAL FANTASY VII as Steam sells and installs it today, "
-            + "unpatched: pick its main folder, \"FINAL FANTASY VII Steam Edition\" (the one that holds \"ff7\"), not "
-            + "ff7/workingdir. No patch or older version is needed; patched game files and the 2013 release are not "
-            + "supported yet";
+    static final String WHICH_FOLDER = "FF7Recomp needs FINAL FANTASY VII as sold today (Steam), unpatched: pick "
+            + "the game's main folder, \"FINAL FANTASY VII Steam Edition\" on Steam (the one that holds \"ff7\"). No "
+            + "patch or older version is needed; patched game files and the 2013 release are not supported yet";
 
     /**
      * Import from the folder the player picked: the Steam "FINAL FANTASY VII" folder, its ff7
@@ -93,33 +92,78 @@ final class GameInstall {
         String root = DocumentsContract.getTreeDocumentId(tree);
         // the Steam release keeps the original 1.02 exe in ff7/resources/ff7_1.02; its
         // ff7/workingdir/ff7_en.exe is the re-release's own exe
-        Doc exe = path(tree, root, "ff7", "resources", "ff7_1.02", "ff7_en");
-        if (exe == null) exe = path(tree, root, "resources", "ff7_1.02", "ff7_en");       // picked ff7
-        if (exe == null) exe = path(tree, root, "ff7_en.exe");                            // a plain 1.02 folder
-        if (exe == null) exe = path(tree, root, "ff7_en");
-        Doc data = path(tree, root, "ff7", "workingdir", "data");
-        if (data == null) data = path(tree, root, "workingdir", "data");
-        if (data == null) data = path(tree, root, "data");
-        if (exe == null) return "ff7_en (ff7/resources/ff7_1.02/ff7_en in the Steam folder) was not found. " + WHICH_FOLDER;
-        if (data == null) return "the data folder (ff7/workingdir/data in the Steam folder) was not found. " + WHICH_FOLDER;
+        // Steam's places first, then a search of the picked folder (other stores, such as GOG,
+        // may lay the same files out differently): every ff7_en(.exe) is checked by its SHA-1.
+        List<Doc> exes = new ArrayList<>();
+        List<String> exeWhere = new ArrayList<>();
+        for (String[] at : new String[][] { { "ff7", "resources", "ff7_1.02", "ff7_en" }, { "resources", "ff7_1.02", "ff7_en" },
+                                            { "ff7_en.exe" }, { "ff7_en" } }) {
+            Doc d = path(tree, root, at);
+            if (d != null) { exes.add(d); exeWhere.add(String.join("/", at)); }
+        }
+        List<Doc> datas = new ArrayList<>();
+        for (String[] at : new String[][] { { "ff7", "workingdir", "data" }, { "workingdir", "data" }, { "data" } }) {
+            Doc d = path(tree, root, at);
+            if (d != null) datas.add(d);
+        }
+        p.update("Looking for the game files");
+        scan(tree, root, "", 0, exes, exeWhere, datas);
+        if (exes.isEmpty()) return "no ff7_en game file was found in this folder (Steam keeps it in ff7/resources/ff7_1.02). " + WHICH_FOLDER;
+        if (datas.isEmpty()) return "the game's data folder (with field, menu, ...) was not found in this folder. " + WHICH_FOLDER;
+        Doc data = datas.get(0);
         game.mkdirs();
         p.update("Checking ff7_en");
         File tmp = new File(game, "ff7_en.exe.new");
-        copyDoc(tree, exe.id, tmp);
-        String sha = GameBuild.sha1(tmp);
-        if (!GameBuild.EXE_SHA1.equals(sha)) {
+        StringBuilder seen = new StringBuilder();
+        boolean ok = false;
+        java.util.Set<String> tried = new java.util.HashSet<>();
+        for (int i = 0; i < exes.size() && !ok; i++) {
+            if (!tried.add(exes.get(i).id)) continue;
+            copyDoc(tree, exes.get(i).id, tmp);
+            String sha = GameBuild.sha1(tmp);
+            ok = GameBuild.EXE_SHA1.equals(sha);
+            if (!ok) seen.append(seen.length() > 0 ? ", " : "").append(exeWhere.get(i)).append(" (SHA-1 ").append(sha, 0, 12).append("…)");
+        }
+        if (!ok) {
             tmp.delete();
-            boolean pickedWorkingdir = path(tree, root, "ff7_en.exe") != null && path(tree, root, "data") != null
-                    && path(tree, root, "ff7") == null && path(tree, root, "resources") == null;
-            return (pickedWorkingdir ? "this is ff7/workingdir, whose ff7_en.exe is not the one the game is built from. "
-                                     : "this ff7_en (SHA-1 " + sha.substring(0, 12) + "…) is not the one the game is built from. ")
-                    + WHICH_FOLDER;
+            return "none of the game files found here is the one the game is built from: " + seen + ". " + WHICH_FOLDER
+                    + " (If you have the game from another store, please report these names and numbers.)";
         }
         File exeOut = new File(game, "ff7_en.exe");
         exeOut.delete();
         if (!tmp.renameTo(exeOut)) throw new IOException("cannot write " + exeOut);
         copyTree(tree, data.id, new File(game, "data"), p, "data");
         return null;
+    }
+
+    /** Folders the search skips: the game's own data (searched as a whole), and big unrelated ones. */
+    private static final java.util.Set<String> SKIP = new java.util.HashSet<>(java.util.Arrays.asList(
+            "data", "movies", "music", "music_ogg", "shaders", "mods", "direct", "textures", "voice", "sfx", "ambient",
+            "redist", "__support", "_commonredist", "lang-en", "lang-fr", "lang-de", "lang-es", "lang-ja"));
+
+    /**
+     * Search the picked folder, 5 levels deep, for ff7_en / ff7_en.exe files and the game's data
+     * folder (a "data" folder holding "field" or "lang-en"), appended after the known places.
+     */
+    private void scan(Uri tree, String id, String rel, int depth, List<Doc> exes, List<String> exeWhere, List<Doc> datas) {
+        if (depth > 5) return;
+        for (Doc d : children(tree, id)) {
+            String lower = d.name.toLowerCase(Locale.ROOT);
+            String here = rel.isEmpty() ? d.name : rel + "/" + d.name;
+            if (!d.dir) {
+                if (lower.equals("ff7_en") || lower.equals("ff7_en.exe")) { exes.add(d); exeWhere.add(here); }
+                continue;
+            }
+            if (lower.equals("data")) {
+                for (Doc k : children(tree, d.id)) {
+                    String kl = k.name.toLowerCase(Locale.ROOT);
+                    if (k.dir && (kl.equals("field") || kl.equals("lang-en"))) { datas.add(d); break; }
+                }
+                continue;
+            }
+            if (SKIP.contains(lower)) continue;
+            scan(tree, d.id, here, depth + 1, exes, exeWhere, datas);
+        }
     }
 
     private void copyTree(Uri tree, String id, File dst, Progress p, String rel) throws IOException {

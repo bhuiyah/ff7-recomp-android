@@ -84,6 +84,11 @@ FF7Recomp uses. Pick its main folder (not `ff7/workingdir`); the launcher checks
 when you import and tells you if the folder is not the right one. Patched game files and the 2013
 release are not supported yet.
 
+**FF7 from GOG?** Pick the game's main folder: the launcher searches it for the game files and
+checks them, so the same release from another store should work if its files are the same. This
+is untested; if it says the files are not the ones it needs, please report the names and numbers
+it shows.
+
 **FF7 downloaded with GameNative?** GameNative keeps games in its private internal storage by
 default, which other apps cannot read. Turn on GameNative's external storage (SD card) option and
 pick `GameNative/Steam/steamapps/common/FINAL FANTASY VII` on the card, or copy the folder from a PC.
