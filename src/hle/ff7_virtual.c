@@ -33,15 +33,21 @@
 static struct { uint32_t base, size; } g_reg[MAX_REGIONS];   /* sorted by base */
 static int g_nreg;
 
-int ff7_virtual_init(void) {
-    void *p = mmap((void *)(uintptr_t)FF7_VM_LO, FF7_VM_HI - FF7_VM_LO, PROT_READ | PROT_WRITE,
+static uint32_t g_vm_lo = FF7_VM_LO, g_vm_hi = FF7_VM_HI;
+
+int ff7_virtual_init(uint32_t lo, uint32_t hi) {
+    void *p = mmap((void *)(uintptr_t)lo, hi - lo, PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0);
-    if (p == MAP_FAILED || (uintptr_t)p != FF7_VM_LO) {
-        fprintf(stderr, "[virtual] cannot map [0x%08X,0x%08X)\n", FF7_VM_LO, FF7_VM_HI);
+    if (p == MAP_FAILED || (uintptr_t)p != lo) {
+        fprintf(stderr, "[virtual] cannot map [0x%08X,0x%08X)\n", lo, hi);
         return -1;
     }
+    g_vm_lo = lo;
+    g_vm_hi = hi;
     return 0;
 }
+
+void ff7_virtual_range(uint32_t *lo, uint32_t *hi) { *lo = g_vm_lo; *hi = g_vm_hi; }
 
 static int region_of(uint32_t a) {
     for (int i = 0; i < g_nreg; i++)
@@ -55,14 +61,14 @@ static uint32_t reserve(uint32_t want, uint32_t size) {
     uint32_t base = 0;
     if (want) {
         want &= ~(GRAN - 1);
-        if (want < FF7_VM_LO || (uint64_t)want + size > FF7_VM_HI) return 0;
+        if (want < g_vm_lo || (uint64_t)want + size > g_vm_hi) return 0;
         for (int i = 0; i < g_nreg; i++)
             if (want < g_reg[i].base + g_reg[i].size && g_reg[i].base < want + size) return 0;
         base = want;
     } else {
-        uint32_t cur = FF7_VM_LO;
+        uint32_t cur = g_vm_lo;
         for (int i = 0; i <= g_nreg; i++) {
-            uint32_t next = i < g_nreg ? g_reg[i].base : FF7_VM_HI;
+            uint32_t next = i < g_nreg ? g_reg[i].base : g_vm_hi;
             if (next - cur >= size) { base = cur; break; }
             if (i < g_nreg) cur = (g_reg[i].base + g_reg[i].size + GRAN - 1) & ~(GRAN - 1);
         }

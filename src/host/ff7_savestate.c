@@ -131,7 +131,7 @@ static void ss_config(char *out, unsigned n) {
     uint32_t lo, hi;
     guest_alloc_arena(&lo, &hi);
     size_t l = strlen(out);
-    if (lo != FF7_ARENA_LO && l < n) snprintf(out + l, n - l, ", arena 0x%08X", lo);
+    if (lo != FF7_ARENA_LO && l < n) snprintf(out + l, n - l, ", memory at 0x%08X", lo);
 }
 static void notify(const char *msg) { fprintf(stderr, "[savestate] %s\n", msg); fflush(stderr); ff7_ss_notify(msg); }
 

@@ -27,45 +27,54 @@ void ff7_start_watchdog(void);   /* ff7_crash.c, FF7_WATCHDOG=<s> */
 int ff7_ffnx_attach(void);   /* src/ffnx_port/ffnx_boot.cpp (FF7_WITH_FFNX) */
 void ff7_hext_apply_mods(void);   /* ff7_hext.cpp */
 
-/* Where the guest heap arena goes. [FF7_ARENA_LO, FF7_ARENA_HI) when it is free -- on most
- * devices ART's Java heap ("dalvik-main space", 0x12C00000 + dalvik.vm.heapsize) ends below
- * it -- else the largest free gap in [FF7_ARENA_MIN, FF7_VM_LO) (a phone with a 1 GB Java
- * heap fills 0x12C00000-0x52C00000). The game uses a few tens of MB of it. */
-#define FF7_ARENA_MIN  0x01000000u   /* above the exe image (mapped after this) */
-#define FF7_ARENA_NEED 0x08000000u   /* 128 MB at least */
-static int ff7_pick_arena(uint32_t *lo, uint32_t *hi) {
-    *lo = FF7_ARENA_LO; *hi = FF7_ARENA_HI;
+/* Where the guest heap arena and the VirtualAlloc region go. Their usual places,
+ * [FF7_ARENA_LO, FF7_ARENA_HI) and [FF7_VM_LO, FF7_VM_HI), when both are free: on most devices
+ * ART's Java heap ("dalvik-main space", 0x12C00000 + dalvik.vm.heapsize) ends below them.
+ * A phone with a larger Java heap (1-1.5 GB) covers them; then both go into the largest free
+ * gap in [FF7_LAYOUT_MIN, FF7_LAYOUT_MAX): the arena, then a 32 MB VirtualAlloc region at its
+ * end. The game uses a few tens of MB of heap and 4 MB of VirtualAlloc (the CRT's heap). */
+#define FF7_LAYOUT_MIN 0x01000000u   /* above the exe image (mapped after this) */
+#define FF7_LAYOUT_MAX 0x80000000u   /* guest pointers stay positive as 32-bit ints */
+#define FF7_VM_MOVED   0x02000000u   /* 32 MB */
+#define FF7_ARENA_NEED 0x06000000u   /* 96 MB at least */
+static int ff7_pick_layout(uint32_t *alo, uint32_t *ahi, uint32_t *vlo, uint32_t *vhi) {
+    *alo = FF7_ARENA_LO; *ahi = FF7_ARENA_HI; *vlo = FF7_VM_LO; *vhi = FF7_VM_HI;
     FILE *f = fopen("/proc/self/maps", "r");
     if (!f) return 0;
-    /* the occupied ranges below FF7_VM_LO, in address order (maps is sorted) */
-    uint32_t occ[512][2]; int n = 0;
+    /* the occupied ranges below FF7_LAYOUT_MAX, in address order (maps is sorted) */
+    static uint32_t occ[1024][2];
+    int n = 0;
     char line[512];
-    while (fgets(line, sizeof line, f) && n < 512) {
+    while (fgets(line, sizeof line, f) && n < 1024) {
         unsigned long long a, b;
-        if (sscanf(line, "%llx-%llx", &a, &b) != 2 || a >= FF7_VM_LO) continue;
-        occ[n][0] = (uint32_t)a; occ[n][1] = (uint32_t)(b < FF7_VM_LO ? b : FF7_VM_LO); n++;
+        if (sscanf(line, "%llx-%llx", &a, &b) != 2 || a >= FF7_LAYOUT_MAX) continue;
+        occ[n][0] = (uint32_t)a; occ[n][1] = (uint32_t)(b < FF7_LAYOUT_MAX ? b : FF7_LAYOUT_MAX); n++;
     }
     fclose(f);
     int clash = 0;
-    for (int i = 0; i < n; i++) if (occ[i][0] < FF7_ARENA_HI && occ[i][1] > FF7_ARENA_LO) clash = 1;
+    for (int i = 0; i < n; i++)
+        if (occ[i][0] < FF7_VM_HI && occ[i][1] > FF7_ARENA_LO) clash = 1;   /* arena and VM are adjacent */
     if (!clash) return 0;
-    uint32_t best_lo = 0, best_hi = 0, at = FF7_ARENA_MIN;
+    uint32_t best_lo = 0, best_hi = 0, at = FF7_LAYOUT_MIN;
     for (int i = 0; i <= n; i++) {
-        uint32_t end = i < n ? occ[i][0] : FF7_VM_LO;
+        uint32_t end = i < n ? occ[i][0] : FF7_LAYOUT_MAX;
         if (i < n && occ[i][1] <= at) continue;
         if (end > at && end - at > best_hi - best_lo) { best_lo = at; best_hi = end; }
         if (i < n && occ[i][1] > at) at = occ[i][1];
     }
     best_lo = (best_lo + 0xFFFFFu) & ~0xFFFFFu;   /* 1 MB aligned */
     best_hi &= ~0xFFFFFu;
-    if (best_hi <= best_lo || best_hi - best_lo < FF7_ARENA_NEED) {
-        fprintf(stderr, "[ff7] no free guest arena: [0x%08X,0x%08X) is in use and no gap of 128 MB is free below 0x%08X\n",
-                FF7_ARENA_LO, FF7_ARENA_HI, FF7_VM_LO);
+    if (best_hi <= best_lo || best_hi - best_lo < FF7_ARENA_NEED + FF7_VM_MOVED) {
+        fprintf(stderr, "[ff7] no room for the game's memory: [0x%08X,0x%08X) is in use and no free gap of 128 MB is left below 0x%08X\n",
+                FF7_ARENA_LO, FF7_VM_HI, FF7_LAYOUT_MAX);
         return -1;
     }
-    if (best_hi - best_lo > FF7_ARENA_HI - FF7_ARENA_LO) best_hi = best_lo + (FF7_ARENA_HI - FF7_ARENA_LO);
-    fprintf(stderr, "[ff7] [0x%08X,0x%08X) is in use (a large Java heap): guest arena moved\n", FF7_ARENA_LO, FF7_ARENA_HI);
-    *lo = best_lo; *hi = best_hi;
+    uint32_t arena = best_hi - best_lo - FF7_VM_MOVED;
+    if (arena > FF7_ARENA_HI - FF7_ARENA_LO) arena = FF7_ARENA_HI - FF7_ARENA_LO;
+    *alo = best_lo; *ahi = best_lo + arena;
+    *vlo = *ahi; *vhi = *ahi + FF7_VM_MOVED;
+    fprintf(stderr, "[ff7] [0x%08X,0x%08X) is in use (a large Java heap): game memory moved to [0x%08X,0x%08X)\n",
+            FF7_ARENA_LO, FF7_VM_HI, *alo, *vhi);
     return 0;
 }
 
@@ -88,19 +97,19 @@ int ff7_boot_and_run(const char *game_dir) {
             ff7_mods_load(profile, cache);
         }
     }
-    uint32_t arena_lo, arena_hi;
+    uint32_t arena_lo, arena_hi, vm_lo, vm_hi;
     /* Test: FF7_SIMULATE_HEAP_MB=1024 occupies what a device with that Java heap size has
      * mapped (0x12C00000 + size), as on phones whose heap reaches into the arena. */
     if (getenv("FF7_SIMULATE_HEAP_MB")) {
         uint32_t end = 0x12C00000u + (uint32_t)atoi(getenv("FF7_SIMULATE_HEAP_MB")) * 0x100000u;
-        if (end > FF7_ARENA_LO && end <= FF7_VM_LO &&
+        if (end > FF7_ARENA_LO && end <= FF7_LAYOUT_MAX &&
             mmap((void *)(uintptr_t)FF7_ARENA_LO, end - FF7_ARENA_LO, PROT_NONE,
                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE | MAP_FIXED_NOREPLACE, -1, 0) != MAP_FAILED)
             fprintf(stderr, "[ff7] test: [0x%08X,0x%08X) occupied\n", FF7_ARENA_LO, end);
     }
-    if (ff7_pick_arena(&arena_lo, &arena_hi) != 0) return 70;
+    if (ff7_pick_layout(&arena_lo, &arena_hi, &vm_lo, &vm_hi) != 0) return 70;
     if (guest_alloc_init(arena_lo, arena_hi) != 0) return 70;
-    if (ff7_virtual_init() != 0) return 70;
+    if (ff7_virtual_init(vm_lo, vm_hi) != 0) return 70;
     fprintf(stderr, "[ff7] guest arena [0x%08X,0x%08X), game dir %s\n", arena_lo, arena_hi, game_dir);
 
     ff7_hle_register();          /* FF7 shims first: a name here wins over win32hle */
