@@ -1638,6 +1638,7 @@ public class LauncherActivity extends Activity {
             library.language = install.hasLanguage(install.gameLanguage) ? GameInstall.languageCode(install.gameLanguage) : "en";
             library.save();
             install.installRuntime();
+            install.fixFontWidths();   // the current release's narrow m/w widths (GameInstall)
             boolean steamOn = false;
             if (steam().signedIn()) {
                 progress("Checking Steam achievements");

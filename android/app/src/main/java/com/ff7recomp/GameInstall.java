@@ -133,6 +133,7 @@ final class GameInstall {
         exeOut.delete();
         if (!tmp.renameTo(exeOut)) throw new IOException("cannot write " + exeOut);
         copyTree(tree, data.id, new File(game, "data"), p, "data");
+        fixFontWidths();
         return null;
     }
 
@@ -290,6 +291,59 @@ final class GameInstall {
 
     /** FFNx game_language (1 English, 2 French, 3 German, 4 Spanish). */
     int gameLanguage = 1;
+
+    /**
+     * The current Steam release's kernel/window.bin (English, French, German, Spanish) gives the
+     * letters m, M, w and W 8 pixels where the font image draws them 11 wide (its own new text
+     * renderer draws another font): the classic game's text runs those letters into the next
+     * ("newcorner", "Followme"). Their widths go back to 11, as in the classic table (and this
+     * release's Japanese file). Idempotent; run at import and before each Play.
+     */
+    void fixFontWidths() {
+        for (String l : new String[] { "en", "fr", "de", "es" }) {
+            File f = new File(game, "data/lang-" + l + "/kernel/window.bin");
+            if (!f.isFile()) continue;
+            try { fixFontWidths(f); } catch (IOException e) { android.util.Log.w("FF7Launcher", "window.bin " + l + ": " + e); }
+        }
+    }
+
+    private static final int[] WIDE = { 0x2D, 0x37, 0x4D, 0x57 };   // M, W, m, w (FF7 text codes)
+
+    static void fixFontWidths(File f) throws IOException {
+        byte[] d = readAll(new java.io.FileInputStream(f));
+        // sections: u16 compressed size, u16 size, u16 type, then gzip data; the widths are the 3rd
+        int at = 0;
+        for (int s = 0; s < 2; s++) {
+            if (at + 6 > d.length) return;
+            at += 6 + ((d[at] & 0xFF) | (d[at + 1] & 0xFF) << 8);
+        }
+        if (at + 6 > d.length) return;
+        int csize = (d[at] & 0xFF) | (d[at + 1] & 0xFF) << 8;
+        if (at + 6 + csize > d.length) return;
+        byte[] widths;
+        try (java.util.zip.GZIPInputStream in = new java.util.zip.GZIPInputStream(new java.io.ByteArrayInputStream(d, at + 6, csize))) {
+            widths = readAll(in);
+        }
+        boolean changed = false;
+        for (int c : WIDE) {
+            if (c >= widths.length) return;
+            if ((widths[c] & 31) == 8) { widths[c] = (byte) ((widths[c] & 0xE0) | 11); changed = true; }
+        }
+        if (!changed) return;
+        java.io.ByteArrayOutputStream z = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.GZIPOutputStream out = new java.util.zip.GZIPOutputStream(z)) { out.write(widths); }
+        byte[] packed = z.toByteArray();
+        if (packed.length > 0xFFFF) return;
+        java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+        o.write(d, 0, at);
+        o.write(packed.length & 0xFF); o.write(packed.length >> 8);
+        o.write(d, at + 2, 4);                                // size and type unchanged
+        o.write(packed, 0, packed.length);
+        o.write(d, at + 6 + csize, d.length - (at + 6 + csize));
+        File tmp = new File(f.getPath() + ".new");
+        try (OutputStream w = new FileOutputStream(tmp)) { w.write(o.toByteArray()); }
+        if (!tmp.renameTo(f)) { tmp.delete(); throw new IOException("cannot replace " + f); }
+    }
 
     /** The data/lang-xx code of a game_language (en when unknown). */
     static String languageCode(int language) {
