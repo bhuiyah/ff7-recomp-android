@@ -1055,6 +1055,14 @@ EDITS = [
      '#ifdef FFNX_ANDROID\n'
      '\tffnx_recomp::verify_code_writes();   // FF7Recomp: patched start-up code runs interpreted at once\n'
      '#endif\n'),
+    # The world map loop calls the game function stored at 0xDE68FC (a game address): a guest
+    # call, not a native jump to x86 code (SIGBUS on the world map: GitHub issue #3).
+    ('music.cpp', '\t(*ff7_externals.world_dword_DE68FC)();\n',
+     '#ifdef FFNX_ANDROID\n'
+     '\tguest::gfn<void()>::from_va(*(const uint32_t *)ff7_externals.world_dword_DE68FC)();   // FF7Recomp\n'
+     '#else\n'
+     '\t(*ff7_externals.world_dword_DE68FC)();\n'
+     '#endif\n'),
     # a host array, as wide_speed_args above
     ('ff7/multilanguage.cpp',
      '\t\t\tmemcpy_code(reinterpret_cast<uint32_t>(time_args.data() + 6), const_cast<uint8_t *>(original + 3), 6);',
