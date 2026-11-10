@@ -86,7 +86,7 @@ final class GameInstall {
     /**
      * Import from the folder the player picked: the Steam "FINAL FANTASY VII" folder, its ff7
      * folder, or any folder holding the 1.02 ff7_en(.exe) and data/. The exe is checked before
-     * anything is copied. Other languages' data folders are skipped. Returns null on success,
+     * anything is copied. The Japanese data folder is skipped. Returns null on success,
      * else what is wrong.
      */
     String importGame(Uri tree, Progress p) throws IOException {
@@ -126,7 +126,9 @@ final class GameInstall {
         dst.mkdirs();
         for (Doc d : children(tree, id)) {
             String lower = d.name.toLowerCase(Locale.ROOT);
-            if (rel.equals("data") && d.dir && lower.startsWith("lang-") && !lower.equals("lang-en")) continue;
+            // English, French, German and Spanish (the Japanese edition is another exe)
+            if (rel.equals("data") && d.dir && lower.startsWith("lang-")
+                    && !java.util.Arrays.asList("lang-en", "lang-fr", "lang-de", "lang-es").contains(lower)) continue;
             File out = new File(dst, d.name);
             if (d.dir) copyTree(tree, d.id, out, p, rel + "/" + d.name);
             else {
@@ -237,6 +239,27 @@ final class GameInstall {
     /** FFNx's Steam achievement code on (signed in to Steam: SteamLink.java). */
     boolean steamAchievements;
 
+    /** The game's languages: FFNx's game_language, the launcher's name, the data/lang-* folder. */
+    static final String[][] LANGUAGES = {
+        { "1", "English", "en" }, { "2", "Français", "fr" }, { "3", "Deutsch", "de" }, { "4", "Español", "es" },
+    };
+
+    /** FFNx game_language (1 English, 2 French, 3 German, 4 Spanish). */
+    int gameLanguage = 1;
+
+    /** The data/lang-xx code of a game_language (en when unknown). */
+    static String languageCode(int language) {
+        for (String[] l : LANGUAGES) if (Integer.parseInt(l[0]) == language) return l[2];
+        return "en";
+    }
+
+    /** Whether the imported game files hold that language's data folder (data/lang-xx). */
+    boolean hasLanguage(int language) {
+        for (String[] l : LANGUAGES)
+            if (Integer.parseInt(l[0]) == language) return new File(game, "data/lang-" + l[2]).isDirectory();
+        return false;
+    }
+
     void writeFfnxToml(int fpsLimiter, boolean turbo, int aspectRatio, boolean showFps, List<ModLibrary.Mod> mods, int scaleCap) throws IOException {
         File template = new File(game, "FFNx.template.toml");
         String toml = new String(readAll(new java.io.FileInputStream(template)), StandardCharsets.UTF_8);
@@ -253,6 +276,8 @@ final class GameInstall {
         toml = set(toml, "show_renderer_backend", "false");
         toml = set(toml, "enable_steam_achievements", steamAchievements ? "true" : "false");
         toml = set(toml, "trace_achievement", steamAchievements ? "true" : "false");
+        // the re-release's English exe in French, German or Spanish (FFNx's multilanguage patches)
+        toml = set(toml, "game_language", Integer.toString(hasLanguage(gameLanguage) ? gameLanguage : 1));
         // 16:9 (FFNx aspect_ratio 2) also uncrops: the Thor's screen is 16:9 top to bottom.
         toml = set(toml, "aspect_ratio", Integer.toString(aspectRatio));
         toml = set(toml, "enable_uncrop", aspectRatio != 0 ? "true" : "false");

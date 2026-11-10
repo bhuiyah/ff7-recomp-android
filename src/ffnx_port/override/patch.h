@@ -95,6 +95,7 @@ bool fractional_steps();      // on at every raised frame rate (30/60/120 FPS mo
 void declare_code_variant(uint32_t offset, const void *bytes, uint32_t size);
 void step_fraction(uint32_t offset, uint32_t size, long long numer, int denom, const char *what);
 void step_alternate(uint32_t offset, const void *even, const void *odd, uint32_t size);
+void verify_code_writes();    // FFNx's code writes so far: switch unlifted ones to the interpreter now
 void step_code();             // once per game frame (ff7_limit_fps)
 }
 

@@ -61,6 +61,9 @@ static void set_bit(uint32_t va, int on) {
     if (on) ff7_override_bits[w] |= b; else ff7_override_bits[w] &= ~b;
 }
 
+/* 1 when va is the entry of a lifted function. */
+int ff7_code_entry(uint32_t va) { return va >= TEXT_LO && va < TEXT_HI && recomp_lookup(va) != NULL; }
+
 /* 0 installed; -1 not a lifted function entry; -2 table full. */
 int ff7_override_install(uint32_t va, uint32_t target) {
     if (va < TEXT_LO || va >= TEXT_HI || !recomp_lookup(va)) return -1;

@@ -42,6 +42,8 @@ and I would rather you know before you install it.
   (.iro, .zip, .7z), set mod order and options, settings, save states, achievements. It plays
   FF7's own menu sounds (or your mods' versions of them).
 - 16:9 widescreen, controller support (A confirms, B cancels), save states.
+- English, French, German or Spanish (**Settings** → **Language**), from the languages
+  your Steam copy includes. Mods that replace text stay in their own language (most are English).
 - On-screen touch controls for devices with one screen and no controller (D-pad, A/B/X/Y,
   L1/L2/R1/R2, Start/Select); they hide when a controller is used. **Settings** → **On-screen
   controls**: Automatic, Always or Off.
@@ -159,7 +161,8 @@ build) and `game/FFNx.log`.
 
 ## Known limitations
 
-- Only FINAL FANTASY VII as sold on Steam today (English) is supported, unpatched.
+- Only FINAL FANTASY VII as sold on Steam today is supported, unpatched. It plays in English,
+  French, German or Spanish; the Japanese edition is not supported yet.
 - Movies decode on the CPU (no hardware decoding yet): upscaled 30 FPS movie mods work on the
   Thor but run warmer.
 - The 120 FPS mode is experimental.

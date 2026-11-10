@@ -976,6 +976,89 @@ EDITS = [
      'extern "C" int ff7r_steam_is_2013();   // FF7Recomp: src/ffnx_port/steam_android.cpp\n'
      '#endif\n'
      'int common_create_window(HINSTANCE hInstance, struct game_obj* game_object)\n{\n'),
+    # The 2026 re-release in French, German or Spanish (game_language): FFNx patches the English
+    # exe to read its own tables (HUD records, strings, the name grid). Values the game reads
+    # must be guest addresses: FFNx's constant tables are copied to guest memory once
+    # (ml_guest), and the tables FFNx fills at run time live in the guest static block.
+    ('ff7/multilanguage_data.h',
+     'inline uint8_t hud2[11][36];\n'
+     'inline uint8_t hud64[13][36];\n'
+     'inline uint8_t hud128[11][36];\n'
+     'inline uint8_t text_buffer[128];\n',
+     '#ifdef FFNX_ANDROID\n'
+     '}\n#include "ffnx_guest.h"\nnamespace ff7::multilanguage::data\n{\n'
+     '// FF7Recomp: the game reads these through FFNx\'s code patches: guest memory\n'
+     'inline uint8_t (&hud2)[11][36] = ffnx_guest_static_zero<uint8_t[36], 11>();\n'
+     'inline uint8_t (&hud64)[13][36] = ffnx_guest_static_zero<uint8_t[36], 13>();\n'
+     'inline uint8_t (&hud128)[11][36] = ffnx_guest_static_zero<uint8_t[36], 11>();\n'
+     'inline uint8_t (&text_buffer)[128] = ffnx_guest_static_zero<uint8_t, 128>();\n'
+     '#else\n'
+     'inline uint8_t hud2[11][36];\n'
+     'inline uint8_t hud64[13][36];\n'
+     'inline uint8_t hud128[11][36];\n'
+     'inline uint8_t text_buffer[128];\n'
+     '#endif\n'),
+    ('ff7/multilanguage.cpp',
+     'namespace ff7::multilanguage\n{\nnamespace\n{\n',
+     '#ifdef FFNX_ANDROID\n'
+     '#include "ffnx_guest.h"\n'
+     '// FF7Recomp: a guest-memory copy of one of FFNx\'s constant tables (made once), for values\n'
+     '// the game reads; guest memory (the tables FFNx fills) is its own address.\n'
+     'static uint32_t ml_guest(const void *p, size_t n)\n{\n'
+     '\tif (reinterpret_cast<uintptr_t>(p) <= 0xFFFFFFFFu) return (uint32_t)reinterpret_cast<uintptr_t>(p);\n'
+     '\tstatic std::unordered_map<const void *, uint32_t> copies;\n'
+     '\tauto it = copies.find(p);\n'
+     '\tif (it != copies.end()) return it->second;\n'
+     '\tvoid *g = guest_malloc(n);\n'
+     '\tif (!g) guest::fatal("multilanguage: guest heap exhausted", n);\n'
+     '\tmemcpy(g, p, n);\n'
+     '\treturn copies[p] = guest::to_va(static_cast<uint8_t *>(g));\n'
+     '}\n'
+     '#define ML_GUEST(p, n) ml_guest((p), (n))\n'
+     '#define ML_FN(f) ((void *)(uintptr_t)ffnx_recomp::guest_va_of(f))   // FFNx\'s text wrappers: typed guest thunks\n'
+     '#else\n'
+     '#define ML_GUEST(p, n) reinterpret_cast<uint32_t>(p)\n'
+     '#define ML_FN(f) reinterpret_cast<void *>(f)\n'
+     '#endif\n\n'
+     'namespace ff7::multilanguage\n{\nnamespace\n{\n'),
+    ('ff7/multilanguage.cpp',
+     '\treinterpret_cast<void (__stdcall *)(const char *, int, int, int, ff7_graphics_object *)>(data::ascii_original)(\n',
+     '#ifdef FFNX_ANDROID\n'
+     '\tguest::gfn_stdcall<void(const char *, int, int, int, ff7_graphics_object *)>::from_va(data::ascii_original)(   // FF7Recomp\n'
+     '#else\n'
+     '\treinterpret_cast<void (__stdcall *)(const char *, int, int, int, ff7_graphics_object *)>(data::ascii_original)(\n'
+     '#endif\n'),
+    ('ff7/multilanguage.cpp',
+     'patch_code_dword(copy.address + data::archive_copy_source_offset, reinterpret_cast<uint32_t>(entry.bytes));',
+     'patch_code_dword(copy.address + data::archive_copy_source_offset, ML_GUEST(entry.bytes, std::strlen(entry.bytes) + 1));'),
+    ('ff7/multilanguage.cpp',
+     '\tpatch_code_dword(data::help_texture_addresses[0], reinterpret_cast<uint32_t>(help_texture));\n'
+     '\tpatch_code_dword(data::help_texture_addresses[1], reinterpret_cast<uint32_t>(normal_help_texture));',
+     '\tpatch_code_dword(data::help_texture_addresses[0], ML_GUEST(help_texture, std::strlen(help_texture) + 1));\n'
+     '\tpatch_code_dword(data::help_texture_addresses[1], ML_GUEST(normal_help_texture, std::strlen(normal_help_texture) + 1));'),
+    ('ff7/multilanguage.cpp',
+     'reinterpret_cast<uint32_t>(table.records) + entry.value);',
+     'ML_GUEST(table.records, table.size) + entry.value);'),
+    ('ff7/multilanguage.cpp',
+     '\t\tpatch_code_dword(address, reinterpret_cast<uint32_t>(name_characters));',
+     '\t\tpatch_code_dword(address, ML_GUEST(name_characters, game_language == GAME_LANGUAGE_DE ? sizeof(data::de_name_characters) :\n'
+     '\t\t\tgame_language == GAME_LANGUAGE_SP ? sizeof(data::es_name_characters) : sizeof(data::fr_name_characters)));'),
+    # FFNx's text wrappers are passed to replace_call as void *: a typed guest thunk (ML_FN).
+    ('ff7/multilanguage.cpp', 'reinterpret_cast<void *>(text_width)', 'ML_FN(text_width)', 'all'),
+    ('ff7/multilanguage.cpp', 'reinterpret_cast<void *>(draw_text)', 'ML_FN(draw_text)', 'all'),
+    ('ff7/multilanguage.cpp', 'reinterpret_cast<void *>(draw_text_fixed)', 'ML_FN(draw_text_fixed)', 'all'),
+    ('ff7/multilanguage.cpp', 'reinterpret_cast<void *>(draw_ascii)', 'ML_FN(draw_ascii)', 'all'),
+    # The language's archive paths are code writes the game runs before its first frame.
+    ('ff7_opengl.cpp',
+     '\tif(ff7_2026_rerelease && !ff7_japanese_edition) ff7::multilanguage::init();\n',
+     '\tif(ff7_2026_rerelease && !ff7_japanese_edition) ff7::multilanguage::init();\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\tffnx_recomp::verify_code_writes();   // FF7Recomp: patched start-up code runs interpreted at once\n'
+     '#endif\n'),
+    # a host array, as wide_speed_args above
+    ('ff7/multilanguage.cpp',
+     '\t\t\tmemcpy_code(reinterpret_cast<uint32_t>(time_args.data() + 6), const_cast<uint8_t *>(original + 3), 6);',
+     '\t\t\tmemcpy(time_args.data() + 6, const_cast<uint8_t *>(original + 3), 6);   // FF7Recomp: host array'),
 ]
 
 

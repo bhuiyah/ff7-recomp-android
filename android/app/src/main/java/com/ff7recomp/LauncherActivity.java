@@ -1045,6 +1045,24 @@ public class LauncherActivity extends Activity {
         ms.setOnCheckedChangeListener((b, on) -> { prefs.edit().putBoolean("menu_sounds", on).apply(); loadSounds(); });
         col.addView(ms);
         col.addView(space(10));
+        col.addView(heading("Language"));
+        col.addView(text("The game's text and menus. Mods that replace text (field scripts, battle commands) keep their own language.", 14, DIM));
+        RadioGroup lg = new RadioGroup(this);
+        int curLang = prefs.getInt("game_language", 1);
+        for (String[] l : GameInstall.LANGUAGES) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            final int v = Integer.parseInt(l[0]);
+            boolean have = !install.hasGame() || install.hasLanguage(v);
+            rb.setText(have ? l[1] : l[1] + "\nImport your game files again (Game files) to add it");
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            rb.setOnClickListener(x -> prefs.edit().putInt("game_language", v).apply());
+            lg.addView(rb);
+            if (v == curLang) rb.setChecked(true);
+        }
+        col.addView(lg);
+        col.addView(space(10));
         col.addView(heading("Frame rate"));
         RadioGroup g = new RadioGroup(this);
         int cur = prefs.getInt("fps", 3);
@@ -1556,6 +1574,8 @@ public class LauncherActivity extends Activity {
         background(() -> {
             progress("Preparing");
             library.load();
+            install.gameLanguage = prefs.getInt("game_language", 1);
+            library.language = install.hasLanguage(install.gameLanguage) ? GameInstall.languageCode(install.gameLanguage) : "en";
             library.save();
             install.installRuntime();
             boolean steamOn = false;

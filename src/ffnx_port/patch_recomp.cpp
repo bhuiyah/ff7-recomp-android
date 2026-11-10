@@ -54,6 +54,7 @@ extern "C" void ff7_override_remove(uint32_t va);
 extern "C" int ff7_callsite_install(uint32_t site, uint32_t target, uint32_t orig);
 extern "C" void ff7_callsite_remove(uint32_t site);
 extern "C" int ff7_code_runnable(uint32_t va, uint32_t n);
+extern "C" int ff7_code_entry(uint32_t va);
 #include "x86_interp.h"
 
 namespace ffnx_recomp {
@@ -90,6 +91,16 @@ static int install_callsite(uint32_t site, uint32_t target, const char *what, ui
 }
 void replace_call_va(uint32_t offset, uint32_t host_va, const char *what) {
     const uint8_t op = *reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(offset));
+    // A jump or call into game code that is not a lifted function (FFNx's own x86 written into
+    // .text, as the multilanguage HUD code): write the rel32 as FFNx does on Windows. The
+    // function holding the site then runs its patched bytes (a lifted variant, or the
+    // interpreter: verify_code_writes_locked).
+    if (in_text(host_va) && (op == 0xE9 || (op == 0xE8 && !ff7_code_entry(host_va)))) {   // a jmp is never a call-site hook
+        int32_t rel = static_cast<int32_t>(host_va - offset - 5);
+        note_code_write(offset + 1, 4, what);
+        std::memcpy(reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(offset)) + 1, &rel, 4);
+        return;
+    }
     if (op != 0xE8) ffnx_warning("%s: 0x%08X is not a call rel32 (0x%02X); hooked as a call site anyway\n", what, offset, op);
     record_hook(what, offset, host_va, install_callsite(offset, host_va, what, call_target_at(offset)));
 }
@@ -230,6 +241,13 @@ static void verify_code_writes_locked() {
 
 void quickboot_frame();   // quickboot.cpp
 extern "C" void ff7_companion_frame();   // companion.cpp
+
+// Check FFNx's code writes now, not at the next frame: code that runs before the first frame
+// (the multilanguage archive paths, opened at start-up) must already see them.
+void verify_code_writes() {
+    std::lock_guard<std::mutex> lk(g_lock);
+    if (g_verified < g_code_writes.size()) verify_code_writes_locked();
+}
 
 void step_code() {
     quickboot_frame();

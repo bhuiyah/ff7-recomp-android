@@ -276,11 +276,14 @@ final class ModLibrary {
         return n;
     }
 
+    /** The game language (en, fr, de, es): mods pick their files for it (7th Heaven's Language). */
+    String language = "en";
+
     /** Write profile.xml (atomically: a half-written profile would drop every mod). */
     void save() throws Exception {
         File tmp = new File(dir, "profile.xml.part");
         try (Writer w = new OutputStreamWriter(new FileOutputStream(tmp), StandardCharsets.UTF_8)) {
-            w.write("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Profile Language=\"en\">\n");
+            w.write("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Profile Language=\"" + xml(language) + "\">\n");
             for (Mod m : mods) {
                 w.write("  <Mod Path=\"" + xml(m.file) + "\" Enabled=\"" + (m.enabled ? "true" : "false") + "\"");
                 if (m.chosen.isEmpty()) { w.write("/>\n"); continue; }
