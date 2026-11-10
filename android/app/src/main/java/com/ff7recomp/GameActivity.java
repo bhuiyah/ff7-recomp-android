@@ -301,7 +301,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         nativeSetSurface(holder.getSurface(), width, height);
         if (!started) {
             started = true;
-            File base = getExternalFilesDir(null);
+            File base = Storage.root(this);
             File game = new File(base, "game");
             nativeStart(game.getAbsolutePath(), base.getAbsolutePath());
         }

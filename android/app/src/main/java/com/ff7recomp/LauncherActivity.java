@@ -225,6 +225,10 @@ public class LauncherActivity extends Activity {
         downloader = sDownloader;
         queue = sQueue;
         prefs = getSharedPreferences("launcher", MODE_PRIVATE);
+        if (Storage.sdMissing(this))
+            new android.os.Handler(getMainLooper()).post(() -> toastDialog("Your game files are on the SD card, which is "
+                    + "not inserted. Insert it and open FF7Recomp again (Settings > Storage moves them back to internal "
+                    + "storage)."));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.HORIZONTAL);
@@ -1062,6 +1066,36 @@ public class LauncherActivity extends Activity {
             if (v == curLang) rb.setChecked(true);
         }
         col.addView(lg);
+        File sd = Storage.sdRoot(this);
+        if (sd != null || Storage.onSd(this)) {
+            col.addView(space(10));
+            col.addView(heading("Storage"));
+            col.addView(text("Where your game files, mods, saves and save states are kept. Moving them takes a few "
+                    + "minutes; the built game itself always stays in internal storage.", 14, DIM));
+            RadioGroup sg = new RadioGroup(this);
+            boolean onSd = Storage.onSd(this);
+            String[][] places = {
+                { "0", "Internal storage", ModDownloader.human(Storage.internalRoot(this).getUsableSpace()) + " free" },
+                { "1", "SD card", sd != null ? ModDownloader.human(sd.getUsableSpace()) + " free" : "not inserted" },
+            };
+            for (String[] pl : places) {
+                RadioButton rb = new RadioButton(this);
+                rb.setId(View.generateViewId());
+                rb.setText(pl[1] + "\n" + pl[2]);
+                rb.setTextColor(TEXT);
+                rb.setTextSize(16);
+                final boolean toSd = pl[0].equals("1");
+                rb.setChecked(toSd == onSd);
+                rb.setEnabled(!toSd || sd != null);
+                rb.setOnClickListener(x -> {
+                    if (toSd == Storage.onSd(this)) return;
+                    moveStorage(toSd);
+                    refresh();                               // the radio shows the real place until moved
+                });
+                sg.addView(rb);
+            }
+            col.addView(sg);
+        }
         col.addView(space(10));
         col.addView(heading("Frame rate"));
         RadioGroup g = new RadioGroup(this);
@@ -1623,6 +1657,31 @@ public class LauncherActivity extends Activity {
 
     private void saveProfile() {
         try { library.save(); } catch (Exception e) { toastDialog("Could not save the mod list: " + e); }
+    }
+
+    /** Settings > Storage: move everything to the SD card or back, then restart the launcher. */
+    private void moveStorage(boolean toSd) {
+        if (busy) return;
+        if (GameBuild.running) { toastDialog("Not moved: the game is being built. Wait for the build to finish."); return; }
+        if (sQueue != null && sQueue.pendingCount() > 0) { toastDialog("Not moved: mods are downloading. Wait for them, or cancel them, first."); return; }
+        android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        if (am != null && am.getRunningAppProcesses() != null)
+            for (android.app.ActivityManager.RunningAppProcessInfo pi : am.getRunningAppProcesses())
+                if (pi.processName.endsWith(":game")) { toastDialog("Not moved: close the game first."); return; }
+        long size = Storage.size(install.files);
+        ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setMessage("Move your game files, mods, saves and save states (" + ModDownloader.human(size) + ") to "
+                        + (toSd ? "the SD card" : "internal storage") + "? The launcher restarts when it is done.")
+                .setPositiveButton("Move", (d, w) -> background(() -> {
+                    Storage.move(this, toSd, this::progress);
+                    runOnUiThread(() -> {
+                        startActivity(Intent.makeRestartActivityTask(new android.content.ComponentName(this, LauncherActivity.class)));
+                        Runtime.getRuntime().exit(0);   // every per-process object points at the old folder
+                    });
+                    return null;
+                }))
+                .setNegativeButton("Cancel", null)
+                .show());
     }
 
     // ------------------------------------------------------------------- plumbing

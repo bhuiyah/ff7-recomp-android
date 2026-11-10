@@ -89,6 +89,10 @@ checks them, so the same release from another store should work if its files are
 is untested; if it says the files are not the ones it needs, please report the names and numbers
 it shows.
 
+**Short on space?** With an SD card in the device, **Settings** → **Storage** moves your game
+files, mods, saves and save states to it (and back). The built game itself stays in internal
+storage, as Android runs no code from SD cards.
+
 **FF7 downloaded with GameNative?** GameNative keeps games in its private internal storage by
 default, which other apps cannot read. Turn on GameNative's external storage (SD card) option and
 pick `GameNative/Steam/steamapps/common/FINAL FANTASY VII` on the card, or copy the folder from a PC.

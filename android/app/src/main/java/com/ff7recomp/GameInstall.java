@@ -32,7 +32,7 @@ final class GameInstall {
 
     GameInstall(Context ctx) {
         this.ctx = ctx;
-        files = ctx.getExternalFilesDir(null);
+        files = Storage.root(ctx);   // internal storage or the SD card (Settings > Storage)
         game = new File(files, "game");
     }
 

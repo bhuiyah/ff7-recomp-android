@@ -81,7 +81,7 @@ final class SteamLink {
     SteamLink(Context c) {
         ctx = c.getApplicationContext();
         prefs = ctx.getSharedPreferences("steam", Context.MODE_PRIVATE);
-        dir = new File(ctx.getExternalFilesDir(null), "steam");
+        dir = new File(Storage.root(ctx), "steam");
         state = new File(dir, "state.txt");
         pending = new File(dir, "pending.txt");
         sending = new File(dir, "pending.sending");

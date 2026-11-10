@@ -63,7 +63,7 @@ final class GameBuild {
         gen = new File(work, "gen");
         obj = new File(work, "obj");
         lib = new File(files, "game/libff7.so");
-        log = new File(this.ctx.getExternalFilesDir(null), "build.log");
+        log = new File(Storage.root(this.ctx), "build.log");
         nativeDir = this.ctx.getApplicationInfo().nativeLibraryDir;
     }
 
