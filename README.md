@@ -88,13 +88,20 @@ release are not supported yet.
 default, which other apps cannot read. Turn on GameNative's external storage (SD card) option and
 pick `GameNative/Steam/steamapps/common/FINAL FANTASY VII` on the card, or copy the folder from a PC.
 
-### Bringing your PlayStation saves
+### Bringing your saves
 
-**Save states** → **Import PlayStation saves…** takes a PS1 memory card: DuckStation (`.mcd`),
-ePSXe (`.mcr`), RetroArch (`.srm`), DexDrive (`.gme`) or PSP (`.vmp`). Its FF7 saves go into a new
-save file (Save 2, Save 3… under **Continue**), so none of yours are overwritten. DuckStation keeps
-its cards in `Android/data/com.github.stenzek.duckstation/files/memcards`; copy the card somewhere
-you can pick it, such as Download, first.
+**Save states** → **Import saves (PC or PlayStation)…** takes:
+
+- **PC save files** (`save00.ff7`…`save09.ff7`) from the 2013 Steam release, the original PC release or a
+  7th Heaven install. On a PC the Steam release keeps them in
+  `Documents\Square Enix\FINAL FANTASY VII Steam\user_…`.
+- **PlayStation memory cards**: DuckStation (`.mcd`), ePSXe (`.mcr`), RetroArch (`.srm`), DexDrive
+  (`.gme`) or PSP (`.vmp`). DuckStation keeps its cards in
+  `Android/data/com.github.stenzek.duckstation/files/memcards`.
+
+Copy the file somewhere you can pick it, such as Download, first. The saves go into a new save file
+(Save 2, Save 3… under **Continue**), so none of yours are overwritten. Saves made by the current
+Steam release's own launcher use a different format and are not supported yet.
 
 ## Building the APK
 

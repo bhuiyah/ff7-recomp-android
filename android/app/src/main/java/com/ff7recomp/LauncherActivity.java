@@ -1479,7 +1479,8 @@ public class LauncherActivity extends Activity {
                 b = o.toByteArray();
             }
             try {
-                PsxSaves.Result r = PsxSaves.importCard(b, new File(install.game, "save"));
+                File saveDir = new File(install.game, "save");
+                PsxSaves.Result r = PsxSaves.isPcSave(b) ? PsxSaves.importPc(b, saveDir) : PsxSaves.importCard(b, saveDir);
                 String game = "Save " + r.gameNumber;
                 msg.append(r.saves).append(r.saves == 1 ? " save" : " saves").append(" imported into ").append(game)
                    .append(". In game: Continue, then pick ").append(game).append(".\n");
@@ -1526,11 +1527,15 @@ public class LauncherActivity extends Activity {
         col.addView(text("In game: Select+L1 saves to the current slot, Select+R1 loads it, Select+Left / Right "
                 + "picks another slot. \"Play from here\" starts the game at that moment.", 14, DIM));
         col.addView(space(10));
-        col.addView(button("Import PlayStation saves…", v -> pick(PICK_PSX)));
-        col.addView(text("From a PS1 memory card: DuckStation (.mcd), ePSXe (.mcr), RetroArch (.srm), DexDrive (.gme) "
-                + "or PSP (.vmp). DuckStation keeps its cards in Android/data/com.github.stenzek.duckstation/files/memcards; "
-                + "copy the card somewhere you can pick it (Download, for example) first. The saves go into a new "
-                + "save file (Save 2, Save 3… in the game), so none of yours are overwritten.", 13, DIM));
+        col.addView(button("Import saves (PC or PlayStation)…", v -> pick(PICK_PSX)));
+        col.addView(text("PC: a save file (save00.ff7…save09.ff7) from the 2013 Steam release, the original PC "
+                + "release or a 7th Heaven install; on a PC the Steam release keeps them in Documents\\Square Enix\\"
+                + "FINAL FANTASY VII Steam\\user_…. PlayStation: a memory card from DuckStation (.mcd), ePSXe (.mcr), "
+                + "RetroArch (.srm), DexDrive (.gme) or PSP (.vmp); DuckStation keeps its cards in "
+                + "Android/data/com.github.stenzek.duckstation/files/memcards. Copy the file somewhere you can pick it "
+                + "(Download, for example) first. The saves go into a new save file (Save 2, Save 3… in the game), so "
+                + "none of yours are overwritten. Saves from the current Steam release's own launcher are a different "
+                + "format and are not supported yet.", 13, DIM));
         col.addView(space(10));
         int cur = states.current();
         for (int n = 1; n <= SaveStates.SLOTS; n++) {

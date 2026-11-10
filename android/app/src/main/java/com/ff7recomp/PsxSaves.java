@@ -10,8 +10,9 @@ import java.util.regex.Pattern;
 
 /**
  * Imports FINAL FANTASY VII saves from a PlayStation memory card (DuckStation .mcd, ePSXe .mcr,
- * RetroArch .srm and other raw 128 KiB cards, DexDrive .gme, PSP .vmp) or a single exported
- * save block, into a new PC save file (game/save/saveNN.ff7, "Save N" in the Continue menu).
+ * RetroArch .srm and other raw 128 KiB cards, DexDrive .gme, PSP .vmp), a single exported
+ * save block, or a PC save file (saveNN.ff7, copied as is), into a new PC save file
+ * (game/save/saveNN.ff7, "Save N" in the Continue menu).
  *
  * Layout as in ff7tk (Black Chocobo): a card is 16 blocks of 0x2000, block 0 the directory
  * (frame i at 0x80*i: 0x51 = first block of a file, the name at +0x0A); an FF7 save block is a
@@ -52,7 +53,7 @@ final class PsxSaves {
             putSlot(pc, 0, data, 0x200);
             r.saves = 1;
         } else {
-            throw new IOException("this is not a PlayStation memory card or FF7 save");
+            throw new IOException("this is not a FINAL FANTASY VII PC save (saveNN.ff7) or a PlayStation memory card");
         }
         if (r.saves == 0) throw new IOException("there are no FINAL FANTASY VII saves on this memory card");
 
@@ -63,14 +64,33 @@ final class PsxSaves {
         }
         pc[5] = (byte) used5;
         pc[6] = (byte) used6;
+        writeFirstFree(pc, saveDir, r);
+        return r;
+    }
 
+    /** A PC save file (saveNN.ff7: the 2013 Steam release, the 1998 PC release, 7th Heaven). */
+    static boolean isPcSave(byte[] d) {
+        return d.length == PC_SIZE && d[0] == 0x71 && d[1] == 0x73 && d[2] == 0x27 && d[3] == 0x06;
+    }
+
+    /** Copies a PC save file, unchanged (it is the game's own format), to the first free save file. */
+    static Result importPc(byte[] data, File saveDir) throws IOException {
+        if (!isPcSave(data)) throw new IOException("this is not a FINAL FANTASY VII PC save file (saveNN.ff7)");
+        Result r = new Result();
+        for (int s = 0; s < 15; s++) if (slotUsed(data, s)) r.saves++;
+        if (r.saves == 0) throw new IOException("this save file is empty");
+        writeFirstFree(data, saveDir, r);
+        return r;
+    }
+
+    private static void writeFirstFree(byte[] pc, File saveDir, Result r) throws IOException {
         saveDir.mkdirs();
         for (int n = 0; n < FILES; n++) {
             File f = new File(saveDir, String.format(java.util.Locale.ROOT, "save%02d.ff7", n));
             if (f.exists()) continue;
             try (OutputStream o = new FileOutputStream(f)) { o.write(pc); }
             r.gameNumber = n + 1;
-            return r;
+            return;
         }
         throw new IOException("all " + FILES + " save files (Save 1-10) are in use; delete one first");
     }
