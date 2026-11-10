@@ -124,6 +124,15 @@ __attribute__((weak)) void ff7_achievements_reset(void) {}   /* src/ffnx_port/ac
  * data layouts): a state is only loaded under the same ones. */
 __attribute__((weak)) void ff7_ss_config(char *out, unsigned n) { if (n) out[0] = 0; }
 __attribute__((weak)) void ff7_ss_location(char *out, unsigned n, uint32_t *play_seconds) { if (n) out[0] = 0; *play_seconds = 0; }
+/* The settings a state must match: FFNx's graphics settings, and the guest arena when it is
+ * not at its usual place (ff7_boot.c moves it on devices with a large Java heap). */
+static void ss_config(char *out, unsigned n) {
+    ff7_ss_config(out, n);
+    uint32_t lo, hi;
+    guest_alloc_arena(&lo, &hi);
+    size_t l = strlen(out);
+    if (lo != FF7_ARENA_LO && l < n) snprintf(out + l, n - l, ", arena 0x%08X", lo);
+}
 static void notify(const char *msg) { fprintf(stderr, "[savestate] %s\n", msg); fflush(stderr); ff7_ss_notify(msg); }
 
 /* ---- paths --------------------------------------------------------------------------------- */
@@ -183,8 +192,8 @@ static int capture(buf_t *b) {
     c.fp_top = g_fp_top; c.fpu_cw = g_fpu_cw; c.fs_base = g_fs_base; c.gs_base = g_gs_base;
     c.host_depth = host_depth();
     if (rec(b, R_CPU, &c, sizeof c)) return -1;
-    char cfg[64];
-    ff7_ss_config(cfg, sizeof cfg);
+    char cfg[96];
+    ss_config(cfg, sizeof cfg);
     if (rec(b, R_CONFIG, cfg, (uint32_t)strlen(cfg))) return -1;
 
     if (rec_mem(b, IMG_DATA_LO, IMG_DATA_HI) || rec_mem(b, FFNX_STATIC_LO, FFNX_STATIC_HI)) return -1;
@@ -276,8 +285,8 @@ static int check(const uint8_t *p, size_t n, const char **why) {
             have_config = 1;
             /* loading under other frame-rate / widescreen settings crashes the game */
             static char msg[200];
-            char now[64];
-            ff7_ss_config(now, sizeof now);
+            char now[96];
+            ss_config(now, sizeof now);
             if (len != strlen(now) || memcmp(p + at + 8, now, len)) {
                 snprintf(msg, sizeof msg, "saved with other graphics settings (%.*s; now %s)", (int)(len < 64 ? len : 64), (const char *)(p + at + 8), now);
                 *why = msg;

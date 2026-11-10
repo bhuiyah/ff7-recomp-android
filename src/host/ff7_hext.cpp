@@ -18,6 +18,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "guest_alloc.h"
 #include "hext.hpp"
 #include "mods.h"
 #include "x86_interp.h"
@@ -64,11 +65,13 @@ namespace {
 
 constexpr uint32_t IMAGE_LO = 0x00401000u, IMAGE_HI = 0x00F6F000u;   // ff7_en sections
 constexpr uint32_t TEXT_LO = 0x00401000u, TEXT_HI = 0x007B6000u;
-constexpr uint32_t ARENA_LO = 0x33000000u, ARENA_HI = 0x6B010000u;   // heap, VirtualAlloc, FFNx block
+constexpr uint32_t VM_LO = 0x5B000000u, VM_HI = 0x6B010000u;   // VirtualAlloc, FFNx block
 
 bool readable(uint32_t va, uint32_t n) {
     uint64_t e = (uint64_t)va + n;
-    return (va >= IMAGE_LO && e <= IMAGE_HI) || (va >= ARENA_LO && e <= ARENA_HI);
+    uint32_t lo, hi;
+    guest_alloc_arena(&lo, &hi);   // the heap (ff7_boot.c may move it)
+    return (va >= IMAGE_LO && e <= IMAGE_HI) || (va >= lo && e <= hi) || (va >= VM_LO && e <= VM_HI);
 }
 
 uint32_t read32(uint32_t va) {
