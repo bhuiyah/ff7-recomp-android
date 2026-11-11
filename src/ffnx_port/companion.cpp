@@ -125,6 +125,18 @@ std::string build_snapshot() {
         snprintf(b, sizeof b, "\"achseq\":%u,\"ach\":\"%s\",\"achpts\":%u,", seq, at, pts);
         j.insert(j.size() - std::strlen("\"party\":["), b);
     }
+    // the world map panel (CompanionView): the party's position on the world map, live while
+    // there; wsave: the savemap's two words at 0x0F5C (where the game keeps it between visits)
+    {
+        if (mode == MODE_WORLDMAP && ff7_externals.world_player_pos_E04918) {
+            const vector4<int> &p = *ff7_externals.world_player_pos_E04918;
+            snprintf(b, sizeof b, "\"wx\":%d,\"wz\":%d,", p.x, p.z);
+            j.insert(j.size() - std::strlen("\"party\":["), b);
+        }
+        const uint32_t *ws = (const uint32_t *)((const uint8_t *)sm + 0x0F5C);
+        snprintf(b, sizeof b, "\"wsave\":[%u,%u],", ws[0], ws[1]);
+        j.insert(j.size() - std::strlen("\"party\":["), b);
+    }
 
     const bool battle = mode == MODE_BATTLE && ff7_externals.battle_context;
     bool first = true;

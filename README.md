@@ -54,6 +54,7 @@ and I would rather you know before you install it.
   enemy HP and a touch deck (menu, save/load state, speed), then the on-screen controls.
 - On the AYN Thor's bottom screen: party status, location, enemy HP in battle, a touch deck
   (menu, save/load state, speed, random battles, battle enhancement); it dims during cutscenes.
+  On the world map it shows the map with where the party is, drawn from your own game files.
   **Settings** → **Screen** → **Use the second screen** off leaves the bottom screen to other apps
   (a guide, a browser).
 - Game boosters as in the console re-releases (speed, no random battles, battle enhancement).

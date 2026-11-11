@@ -41,6 +41,8 @@ public class CompanionView extends View {
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private volatile android.graphics.Bitmap worldMap;   // WorldMap: drawn from the game files
+    private final Paint mapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final RectF r = new RectF();
 
     private static final class Button {
@@ -101,6 +103,11 @@ public class CompanionView extends View {
         stroke.setStyle(Paint.Style.STROKE);
         setBackground(null);       // battle: the game's windows show through the top band
         setWillNotDraw(false);
+        final Context app = c.getApplicationContext();
+        new Thread(() -> {
+            worldMap = WorldMap.get(app.getFilesDir(), new java.io.File(Storage.root(app), "game"));
+            postInvalidate();
+        }, "world-map").start();
     }
 
     @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); handler.post(poll); }
@@ -155,6 +162,48 @@ public class CompanionView extends View {
             fill.setAlpha(Math.round(255 * DIM_MAX * dim));
             c.drawRect(0, 0, getWidth(), getHeight(), fill);
             fill.setAlpha(255);
+        }
+    }
+
+    /** On the world map: the map (WorldMap) with the party's position, and the party compact on
+     *  its right. */
+    private void drawWorld(Canvas c, float l, float t, float r, float b, float u, JSONArray party, int n) {
+        float pad = 24 * u, colW = 250 * u;
+        float mapH = b - t, mapW = mapH * WorldMap.WORLD_W / WorldMap.WORLD_H;
+        if (mapW > r - l - colW - pad) { mapW = r - l - colW - pad; mapH = mapW * WorldMap.WORLD_H / WorldMap.WORLD_W; }
+        float mx = l, my = t + (b - t - mapH) / 2;
+        window(c, mx, my, mx + mapW, my + mapH);
+        float in = 10 * u;
+        RectF dst = new RectF(mx + in, my + in, mx + mapW - in, my + mapH - in);
+        c.drawBitmap(worldMap, null, dst, mapPaint);
+        if (state.has("wx")) {
+            float px = dst.left + dst.width() * state.optInt("wx") / WorldMap.WORLD_W;
+            float py = dst.top + dst.height() * state.optInt("wz") / WorldMap.WORLD_H;
+            float pulse = (float) (0.5 + 0.5 * Math.sin(System.currentTimeMillis() / 180.0));
+            fill.setShader(null);
+            fill.setColor(0x60FF3030);
+            c.drawCircle(px, py, (14 + 10 * pulse) * u, fill);
+            fill.setColor(Color.WHITE);
+            c.drawCircle(px, py, 9 * u, fill);
+            fill.setColor(0xFFE02828);
+            c.drawCircle(px, py, 6.5f * u, fill);
+            postInvalidateDelayed(50);   // keep the marker pulsing
+        }
+        // party, compact
+        float x = mx + mapW + pad, w = r - x, rowH = (b - t - 2 * pad) / 3f;
+        for (int i = 0; i < 3; i++) {
+            float rt = t + i * (rowH + pad);
+            window(c, x, rt, r, rt + rowH);
+            JSONObject m = i < n ? party.optJSONObject(i) : null;
+            if (m == null) continue;
+            float ix = x + 18 * u, iw = w - 36 * u;
+            label(c, m.optString("name"), ix, rt + 44 * u, 34 * u, Color.WHITE, Paint.Align.LEFT);
+            int hp = m.optInt("hp"), mhp = Math.max(1, m.optInt("mhp")), mp = m.optInt("mp"), mmp = Math.max(1, m.optInt("mmp"));
+            double hf = (double) hp / mhp;
+            label(c, "HP " + hp, ix, rt + 92 * u, 26 * u, hf <= 0.25 ? 0xFFFFD040 : 0xFFDCDCF0, Paint.Align.LEFT);
+            bar(c, ix, rt + 100 * u, iw, 12 * u, hf, hf <= 0.25 ? 0xFFE0B020 : 0xFF40D070);
+            label(c, "MP " + mp, ix, rt + 148 * u, 26 * u, 0xFFDCDCF0, Paint.Align.LEFT);
+            bar(c, ix, rt + 156 * u, iw, 12 * u, (double) mp / mmp, 0xFF4090F0);
         }
     }
 
@@ -220,7 +269,11 @@ public class CompanionView extends View {
             JSONArray party = state.optJSONArray("party");
             int n = party == null ? 0 : party.length();
             float rowH = (bodyB - bodyT - pad * 2) / 3f;
-            for (int i = 0; i < 3; i++) {
+            if ("world".equals(mode) && worldMap != null) {
+                drawWorld(c, pad, bodyT, W - pad, bodyB, u, party, n);
+                n = 0;   // the party is drawn compactly beside the map
+            }
+            for (int i = 0; i < 3 && !("world".equals(mode) && worldMap != null); i++) {
                 float t = bodyT + i * (rowH + pad), b = t + rowH;
                 window(c, pad, t, partyR, b);
                 JSONObject m = i < n ? party.optJSONObject(i) : null;
