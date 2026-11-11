@@ -95,6 +95,18 @@ const char *hle_host_path(const char *guest, char *buf, unsigned n) {
         size_t gl = strlen(game_root);
         /* Any case: FFNx lower-cases some paths it built from basedir (open_file after its
          * override/ redirection: ".../android/data/com.ff7recomp/..."). */
+        /* Put the real spelling of the game root's folders back (the longest prefix shared,
+         * folder by folder, so the mods folder beside it too): on an SD card the volume folder
+         * is the card's serial ("/storage/4A98-1CE6") and /storage is case-sensitive, so the
+         * lower-cased path does not exist (GitHub #13). */
+        {
+            size_t k = 0, keep = 0;
+            while (k < gl && buf[k] && tolower((unsigned char)buf[k]) == tolower((unsigned char)game_root[k])) {
+                k++;
+                if (game_root[k] == '/' || k == gl) { if (buf[k] == '/' || buf[k] == 0) keep = k; }
+            }
+            memcpy(buf, game_root, keep);
+        }
         if (gl && !strncasecmp(buf, game_root, gl) && buf[gl] == '/') {
             char rel[1024], mod[1024];
             snprintf(rel, sizeof rel, "%s", buf + gl + 1);
