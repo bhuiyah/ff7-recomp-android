@@ -10,8 +10,15 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- the game back in front on the top screen after Pixel Guide opens on the bottom one -->
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
     <!-- Updates from the GitHub releases, installed in the app (Updater.java). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Pixel Guide: the bottom screen's book opens it when it is installed (CompanionView) -->
+    <queries>
+        <package android:name="app.nanostack.pixelguide" />
+    </queries>
+
     <application
         android:label="FF7Recomp"
         android:icon="@mipmap/ic_launcher"
@@ -42,6 +49,21 @@
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode"
             android:launchMode="singleTask" />
+        <!-- Pixel Guide's installer answer (GuideInstaller), in the game's process -->
+        <receiver
+            android:name=".GuideInstaller$Result"
+            android:exported="false"
+            android:process=":game" />
+        <!-- Pixel Guide on the bottom screen (the companion's book): in the game's process -->
+        <activity
+            android:name=".GuideHostActivity"
+            android:exported="false"
+            android:process=":game"
+            android:taskAffinity=".guide"
+            android:excludeFromRecents="true"
+            android:noHistory="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode" />
         <receiver
             android:name=".Updater$InstallResult"
             android:exported="false" />

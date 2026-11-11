@@ -58,6 +58,19 @@ public class CompanionView extends View {
         new Button("Battle+", CMD_BPLUS, 0),
     };
     private Button pressed;
+    // Pixel Guide (a game guide app, requested in the comments): a book at the top right opens
+    // it here on the bottom screen; when it is not installed the book offers to install it.
+    static final String GUIDE_PACKAGE = "app.nanostack.pixelguide";
+    private android.content.Intent guide;          // null: not installed
+    private long guideCheckedAt;
+
+    private void refreshGuide() {
+        guideCheckedAt = android.os.SystemClock.uptimeMillis();
+        try { guide = getContext().getPackageManager().getLaunchIntentForPackage(GUIDE_PACKAGE); }
+        catch (RuntimeException e) { guide = null; }
+    }
+    private final RectF bookBox = new RectF();
+    private boolean bookPressed;
     private int areaTop = -1, areaBottom = -1;   // the game's battle windows (native code draws there)
     private JSONArray regions;                   // their layout: [sx0, sy0, sx1, sy1, dx, dy, dw, dh]
     private boolean battleNow;
@@ -91,6 +104,9 @@ public class CompanionView extends View {
         @Override public void run() {
             try { state = new JSONObject(nativeState()); } catch (JSONException e) { state = new JSONObject(); }
             updateDim(state.optInt("cine") == 1);
+            if (guide == null && android.os.SystemClock.uptimeMillis() - guideCheckedAt > 2000) refreshGuide();
+            String gs = GuideInstaller.status;
+            if (gs != null && System.currentTimeMillis() < GuideInstaller.statusUntil) { flash = gs; flashUntil = GuideInstaller.statusUntil; }
             invalidate();
             handler.postDelayed(this, 100);
         }
@@ -103,6 +119,7 @@ public class CompanionView extends View {
         stroke.setStyle(Paint.Style.STROKE);
         setBackground(null);       // battle: the game's windows show through the top band
         setWillNotDraw(false);
+        refreshGuide();
         final Context app = c.getApplicationContext();
         new Thread(() -> {
             worldMap = WorldMap.get(app.getFilesDir(), new java.io.File(Storage.root(app), "game"));
@@ -260,8 +277,30 @@ public class CompanionView extends View {
             float top = pad, topH = 110 * u;
             window(c, pad, top, W - pad, top + topH);
             String where = state.optString("loc");
+            float rightX = W - pad - 30 * u;
+            {                              // the book, top right: Pixel Guide on this screen
+                float s = topH - 24 * u, bw = s * 1.25f;
+                bookBox.set(W - pad - 14 * u - bw, top + 12 * u, W - pad - 14 * u, top + 12 * u + s);
+                if (bookPressed) {
+                    fill.setShader(null);
+                    fill.setColor(0x55FFFFFF);
+                    c.drawRoundRect(bookBox, 12 * u, 12 * u, fill);
+                }
+                drawBook(c, bookBox, u);
+                if (guide == null) {       // not installed: a download badge (tap to install)
+                    float br = 15 * u, bx = bookBox.right - br, by = bookBox.bottom - br;
+                    fill.setColor(GuideInstaller.busy ? 0xFFE0B020 : 0xFF40B060);
+                    c.drawCircle(bx, by, br, fill);
+                    stroke.setColor(Color.WHITE);
+                    stroke.setStrokeWidth(3.5f * u);
+                    c.drawLine(bx, by - br * 0.55f, bx, by + br * 0.45f, stroke);
+                    c.drawLine(bx - br * 0.45f, by, bx, by + br * 0.45f, stroke);
+                    c.drawLine(bx + br * 0.45f, by, bx, by + br * 0.45f, stroke);
+                }
+                rightX = bookBox.left - 24 * u;
+            }
             label(c, where.isEmpty() ? "-" : where, pad + 30 * u, top + 70 * u, 46 * u, Color.WHITE, Paint.Align.LEFT);
-            label(c, clock(state.optLong("time")) + "    " + state.optLong("gil") + " G", W - pad - 30 * u, top + 70 * u, 38 * u,
+            label(c, clock(state.optLong("time")) + "    " + state.optLong("gil") + " G", rightX, top + 70 * u, 38 * u,
                   0xFFDCDCF0, Paint.Align.RIGHT);
             // party
             float bodyT = top + topH + pad, bodyB = deckT - pad;
@@ -320,6 +359,48 @@ public class CompanionView extends View {
             label(c, flash, W / 2, deckT - 20 * u, 38 * u, 0xFFFFE060, Paint.Align.CENTER);
     }
 
+    /** An open book: two pages with a few lines, on the window's colours. */
+    private void drawBook(Canvas c, RectF b, float u) {
+        float cx = b.centerX(), w = b.width() * 0.42f, top = b.top + b.height() * 0.2f, bot = b.bottom - b.height() * 0.16f;
+        float sag = b.height() * 0.08f;
+        fill.setShader(null);
+        for (int side = -1; side <= 1; side += 2) {
+            android.graphics.Path p = new android.graphics.Path();
+            p.moveTo(cx, top + sag);
+            p.quadTo(cx + side * w * 0.5f, top - sag, cx + side * w, top);
+            p.lineTo(cx + side * w, bot);
+            p.quadTo(cx + side * w * 0.5f, bot - sag * 2, cx, bot);
+            p.close();
+            fill.setColor(0xFFF2EEDC);
+            c.drawPath(p, fill);
+            stroke.setColor(0xFF2A3A80);
+            stroke.setStrokeWidth(3 * u);
+            c.drawPath(p, stroke);
+            stroke.setStrokeWidth(2 * u);
+            stroke.setColor(0xFF8090B0);
+            for (int k = 1; k <= 3; k++) {
+                float y = top + sag + (bot - top - sag) * k / 4.5f;
+                c.drawLine(cx + side * w * 0.18f, y, cx + side * w * 0.82f, y - sag * 0.6f, stroke);
+            }
+        }
+    }
+
+    /** Pixel Guide on this (the bottom) screen, through GuideHostActivity: the panels step
+     *  aside while it is open and come back when it is closed. */
+    private void openGuide() {
+        try {
+            android.content.Intent i = new android.content.Intent(getContext(), GuideHostActivity.class);
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION);
+            android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
+            if (getDisplay() != null) o.setLaunchDisplayId(getDisplay().getDisplayId());
+            getContext().startActivity(i, o.toBundle());
+        } catch (RuntimeException e) {
+            flash = "Pixel Guide could not open";
+            flashUntil = System.currentTimeMillis() + 2500;
+            invalidate();
+        }
+    }
+
     // ---- touch --------------------------------------------------------------------------------
 
     @Override
@@ -329,11 +410,23 @@ public class CompanionView extends View {
         switch (e.getActionMasked()) {
         case MotionEvent.ACTION_DOWN:
             pressed = null;
+            bookPressed = !battleNow && !bookBox.isEmpty() && bookBox.contains(x, y);
+            if (bookPressed) { invalidate(); return true; }
             for (Button b : buttons) if (b.box.contains(x, y)) pressed = b;
             if (pressed == null && battleNow && y >= areaTop && y < areaBottom) battleTap(x, y);
             invalidate();
             return true;
         case MotionEvent.ACTION_UP:
+            if (bookPressed) {
+                bookPressed = false;
+                if (bookBox.contains(x, y)) {
+                    refreshGuide();          // installed or removed meanwhile
+                    if (guide != null) openGuide();
+                    else GuideInstaller.start(getContext(), getDisplay() != null ? getDisplay().getDisplayId() : -1);
+                }
+                invalidate();
+                return true;
+            }
             Button b = pressed;
             pressed = null;
             if (b != null && b.box.contains(x, y)) fire(b);
@@ -341,6 +434,7 @@ public class CompanionView extends View {
             return true;
         case MotionEvent.ACTION_CANCEL:
             pressed = null;
+            bookPressed = false;
             invalidate();
             return true;
         default:

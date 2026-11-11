@@ -3,6 +3,7 @@ package com.ff7recomp;
 import android.app.Activity;
 import android.app.Presentation;
 import android.content.Context;
+import android.content.Intent;
 import android.hardware.display.DisplayManager;
 import android.os.Bundle;
 import android.util.Log;
@@ -32,6 +33,56 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = "FF7Recomp";
     private boolean started;
     private Presentation companion;
+    private static GameActivity current;          // for GuideHostActivity (same process)
+
+    /** Pixel Guide is opening on the bottom screen: the panels step aside (a Presentation is
+     *  drawn above activities), and the game is put back in front on the top screen so the
+     *  pad keeps playing the game while the guide stays in view. */
+    static void guideOpened() {
+        GameActivity a = current;
+        if (a == null) return;
+        a.runOnUiThread(() -> {
+            if (a.companion != null) a.companion.hide();
+            new android.os.Handler(a.getMainLooper()).postDelayed(() -> {
+                // Android gives keys to the display that last started or touched an activity:
+                // starting the game again on the top screen (singleTask: no new instance, see
+                // onNewIntent) makes that screen the focused one while the guide stays in view.
+                try {
+                    android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
+                    if (a.getDisplay() != null) o.setLaunchDisplayId(a.getDisplay().getDisplayId());
+                    a.startActivity(new Intent(a, GameActivity.class).putExtra("refocus", true)
+                            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NO_ANIMATION), o.toBundle());
+                } catch (RuntimeException e) { Log.w(TAG, "game not brought back in front: " + e); }
+            }, 900);
+        });
+    }
+
+    /** A focus hand-back from guideOpened (the launcher's own starts go through onCreate):
+     *  nothing to change, the game keeps running. */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        Log.i(TAG, "back in front" + (intent.getBooleanExtra("refocus", false) ? " (guide open)" : ""));
+    }
+
+    /** Android's install confirmation for Pixel Guide is on the bottom screen: the panels step
+     *  aside so it can be seen (guideClosed puts them back when the install ends). */
+    static void panelsAside() {
+        GameActivity a = current;
+        if (a == null) return;
+        a.runOnUiThread(() -> { if (a.companion != null) a.companion.hide(); });
+    }
+
+    /** Pixel Guide was closed (or its install ended): the panels come back. */
+    static void guideClosed() {
+        GameActivity a = current;
+        if (a == null) return;
+        a.runOnUiThread(() -> {
+            if (a.companion == null || a.companion.isShowing()) return;
+            a.companion.show();
+            hideSystemBars(a.companion.getWindow().getInsetsController());
+        });
+    }
 
     /** libff7.so: built on this device from the player's exe (GameBuild.java), or bundled in a
      *  development APK. Loaded before the first native call (onCreate). */
@@ -226,6 +277,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        current = this;
         loadGame(this);
         // The screen stays on while the game runs (it timed out and the device slept mid-game).
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -413,6 +465,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onDestroy() {
         if (companion != null) companion.dismiss();
+        if (current == this) current = null;
         steamSyncRunning = false;
         ((android.hardware.input.InputManager) getSystemService(Context.INPUT_SERVICE)).unregisterInputDeviceListener(deviceListener);
         super.onDestroy();

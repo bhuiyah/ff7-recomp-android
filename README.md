@@ -59,6 +59,10 @@ and I would rather you know before you install it.
   On the world map it shows the map with where the party is, drawn from your own game files.
   **Settings** → **Screen** → **Use the second screen** off leaves the bottom screen to other apps
   (a guide, a browser).
+- The book at the bottom screen's top right opens [Pixel Guide](https://pixelguide.app) there,
+  over the panels, while the controller keeps playing the game; closing it brings the panels back.
+  It reopens where you left it (keep your FF7 guide open in it). Without Pixel Guide, the book
+  downloads it from its GitHub releases and Android asks you to confirm the install.
 - Game boosters as in the console re-releases (speed, no random battles, battle enhancement).
 - Steam achievements on your own Steam account (see [Steam achievements](#steam-achievements)),
   and a local achievement set (RetroAchievements format; offline only).

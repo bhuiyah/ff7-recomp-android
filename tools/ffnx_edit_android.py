@@ -872,6 +872,35 @@ EDITS = [
      '\tcodec_ctx->thread_count = 3;\n'
      '\tcodec_ctx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;\n'
      '#endif\n'),
+    # A movie the CPU decodes slower than it plays (30 fps Cosmos FMV on a phone, from the
+    # comments: "the music gets out of sync on the first cutscene", the 15 fps version is fine):
+    # each update decoded and uploaded every frame up to now before drawing one, took longer than
+    # the last, and the picture slid ever further behind the music. Catch up instead: a frame
+    # whose successor is already due is dropped before conversion and upload, and while behind
+    # the decoder skips non-reference frames and the loop filter (over a second: keyframes only).
+    ('video/movies.cpp',
+     '\t\t\t\t// use a pointer to identify the AVFrame object we ultimately want to use\n',
+     '#ifdef FFNX_ANDROID\n'
+     '\t\t\t\t{   // FF7Recomp: catch up with the music when decoding falls behind\n'
+     '\t\t\t\t\tconst AVStream *vs = format_ctx->streams[videostream];\n'
+     '\t\t\t\t\tconst int64_t org = vs->start_time == AV_NOPTS_VALUE ? 0 : vs->start_time;\n'
+     '\t\t\t\t\tconst int64_t fdur = movie_fps > 0.0 ? int64_t(1000000.0 / movie_fps) : 0;\n'
+     '\t\t\t\t\tif (movie_frame_counter > 0 && fdur > 0 && movie_frame->best_effort_timestamp != AV_NOPTS_VALUE) {\n'
+     '\t\t\t\t\t\tconst int64_t lag = presentation_time - av_rescale_q(movie_frame->best_effort_timestamp - org, vs->time_base, AV_TIME_BASE_Q);\n'
+     '\t\t\t\t\t\tAVDiscard want = codec_ctx->skip_frame;\n'
+     '\t\t\t\t\t\tif (lag > 1000000) want = AVDISCARD_NONKEY;\n'
+     '\t\t\t\t\t\telse if (lag > 150000) want = AVDISCARD_NONREF;\n'
+     '\t\t\t\t\t\telse if (lag < fdur) want = AVDISCARD_DEFAULT;\n'
+     '\t\t\t\t\t\tif (codec_ctx->skip_frame != want) {\n'
+     '\t\t\t\t\t\t\tcodec_ctx->skip_frame = want;\n'
+     '\t\t\t\t\t\t\tcodec_ctx->skip_loop_filter = want == AVDISCARD_DEFAULT ? AVDISCARD_DEFAULT : AVDISCARD_ALL;\n'
+     '\t\t\t\t\t\t\tif (trace_movies || trace_all) ffnx_trace("movie: %lld ms behind, decoder skip %d\\n", (long long)(lag / 1000), int(want));\n'
+     '\t\t\t\t\t\t}\n'
+     '\t\t\t\t\t\tif (lag >= fdur) { av_frame_unref(movie_frame); continue; }   // a newer frame is already due\n'
+     '\t\t\t\t\t}\n'
+     '\t\t\t\t}\n'
+     '#endif\n'
+     '\t\t\t\t// use a pointer to identify the AVFrame object we ultimately want to use\n'),
     ('common.cpp', '\t\t\t\tif (strstr(basedir, "workingdir") != NULL)',
      '\t\t\t\tif (FFNX_ANDROID || strstr(basedir, "workingdir") != NULL)   // FF7Recomp: 2026 rerelease exe'),
     # Save states: which graphics objects carry button prompts is host state (prompt_resources)
