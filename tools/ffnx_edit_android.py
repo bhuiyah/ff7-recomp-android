@@ -25,6 +25,14 @@ CRT_BLOCK = (
     '\t}\n'
 )
 
+# FF7Recomp: the world map's sources use the world map's frame multiplier (60 FPS at most).
+WORLD_MULT = (
+    '#ifdef FFNX_ANDROID\n'
+    'extern int ff7r_world_frame_multiplier;   // FF7Recomp: the world map runs at 60 in the 120 FPS mode\n'
+    '#define common_frame_multiplier ff7r_world_frame_multiplier\n'
+    '#endif\n'
+)
+
 EDITS = [
     # Host variables that hold *game* functions must be gfn (calling a guest VA as native
     # code would jump to a 32-bit address).
@@ -120,17 +128,44 @@ EDITS = [
     ('renderer.cpp', '    if (!bgfx::init(bgfxInit)) exit(1);\n',
      '    if (!bgfx::init(bgfxInit)) exit(1);\n'
      '#ifdef FFNX_ANDROID\n'
-     '    if (bgfx::getRendererType() != bgfx::RendererType::Vulkan || getenv("FF7_TEST_VK_TRACE"))   // FF7Recomp\n'
+     '    if ((bgfx::getRendererType() != bgfx::RendererType::Vulkan && bgfx::getRendererType() != bgfx::RendererType::OpenGLES) || getenv("FF7_TEST_VK_TRACE"))   // FF7Recomp\n'
      '    {\n'
      '        fprintf(stderr, "[ffnx-android] renderer: %s. Vulkan start-up:\\n%s", bgfx::getRendererName(bgfx::getRendererType()), ff7_bgfx_vk_trace());\n'
-     '        if (bgfx::getRendererType() != bgfx::RendererType::Vulkan)\n'
+     '        if (bgfx::getRendererType() != bgfx::RendererType::Vulkan && bgfx::getRendererType() != bgfx::RendererType::OpenGLES)\n'
      '        {\n'
-     '            fprintf(stderr, "[ffnx-android] FATAL: Vulkan could not start on this device (see above). FF7Recomp needs Vulkan graphics.\\n");\n'
+     '            fprintf(stderr, "[ffnx-android] FATAL: the graphics (%s) could not start on this device (see above). Try the other renderer in Settings.\\n", renderer_backend == RENDERER_BACKEND_OPENGL ? "OpenGL ES" : "Vulkan");\n'
      '            fflush(stderr);\n'
      '            usleep(400000);\n'
      '            _exit(1);\n'
      '        }\n'
      '    }\n'
+     '#endif\n'),
+    # OpenGL ES (Settings > Renderer, requested in the comments: some Mali devices run FF7 better
+    # on GL): FFNx's renderer_backend 1 (OpenGL) is bgfx's OpenGL ES on Android, with its own
+    # shaders (*.gles.*, tools/compile_shaders.sh); either renderer is fine at start-up.
+    ('renderer.cpp',
+     '    case RENDERER_BACKEND_OPENGL:\n'
+     '        ret = bgfx::RendererType::OpenGL;\n',
+     '    case RENDERER_BACKEND_OPENGL:\n'
+     '#ifdef FFNX_ANDROID\n'
+     '        ret = bgfx::RendererType::OpenGLES;   // FF7Recomp: Android has OpenGL ES\n'
+     '#else\n'
+     '        ret = bgfx::RendererType::OpenGL;\n'
+     '#endif\n'),
+    ('renderer.cpp',
+     '    case bgfx::RendererType::Vulkan:\n'
+     '        currentRenderer = "Vulkan";\n'
+     '        shaderSuffix = ".vk";\n'
+     '        break;\n',
+     '    case bgfx::RendererType::Vulkan:\n'
+     '        currentRenderer = "Vulkan";\n'
+     '        shaderSuffix = ".vk";\n'
+     '        break;\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    case bgfx::RendererType::OpenGLES:   // FF7Recomp\n'
+     '        currentRenderer = "OpenGL ES";\n'
+     '        shaderSuffix = ".gles";\n'
+     '        break;\n'
      '#endif\n'),
     ('renderer.cpp', 'void Renderer::init()\n{\n',
      '#ifdef FFNX_ANDROID\n'
@@ -189,6 +224,31 @@ EDITS = [
      '}\n'
      '#endif\n\n'
      'void ff7_init_hooks(struct game_obj *_game_object)\n'),
+    # 120 FPS mode: the world map runs at 60 (its own multiplier, 2), as battles do. At x4 the
+    # player's movement multiplier (2/4) alternates 0/1 per frame: Cloud moved every other frame
+    # while the camera moved every frame, and looked blurred and too fast.
+    ('common.cpp', 'int common_frame_multiplier = 1;\n',
+     'int common_frame_multiplier = 1;\n'
+     '#ifdef FFNX_ANDROID\n'
+     'int ff7r_world_frame_multiplier = 1;   // FF7Recomp: the world map\'s (2 at most: 60 FPS)\n'
+     '#endif\n'),
+    ('ff7_opengl.cpp',
+     '\t\t\t\tcommon_frame_multiplier = ff7_fps_limiter >= FPS_LIMITER_120FPS ? 4 : 2;   // FF7Recomp: 120 FPS mode\n',
+     '\t\t\t\tcommon_frame_multiplier = ff7_fps_limiter >= FPS_LIMITER_120FPS ? 4 : 2;   // FF7Recomp: 120 FPS mode\n'
+     '\t\t\t\t{ extern int ff7r_world_frame_multiplier; ff7r_world_frame_multiplier = common_frame_multiplier > 2 ? 2 : common_frame_multiplier; }   // FF7Recomp: world map at 60\n'),
+    ('ff7/world/world.cpp', '#include "renderer.h"\n', '#include "renderer.h"\n' + WORLD_MULT),
+    ('ff7/world/player.cpp', '#include "ff7/world/defs.h"\n', '#include "ff7/world/defs.h"\n' + WORLD_MULT),
+    ('ff7/world/camera.cpp', '#include "defs.h"\n', '#include "defs.h"\n' + WORLD_MULT),
+    ('ff7/world/renderer.cpp', '#include "../../lighting.h"\n', '#include "../../lighting.h"\n' + WORLD_MULT),
+    ('ff7/time.cpp', 'namespace ff7\n',
+     '#ifdef FFNX_ANDROID\nextern int ff7r_world_frame_multiplier;   // FF7Recomp: common.cpp\n#endif\nnamespace ff7\n'),
+    ('ff7/time.cpp',
+     '        if(mode->driver_mode == MODE_BATTLE)\n            modeFramesPerMinute *= battle_frame_multiplier;\n',
+     '        if(mode->driver_mode == MODE_BATTLE)\n            modeFramesPerMinute *= battle_frame_multiplier;\n'
+     '#ifdef FFNX_ANDROID\n'
+     '        else if(mode->driver_mode == MODE_WORLDMAP)\n'
+     '        modeFramesPerMinute *= 2 * ::ff7r_world_frame_multiplier;   // FF7Recomp\n'
+     '#endif\n'),
     ('ff7/field/model.cpp', 'int model_id = std::distance(*ff7_externals.field_event_data_ptr, field_event_model);',
      'int model_id = std::distance((field_event_data *)*ff7_externals.field_event_data_ptr, field_event_model);'),
     ('ff7/field/opcode.cpp', '        auto *field_global_data_ptr = *ff7_externals.field_global_object_ptr;',
@@ -352,8 +412,11 @@ EDITS = [
     ('ff7_opengl.cpp', '\t\t\t\tcommon_frame_multiplier = 2;\n',
      '\t\t\t\tcommon_frame_multiplier = ff7_fps_limiter >= FPS_LIMITER_120FPS ? 4 : 2;   // FF7Recomp: 120 FPS mode\n'),
     ('ff7/misc.cpp', '\t\tswitch (mode->driver_mode)\n\t\t{\n\t\tcase MODE_FIELD:\n\t\tcase MODE_WORLDMAP:\n\t\tcase MODE_BATTLE:',
-     '\t\tswitch (mode->driver_mode)\n\t\t{\n\t\tcase MODE_FIELD:\n\t\tcase MODE_WORLDMAP:\n'
+     '\t\tswitch (mode->driver_mode)\n\t\t{\n\t\tcase MODE_FIELD:\n'
      '\t\t\tframerate = 30.0f * common_frame_multiplier;   // FF7Recomp: 60, or 120 in the 120 FPS mode\n'
+     '\t\t\tbreak;\n'
+     '\t\tcase MODE_WORLDMAP:\n'
+     '\t\t\t{ extern int ff7r_world_frame_multiplier; framerate = 30.0f * ff7r_world_frame_multiplier; }   // FF7Recomp: 60 (also in the 120 FPS mode)\n'
      '\t\t\tbreak;\n\t\tcase MODE_BATTLE:'),
     # 120 FPS battles (docs/ROADMAP.md M5b): battle runs 8 ticks per original 15 FPS one.
     # FFNx's battle maths is written for x2/x4; at x8:

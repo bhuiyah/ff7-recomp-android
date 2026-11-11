@@ -1216,6 +1216,25 @@ public class LauncherActivity extends Activity {
         fps.setChecked(prefs.getBoolean("show_fps", false));
         fps.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("show_fps", on).apply());
         col.addView(fps);
+        col.addView(text("Renderer", 16, TEXT));
+        RadioGroup rg = new RadioGroup(this);
+        String[][] renderers = {
+            { "0", "Vulkan (recommended)", "Fastest on most devices" },
+            { "1", "OpenGL ES", "Try it if the game is slow, shows graphics errors or does not start with Vulkan (some Mali GPUs)" },
+        };
+        int curR = prefs.getInt("renderer", 0);
+        for (String[] a : renderers) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(a[1] + "\n" + a[2]);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            final int v = Integer.parseInt(a[0]);
+            rb.setOnClickListener(x -> prefs.edit().putInt("renderer", v).apply());
+            rg.addView(rb);
+            if (v == curR) rb.setChecked(true);
+        }
+        col.addView(rg);
         CheckBox crt = new CheckBox(this);
         crt.setText("CRT filter\nScanlines and a phosphor mask, like an old TV");
         crt.setTextColor(TEXT);
@@ -1318,7 +1337,7 @@ public class LauncherActivity extends Activity {
             case 0: return "As shipped";
             case 1: return "As shipped, smoother pacing";
             case 2: return "Battles at 30, the rest as shipped";
-            case 4: return "Field at 120, battles at 60";
+            case 4: return "Field at 120; world map and battles at 60";
             default: return "Everything at 60";
         }
     }
@@ -1674,6 +1693,7 @@ public class LauncherActivity extends Activity {
             }
             install.steamAchievements = steamOn;
             install.crtFilter = prefs.getBoolean("crt_filter", false);
+            install.openGl = prefs.getInt("renderer", 0) == 1;
             int aspect = prefs.getInt("aspect", 2);   // 3: 16:9 stretched by Android (GameActivity), FFNx renders 16:9
             install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, aspect == 3 ? 2 : aspect, prefs.getBoolean("show_fps", false), library.mods,
                                   renderScaleCap());

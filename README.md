@@ -3,7 +3,7 @@
 # FF7Recomp
 
 FINAL FANTASY VII (PC, the Steam release) statically recompiled to native ARM64 Android, rendered by
-[FFNx](https://github.com/julianxhokaxhiu/FFNx) on Vulkan, with a 7th Heaven-style mod launcher.
+[FFNx](https://github.com/julianxhokaxhiu/FFNx) on Vulkan (or OpenGL ES), with a 7th Heaven-style mod launcher.
 Built for the AYN Thor (dual screen), and meant to run on other Android handhelds and phones.
 
 > **This repository and the APK contain no game code or data.** You need your own copy of FINAL
@@ -50,6 +50,8 @@ and I would rather you know before you install it.
 - On screens wider than 16:9 (most phones), **Settings** → **Display** → **16:9, stretched to fill** removes the
   black bars at the sides.
 - A CRT filter (**Settings** → **Display**): scanlines and a phosphor mask, like an old TV.
+- Renderer (**Settings** → **Display**): Vulkan (default) or OpenGL ES, for GPUs whose Vulkan driver
+  has trouble with the game.
 - Portrait on phones (**Settings** → **Screen**): the game at the top; below it the party, location,
   enemy HP and a touch deck (menu, save/load state, speed), then the on-screen controls.
 - On the AYN Thor's bottom screen: party status, location, enemy HP in battle, a touch deck
@@ -189,7 +191,7 @@ build) and `game/FFNx.log`.
   French, German or Spanish; the Japanese edition is not supported yet.
 - Movies decode on the CPU (no hardware decoding yet): upscaled 30 FPS movie mods work on the
   Thor but run warmer.
-- The 120 FPS mode is experimental.
+- The 120 FPS mode is experimental. It runs fields at 120; the world map and battles stay at 60.
 - RetroAchievements: offline only, until the port is approved by RetroAchievements.
 - Steam achievements: tested with "First Blood" on the current release; the others use FFNx's
   triggers unchanged but have not each been played through here. Steam playtime and cloud saves

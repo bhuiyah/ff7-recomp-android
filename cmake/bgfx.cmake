@@ -53,7 +53,7 @@ target_include_directories(bgfx
   PRIVATE "${BGFX_DIR}/3rdparty" "${BGFX_DIR}/3rdparty/khronos" "${BGFX_DIR}/3rdparty/directx-headers/include/directx")
 target_compile_definitions(bgfx
   PUBLIC  BGFX_CONFIG_RENDERER_VULKAN=1
-  PRIVATE BGFX_CONFIG_RENDERER_OPENGLES=0
+  PRIVATE BGFX_CONFIG_RENDERER_OPENGLES=31   # FF7Recomp: Settings > Renderer > OpenGL ES
           BGFX_CONFIG_RENDERER_OPENGL=0
           BGFX_CONFIG_PREFER_DISCRETE_GPU=0
           BGFX_CONFIG_DYNAMIC_INDEX_BUFFER_SIZE=${FF7_BGFX_DYNAMIC_INDEX_BUFFER_SIZE}
@@ -65,7 +65,7 @@ target_compile_definitions(bgfx
 target_link_libraries(bgfx PUBLIC bimg_decode bimg bx)
 target_compile_options(bgfx PRIVATE -w)
 if(ANDROID)
-  target_link_libraries(bgfx PUBLIC android log dl)
+  target_link_libraries(bgfx PUBLIC android log dl EGL GLESv3)   # GLESv3, EGL: the OpenGL ES renderer
 else()
   target_link_libraries(bgfx PUBLIC dl pthread)
 endif()

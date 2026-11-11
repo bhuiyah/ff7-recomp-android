@@ -283,6 +283,7 @@ final class GameInstall {
      */
     /** FFNx's Steam achievement code on (signed in to Steam: SteamLink.java). */
     boolean steamAchievements;
+    boolean openGl;             // Settings > Display > Renderer: OpenGL ES instead of Vulkan
     boolean crtFilter;          // Settings > Display > CRT filter (FFNx crt_filter, an FF7Recomp edit)
 
     /** The game's languages: FFNx's game_language, the launcher's name, the data/lang-* folder. */
@@ -362,7 +363,7 @@ final class GameInstall {
     void writeFfnxToml(int fpsLimiter, boolean turbo, int aspectRatio, boolean showFps, List<ModLibrary.Mod> mods, int scaleCap) throws IOException {
         File template = new File(game, "FFNx.template.toml");
         String toml = new String(readAll(new java.io.FileInputStream(template)), StandardCharsets.UTF_8);
-        toml = set(toml, "renderer_backend", "5");
+        toml = set(toml, "renderer_backend", openGl ? "1" : "5");   // 1: OpenGL ES on Android (an FF7Recomp edit), 5: Vulkan
         toml = set(toml, "fullscreen", "true");
         // 2x speed: FFNx's speedhack at 2x from the start (L3 then L2/R2 toggles it). With 60 or 120
         // FPS chosen the game keeps its 60 FPS timing, which at 2x is shown at 120 FPS.
