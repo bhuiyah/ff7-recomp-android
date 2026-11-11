@@ -134,6 +134,12 @@ struct State {
     std::unordered_map<std::string, std::vector<Override>> map;   // key -> overrides, priority order
     std::string cache, language = "en";
     RuntimeVars vars;                       // 7thHeaven.var + the mods' <Variable> aliases
+    // mods the profile listed against their <OrderConstraints>: `who` was moved below / above `other`
+    struct OrderMove { const Mod *who, *other; bool below; };
+    std::vector<OrderMove> order_moves;
+    // options set by other mods' <Compatibility><Setting>s: mod, option name, the value's name
+    struct SettingChange { const Mod *mod; std::string option, value; };
+    std::vector<SettingChange> setting_changes;
 } g;
 
 void add_override(const std::string &key, int mod, const std::string &file, const ConditionalFolder *cond) {
@@ -295,6 +301,8 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
     std::lock_guard<std::mutex> lk(g.lock);
     g.mods.clear();
     g.map.clear();
+    g.order_moves.clear();
+    g.setting_changes.clear();
     g.vars = RuntimeVars();
     g.cache = cache_dir ? cache_dir : "";
     if (!profile_path || !is_file(profile_path)) return 0;
@@ -316,6 +324,33 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         g.vars.load_aliases(text);
     }
 
+    // FFNx's settings for "ffnx_<key> = N" conditions (Profile.cs IsConfigActive reads
+    // Sys.FFNxConfig): <files>/game/FFNx.toml, next to the mods folder. Integer values only, as
+    // there (int.Parse). Tsunamods' widescreen battle layouts are chosen on ffnx_aspect_ratio = 2.
+    OptionValues ffnx;
+    auto trim = [](std::string s) {
+        size_t a = s.find_first_not_of(" \t\r\n\""), b = s.find_last_not_of(" \t\r\n\"");
+        return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
+    };
+    if (std::FILE *tf = std::fopen(join(base, "../game/FFNx.toml").c_str(), "rb")) {
+        char line[512];
+        while (std::fgets(line, sizeof line, tf)) {
+            std::string l = line;
+            size_t eq = l.find('=');
+            if (l.empty() || l[0] == '#' || l[0] == '[' || eq == std::string::npos) continue;
+            std::string key = lower(trim(l.substr(0, eq))), val = trim(l.substr(eq + 1));
+            size_t hash = val.find('#');
+            if (hash != std::string::npos) val = trim(val.substr(0, hash));
+            char *end = nullptr;
+            long v = std::strtol(val.c_str(), &end, 10);
+            if (key.empty() || val.empty() || *end) continue;
+            ffnx["ffnx_" + key] = (int)v;
+        }
+        std::fclose(tf);
+    }
+
+    struct Pending { std::unique_ptr<Mod> mod; OptionValues chosen; };
+    std::vector<Pending> pending;
     for (pugi::xml_node mn : prof.children("Mod")) {
         std::string p = mn.attribute("Path").value();
         for (char &c : p) if (c == '\\') c = '/';
@@ -338,9 +373,129 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         if (!load_modinfo(*m, err)) { std::fprintf(stderr, "[mods] %s: %s, skipped\n", m->name.c_str(), err.c_str()); continue; }
         OptionValues chosen;
         for (pugi::xml_node o : mn.children("Option")) chosen[lower(o.attribute("ID").value())] = o.attribute("Value").as_int();
-        const OptionValues opts = m->info.values(chosen);
+        pending.push_back({ std::move(m), std::move(chosen) });
+    }
+
+    // The mods' <OrderConstraints>, as 7th Heaven's auto-sort applies them (MyModsViewModel
+    // AutoSortBasedOnCategory: each mod in turn moved below its After mods, then above its Before
+    // mods). 7th Heaven also refuses to start with such an order unless the player insists; here
+    // the order is fixed and logged. Finishing Touch declares Before Enhanced Stock UI: below it,
+    // ESUI's battle hext overwrote one byte of FT's rewritten call at 0x6DD49F and every battle
+    // crashed (issue #12).
+    auto find_id = [&](const std::string &id) {
+        for (size_t k = 0; k < pending.size(); k++) if (lower(pending[k].mod->info.id) == id) return (int)k;
+        return -1;
+    };
+    std::vector<Mod *> by_turn;
+    for (const Pending &pm : pending) by_turn.push_back(pm.mod.get());
+    for (Mod *who : by_turn) {
+        auto move = [&](const std::string &other, bool after) {
+            int o = find_id(other), me = -1;
+            for (size_t k = 0; k < pending.size(); k++) if (pending[k].mod.get() == who) me = (int)k;
+            if (o < 0 || o == me || (after ? o < me : o > me)) return;
+            Pending pm = std::move(pending[me]);
+            pending.erase(pending.begin() + me);
+            int to = find_id(other);                         // its place after the removal
+            pending.insert(pending.begin() + (after ? to + 1 : to), std::move(pm));
+            const Mod *o2 = pending[after ? to : to + 1].mod.get();
+            g.order_moves.push_back({ who, o2, after });
+            std::fprintf(stderr, "[mods] %s moved %s %s (its mod.xml load order)\n", who->name.c_str(),
+                         after ? "below" : "above", o2->name.c_str());
+        };
+        for (const std::string &id : who->info.order_after) move(id, true);
+        for (const std::string &id : who->info.order_before) move(id, false);
+    }
+
+    // The mods' <Compatibility><Setting>s, as 7th Heaven applies them at launch (GetConstraints
+    // with the options as chosen, then Constraint.Verify on each): the other mod's option is set to
+    // the Require, or off a Forbid value. Finishing Touch's theme sets a dozen of Enhanced Stock
+    // UI's (its battle view, battle boxes, ...); without them both mods drew their own battle
+    // layout, names over the HP numbers.
+    // 7th Heaven writes each change into the profile, so over launches the values settle (Finishing
+    // Touch's theme off sets its own battle view to Theme Off, and from then on its "battle view 11"
+    // rules no longer apply). The profile is not written here, so the same is reached in passes:
+    // each pass applies, to the options as chosen, the rules that the previous pass's values call for.
+    {
+        struct Need { std::vector<int> require; std::vector<int> forbid; };
+        std::vector<OptionValues> orig, vals;
+        for (const Pending &pm : pending) orig.push_back(pm.chosen);
+        vals = orig;
+        for (int pass = 0; pass < 8; pass++) {
+            const bool last = pass == 7;
+            std::map<std::pair<int, std::string>, Need> needs;
+            for (size_t a = 0; a < pending.size(); a++) {
+                const ModInfo &info = pending[a].mod->info;
+                const OptionValues mine = info.values(vals[a]);
+                for (const ModInfo::CompatSetting &cs : info.compat_settings) {
+                    if (!cs.my_id.empty()) {
+                        auto it = mine.find(cs.my_id);
+                        if (it == mine.end() || it->second != cs.my_value) continue;
+                    }
+                    int b = find_id(cs.mod_id);
+                    if (b < 0) continue;
+                    Need &n = needs[{ b, cs.their_id }];
+                    if (cs.has_require) n.require.push_back(cs.require);
+                    n.forbid.insert(n.forbid.end(), cs.forbid.begin(), cs.forbid.end());
+                }
+            }
+            std::vector<OptionValues> next = orig;
+            for (const auto &kv : needs) {
+                const int ti = kv.first.first;
+                const ModInfo &tinfo = pending[ti].mod->info;
+                const ConfigOption *opt = nullptr;
+                for (const ConfigOption &o : tinfo.options) if (lower(o.id) == kv.first.second) opt = &o;
+                if (!opt) continue;                                  // 7th Heaven: the option no longer exists
+                std::vector<std::pair<int, std::string>> allowed = opt->values;
+                if (allowed.empty()) allowed = { { 0, "Off" }, { 1, "On" } };
+                const Need &n = kv.second;
+                auto forbidden = [&](int v) { return std::find(n.forbid.begin(), n.forbid.end(), v) != n.forbid.end(); };
+                const int cur = tinfo.values(next[ti])[kv.first.second];
+                int want = cur;
+                bool clash = false;
+                if (!n.require.empty()) {
+                    want = n.require[0];
+                    for (int r : n.require) clash |= (r != want);
+                    clash |= forbidden(want);
+                    bool exists = false;
+                    for (const auto &v : allowed) exists |= (v.first == want);
+                    clash |= !exists;
+                } else if (forbidden(cur)) {
+                    clash = true;
+                    for (const auto &v : allowed) if (!forbidden(v.first)) { want = v.first; clash = false; break; }
+                }
+                if (clash) {     // 7th Heaven refuses to start; here the option stays as chosen
+                    if (last) std::fprintf(stderr, "[mods] %s: option %s: the other mods ask for values that clash, left as chosen\n",
+                                           pending[ti].mod->name.c_str(), opt->id.c_str());
+                    continue;
+                }
+                next[ti][kv.first.second] = want;
+            }
+            if (next == vals) break;
+            vals = std::move(next);
+        }
+        // what changed against the options as chosen
+        for (size_t i = 0; i < pending.size(); i++) {
+            const ModInfo &info = pending[i].mod->info;
+            const OptionValues before = info.values(orig[i]), after = info.values(vals[i]);
+            for (const ConfigOption &o : info.options) {
+                const std::string id = lower(o.id);
+                auto bi = before.find(id), ai = after.find(id);
+                if (bi == before.end() || ai == after.end() || bi->second == ai->second) continue;
+                std::string vname = std::to_string(ai->second);
+                for (const auto &v : o.values) if (v.first == ai->second && !v.second.empty()) vname = v.second;
+                g.setting_changes.push_back({ pending[i].mod.get(), o.name.empty() ? o.id : o.name, vname });
+                std::fprintf(stderr, "[mods] %s: option %s set to %s (another mod's compatibility settings)\n",
+                             pending[i].mod->name.c_str(), o.id.c_str(), vname.c_str());
+            }
+            pending[i].chosen = vals[i];
+        }
+    }
+
+    for (Pending &pm : pending) {
+        OptionValues opts = pm.mod->info.values(pm.chosen);
+        for (const auto &kv : ffnx) opts.emplace(kv.first, kv.second);   // a mod's own option wins
         int mi = (int)g.mods.size();
-        g.mods.push_back(std::move(m));
+        g.mods.push_back(std::move(pm.mod));
         Mod &mod = *g.mods[mi];
         for (const auto &v : mod.info.variables) g.vars.add_alias(v.first, v.second);
         // AppCore Profile.GetRuntime: active Conditionals and ModFolders; the mod root only
@@ -467,6 +622,30 @@ extern "C" char *ff7_mods_conflicts_json(const char *profile_path) {
                  "\",\"why\":\"" + jesc(r.description) + "\"}";
             first = false;
         }
+    // <OrderConstraints> the profile's order broke; the game loads them in the mods' order
+    j += "],\"reordered\":[";
+    first = true;
+    for (const auto &mv : g.order_moves) {
+        int a = -1, b = -1;
+        for (size_t i = 0; i < g.mods.size(); i++) {
+            if (g.mods[i].get() == mv.who) a = (int)i;
+            if (g.mods[i].get() == mv.other) b = (int)i;
+        }
+        if (a < 0 || b < 0) continue;
+        j += std::string(first ? "" : ",") + "{\"mod\":" + std::to_string(a) + ",\"other\":" + std::to_string(b) +
+             ",\"below\":" + (mv.below ? "true" : "false") + "}";
+        first = false;
+    }
+    j += "],\"settings\":[";
+    first = true;
+    for (const auto &sc : g.setting_changes) {
+        int a = -1;
+        for (size_t i = 0; i < g.mods.size(); i++) if (g.mods[i].get() == sc.mod) a = (int)i;
+        if (a < 0) continue;
+        j += std::string(first ? "" : ",") + "{\"mod\":" + std::to_string(a) + ",\"option\":\"" + jesc(sc.option) +
+             "\",\"value\":\"" + jesc(sc.value) + "\"}";
+        first = false;
+    }
     j += "]}";
     char *out = (char *)std::malloc(j.size() + 1);
     if (out) std::memcpy(out, j.c_str(), j.size() + 1);

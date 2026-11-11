@@ -79,6 +79,20 @@ struct ModInfo {
     // (Profile.cs Compatibility): other mods this one needs / does not work with.
     struct CompatRef { std::string mod_id, description; };
     std::vector<CompatRef> compat_requires, compat_forbids;
+    // <Compatibility> <Setting> (Profile.cs CompatSetting): while this mod's option MyID is MyValue
+    // (or always, without MyID), mod ModID's option TheirID must be Require / must not be any Forbid.
+    // 7th Heaven sets the other mod's option so at launch (GameLauncher.SanityCheckSettings).
+    struct CompatSetting {
+        std::string my_id, mod_id, their_id;            // lower case
+        int my_value = 0;
+        bool has_require = false;
+        int require = 0;
+        std::vector<int> forbid;
+    };
+    std::vector<CompatSetting> compat_settings;
+    // <OrderConstraints> <Before>guid</Before> <After>guid</After> (Profile.cs OrderBefore /
+    // OrderAfter): mods this one must be above / below in the load order (lower case GUIDs).
+    std::vector<std::string> order_before, order_after;
 
     // Option values with each option's default, overridden by `chosen`.
     OptionValues values(const OptionValues &chosen) const;

@@ -164,7 +164,10 @@ has it, with `tools/run_lift.py catalog` and `tools/refresh_manifests.sh`.
 ## Mods
 
 **Get mods** lists the Qhimm and Sega 7th Heaven catalogs. Install, then enable and order them
-under **Mods** (higher in the list wins). Large mods download and unpack on the device; you
+under **Mods** (higher in the list wins). **Auto-sort** orders them as 7th Heaven's Auto-sort
+does: by category, then by each mod's own load-order rules (for example Finishing Touch above
+Enhanced Stock UI). Those rules, and the option values one mod sets for another for compatibility,
+also apply in game whatever the list order, as 7th Heaven applies them at launch. Large mods download and unpack on the device; you
 can keep using the launcher meanwhile. You can also add your own `.iro` files or mod folders.
 
 ## Steam achievements

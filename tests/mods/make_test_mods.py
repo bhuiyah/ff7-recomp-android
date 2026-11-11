@@ -101,6 +101,44 @@ def main():
             f'  <Mod Path="folder_mod"/>\n'
             f'  <Mod Path="test.iro">{extra}</Mod>\n'
             '</Profile>\n')
+    # <OrderConstraints><Before>: "theme_mod" must be above "base_ui" (Finishing Touch over
+    # Enhanced Stock UI), so the profile listing base_ui first is corrected and theme_mod's hext
+    # goes last (comments and stray text between the entries, as in Finishing Touch's mod.xml)
+    # and <Compatibility><Setting>: while theme_mod's option t is 1 (its default), base_ui's
+    # option view must be 5, which activates base_ui's folder v5 (Forbid 3 alone would pick 1)
+    view = ('<ConfigOption><Type>List</Type><Default>3</Default><ID>view</ID><Name>View</Name>'
+            '<Option Value="1" Name="One"/><Option Value="3" Name="Three"/><Option Value="5" Name="Five"/></ConfigOption>'
+            '<ModFolder Folder="v5" ActiveWhen="view = 5"/>')
+    os.makedirs(os.path.join(out, "base_ui", "v5", "hext"), exist_ok=True)
+    open(os.path.join(out, "base_ui", "v5", "hext", "v.txt"), "wb").write(b"view 5\n2002=55\n")
+    # ffnx_<key> conditions read <mods>/../game/FFNx.toml; a key it lacks counts as 0
+    view += ('<ModFolder Folder="ws"><ActiveWhen><And><Option>ffnx_aspect_ratio = 2</Option>'
+             '<Option>ffnx_not_there = 0</Option></And></ActiveWhen></ModFolder>'
+             '<ModFolder Folder="w43"><ActiveWhen><Not><Option>ffnx_aspect_ratio = 2</Option></Not></ActiveWhen></ModFolder>')
+    for f, b in (("ws", b"ws\n2003=66\n"), ("w43", b"43\n2004=77\n")):
+        os.makedirs(os.path.join(out, "base_ui", f, "hext"), exist_ok=True)
+        open(os.path.join(out, "base_ui", f, "hext", "w.txt"), "wb").write(b)
+    os.makedirs(os.path.join(out, "..", "game"), exist_ok=True)
+    open(os.path.join(out, "..", "game", "FFNx.toml"), "w").write(
+        '# FFNx\n[section]\naspect_ratio = 2 # widescreen\nrenderer_backend = 5\nmod_path = "mods/Textures"\nfullscreen = true\n')
+    for name, ident, compat, hext in (
+            ("base_ui", "aaaaaaaa-0000-0000-0000-000000000001", view, b"base ui\n2000=11 22\n"),
+            ("theme_mod", "bbbbbbbb-0000-0000-0000-000000000002",
+             "<OrderConstraints> ==ui== <Before>AAAAAAAA-0000-0000-0000-000000000001</Before>"
+             "<!--<Before>cccccccc-0000-0000-0000-000000000003</Before>-->"
+             "<After>dddddddd-0000-0000-0000-000000000004</After></OrderConstraints>"
+             "<ConfigOption><Type>Bool</Type><Default>1</Default><ID>t</ID><Name>Theme</Name></ConfigOption>"
+             "<Compatibility><Setting><MyID>T</MyID><MyValue>1</MyValue>"
+             "<ModID>aaaaaaaa-0000-0000-0000-000000000001</ModID><TheirID>View</TheirID><Require>5</Require></Setting>"
+             "<Setting><MyID>t</MyID><MyValue>0</MyValue>"
+             "<ModID>aaaaaaaa-0000-0000-0000-000000000001</ModID><TheirID>view</TheirID><Require>1</Require></Setting>"
+             "</Compatibility>", b"theme\n2000=33\n")):
+        os.makedirs(os.path.join(out, name, "hext"), exist_ok=True)
+        open(os.path.join(out, name, "mod.xml"), "w").write(
+            f"<ModInfo><ID>{ident}</ID><Name>{name}</Name>{compat}</ModInfo>\n")
+        open(os.path.join(out, name, "hext", "p.txt"), "wb").write(hext)
+    open(os.path.join(out, "profile_compat.xml"), "w").write(
+        '<Profile Language="en">\n  <Mod Path="base_ui"/>\n  <Mod Path="theme_mod"/>\n</Profile>\n')
     open(os.path.join(out, "lzma_expected.bin"), "wb").write(LZMA_TEXT)
 
 

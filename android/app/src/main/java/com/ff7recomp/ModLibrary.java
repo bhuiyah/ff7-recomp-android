@@ -52,6 +52,8 @@ final class ModLibrary {
         String id = "";                                        // mod.xml ID (lower case)
         final List<String[]> requires = new ArrayList<>();    // <Compatibility>: [mod id, why]
         final List<String[]> forbids = new ArrayList<>();
+        // <OrderConstraints>: mod ids this one must be above / below (lower case)
+        final List<String> orderBefore = new ArrayList<>(), orderAfter = new ArrayList<>();
         // hext patches as the last game run applied them (mods/hext_status.txt, written by
         // src/host/ff7_hext.cpp); null if the mod had none or the game has not run with it
         String hext;
@@ -208,6 +210,9 @@ final class ModLibrary {
             JSONArray fb = j.optJSONArray("forbids");
             for (int i = 0; fb != null && i < fb.length(); i++)
                 m.forbids.add(new String[] { fb.getJSONObject(i).optString("id"), fb.getJSONObject(i).optString("why") });
+            JSONArray ob = j.optJSONArray("before"), oa = j.optJSONArray("after");
+            for (int i = 0; ob != null && i < ob.length(); i++) m.orderBefore.add(ob.optString(i).toLowerCase(Locale.ROOT));
+            for (int i = 0; oa != null && i < oa.length(); i++) m.orderAfter.add(oa.optString(i).toLowerCase(Locale.ROOT));
             JSONArray opts = j.optJSONArray("options");
             for (int i = 0; opts != null && i < opts.length(); i++) {
                 JSONObject o = opts.getJSONObject(i);
@@ -268,6 +273,58 @@ final class ModLibrary {
         int to = index + delta;
         if (index < 0 || index >= mods.size() || to < 0 || to >= mods.size()) return;
         mods.add(to, mods.remove(index));
+    }
+
+    // 7th Heaven's category load order (AppCore ModLoadOrder.Orders); anything else is "Unknown"
+    private static final String[] CATEGORY_ORDER = { "Miscellaneous", "Animations", "Battle Models", "Battle Textures",
+            "Field Models", "Field Textures", "Gameplay", "Media", "Minigames", "Spell Textures", "User Interface",
+            "World Models", "World Textures", "Shaders", "Unknown" };
+
+    static int categoryRank(String category) {
+        if (category != null)
+            for (int i = 0; i < CATEGORY_ORDER.length; i++)
+                if (CATEGORY_ORDER[i].equalsIgnoreCase(category.trim())) return i;
+        return CATEGORY_ORDER.length - 1;
+    }
+
+    /** 7th Heaven's Auto-sort (MyModsViewModel.AutoSortBasedOnCategory): by category in its load
+     *  order, then by name; then each mod in turn moved below the mods its mod.xml says it goes
+     *  after and above the ones it goes before. `catalogCategory` fills in a category mod.xml lacks.
+     *  True if the order changed. */
+    boolean autoSort(java.util.function.Function<Mod, String> catalogCategory) {
+        List<Mod> sorted = new ArrayList<>(mods);
+        java.util.function.Function<Mod, String> cat = m -> {
+            String c = m.category;
+            if ((c == null || c.trim().isEmpty()) && catalogCategory != null) c = catalogCategory.apply(m);
+            return c;
+        };
+        sorted.sort((a, b) -> {
+            int c = Integer.compare(categoryRank(cat.apply(a)), categoryRank(cat.apply(b)));
+            return c != 0 ? c : a.title().compareToIgnoreCase(b.title());
+        });
+        for (Mod m : new ArrayList<>(sorted)) {
+            if (m.id == null || m.id.isEmpty()) continue;
+            for (String after : m.orderAfter) {
+                int other = indexOfId(sorted, after), me = sorted.indexOf(m);
+                if (other < 0 || other <= me) continue;
+                sorted.remove(me);
+                sorted.add(other, m);                  // the other shifted up one: m lands below it
+            }
+            for (String before : m.orderBefore) {
+                int other = indexOfId(sorted, before), me = sorted.indexOf(m);
+                if (other < 0 || other >= me) continue;
+                sorted.remove(me);
+                sorted.add(other, m);                  // m lands just above it
+            }
+        }
+        if (sorted.equals(new ArrayList<>(mods))) return false;
+        mods = new java.util.concurrent.CopyOnWriteArrayList<>(sorted);
+        return true;
+    }
+
+    private static int indexOfId(List<Mod> list, String id) {
+        for (int i = 0; i < list.size(); i++) if (id.equalsIgnoreCase(list.get(i).id)) return i;
+        return -1;
     }
 
     int enabledCount() {

@@ -285,6 +285,26 @@ final class ConflictChecker {
             r.note(file[a], "Needs " + needName);
             r.problems++;
         }
+        // mods whose mod.xml says where they go relative to another (Finishing Touch above
+        // Enhanced Stock UI): the game loads them that way whatever the list says, as 7th Heaven's sort does
+        JSONArray ro = j.optJSONArray("reordered");
+        for (int i = 0; ro != null && i < ro.length(); i++) {
+            JSONObject o = ro.optJSONObject(i);
+            int a = o.optInt("mod"), b = o.optInt("other");
+            String where = o.optBoolean("below") ? "below " : "above ";
+            r.lines.add(new Warning(name[a] + " must be " + where + name[b] + " (its own load order), so the game loads it there."
+                    + " Move it " + where + name[b] + " in the list to match.", false));
+            r.note(file[a], "Loaded " + where + name[b] + " (its load order)");
+        }
+        // options another mod's mod.xml sets for compatibility (as 7th Heaven does at launch)
+        JSONArray st = j.optJSONArray("settings");
+        for (int i = 0; st != null && i < st.length(); i++) {
+            JSONObject o = st.optJSONObject(i);
+            int a = o.optInt("mod");
+            r.lines.add(new Warning(name[a] + ": \"" + o.optString("option") + "\" is set to \"" + o.optString("value")
+                    + "\" in game, as another enabled mod asks for compatibility.", false));
+            r.note(file[a], o.optString("option") + ": " + o.optString("value") + " (set by another mod)");
+        }
         JSONArray ov = j.optJSONArray("overlaps");
         for (int i = 0; ov != null && i < ov.length(); i++) {
             JSONObject o = ov.optJSONObject(i);

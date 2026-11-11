@@ -181,6 +181,18 @@ int main(int argc, char **argv) {
         CHECK(ff7_mods_load((dir + "/profile_alt.xml").c_str(), cache.c_str()) == 0);
         ff7_mods_hext(collect, &alt);
         CHECK(alt.mem[0x1002] == 0xBB);                                      // Style = 1 activates alt/
+        Got compat;
+        CHECK(ff7_mods_load((dir + "/profile_compat.xml").c_str(), cache.c_str()) == 0);
+        ff7_mods_hext(collect, &compat);
+        CHECK(compat.files.size() == 4);
+        if (compat.files.size() == 4) {
+            CHECK(compat.files[0] == "base_ui:hext/p.txt");    // listed first, but theme_mod's
+            CHECK(compat.files[1] == "base_ui:v5/hext/v.txt"); // OrderConstraints put it above:
+            CHECK(compat.files[3] == "theme_mod:hext/p.txt");  // its hext goes last
+        }
+        CHECK(compat.mem[0x2003] == 0x66 && !compat.mem.count(0x2004)); // FFNx.toml aspect_ratio = 2
+        CHECK(compat.mem[0x2000] == 0x33 && compat.mem[0x2001] == 0x22);
+        CHECK(compat.mem[0x2002] == 0x55);                     // theme_mod's Setting: base_ui view = 5
     }
 
     // ---- no profile: nothing redirected

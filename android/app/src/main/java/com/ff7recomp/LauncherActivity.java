@@ -352,6 +352,16 @@ public class LauncherActivity extends Activity {
         actions.addView(button("Get mods…", v -> show("catalog")));
         java.util.List<ModCatalog.Mod> ups = catalog.updates();
         if (!ups.isEmpty()) actions.addView(button("Update all (" + ups.size() + ")", v -> installMods(ups, true)));
+        // 7th Heaven's Auto-sort: category order, then the mods' own load-order rules (requested in the comments)
+        if (library.mods.size() > 1) actions.addView(button("Auto‑sort",v -> {
+            boolean changed = library.autoSort(m -> {
+                ModCatalog.Mod c = m.id == null || m.id.isEmpty() ? null : catalog.byId(m.id);
+                return c != null ? c.category : null;
+            });
+            if (changed) { saveProfile(); ensureConflicts(); refresh(); }
+            android.widget.Toast.makeText(this, changed ? "Sorted like 7th Heaven: by category, then each mod's own load order"
+                    : "Already in 7th Heaven's order", android.widget.Toast.LENGTH_LONG).show();
+        }));
         col.addView(actions);
         // what the enabled mods share (computed in the background: archives are read)
         ensureConflicts();

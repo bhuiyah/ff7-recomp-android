@@ -100,11 +100,14 @@ bool option_spec_active(const std::string &spec_in, const OptionValues &opts) {
     std::string id = lower(trim(spec.substr(0, at)));
     std::string num = trim(spec.substr(at + std::strlen(op)));
     auto it = opts.find(id);
-    if (it == opts.end()) return false;
+    // ffnx_<key>: FFNx.toml's value (put in opts by the loader); a key FFNx.toml lacks counts as 0
+    // (ProfileItem.IsConfigActive: a fresh ProfileSetting)
+    const bool ffnx = id.compare(0, 5, "ffnx_") == 0;
+    if (it == opts.end() && !ffnx) return false;
     char *end = nullptr;
     long v = std::strtol(num.c_str(), &end, 10);
     if (num.empty() || *end) return false;
-    const int cur = it->second;
+    const int cur = it == opts.end() ? 0 : it->second;
     // ProfileItem.IsConfigActive compares the literal against the option: val OP conf.
     std::string o = op;
     if (o == "=") return v == cur;
@@ -200,10 +203,38 @@ bool parse_mod_xml(const std::string &xml, ModInfo &m, std::string &error) {
         } else if (ieq(k, "Compatibility")) {
             for (pugi::xml_node c : n.children()) {
                 if (c.type() != pugi::node_element) continue;
+                if (ieq(c.name(), "Setting")) {
+                    ModInfo::CompatSetting cs;
+                    bool ok = true;
+                    for (pugi::xml_node s : c.children()) {
+                        if (s.type() != pugi::node_element) continue;
+                        std::string v = trim(s.text().get());
+                        char *end = nullptr;
+                        long num = std::strtol(v.c_str(), &end, 10);
+                        bool isnum = !v.empty() && end && *end == 0;
+                        if (ieq(s.name(), "MyID")) cs.my_id = lower(v);
+                        else if (ieq(s.name(), "MyValue")) { ok &= isnum; cs.my_value = (int)num; }
+                        else if (ieq(s.name(), "ModID")) cs.mod_id = lower(v);
+                        else if (ieq(s.name(), "TheirID")) cs.their_id = lower(v);
+                        else if (ieq(s.name(), "Require")) { ok &= isnum; cs.has_require = true; cs.require = (int)num; }
+                        else if (ieq(s.name(), "Forbid")) { ok &= isnum; cs.forbid.push_back((int)num); }
+                    }
+                    if (ok && !cs.mod_id.empty() && !cs.their_id.empty()) m.compat_settings.push_back(std::move(cs));
+                    continue;
+                }
                 ModInfo::CompatRef r{ lower(trim(c.attribute("ModID").value())), trim(c.text().get()) };
                 if (r.mod_id.empty()) continue;
                 if (ieq(c.name(), "Require")) m.compat_requires.push_back(r);
                 else if (ieq(c.name(), "Forbid")) m.compat_forbids.push_back(r);
+            }
+        } else if (ieq(k, "OrderConstraints")) {
+            // Finishing Touch: <Before>(Enhanced Stock UI)</Before>, with stray text between entries
+            for (pugi::xml_node c : n.children()) {
+                if (c.type() != pugi::node_element) continue;
+                std::string id = lower(trim(c.text().get()));
+                if (id.empty()) continue;
+                if (ieq(c.name(), "Before")) m.order_before.push_back(id);
+                else if (ieq(c.name(), "After")) m.order_after.push_back(id);
             }
         } else if (ieq(k, "Variable")) {
             m.variables.emplace_back(n.attribute("Name").value(), trim(n.text().get()));

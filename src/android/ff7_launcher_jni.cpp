@@ -93,6 +93,11 @@ std::string mod_json(const std::string &path) {
     j += "],\"forbids\":[";
     for (size_t i = 0; i < m.compat_forbids.size(); i++)
         j += std::string(i ? "," : "") + "{\"id\":\"" + esc(m.compat_forbids[i].mod_id) + "\",\"why\":\"" + esc(m.compat_forbids[i].description) + "\"}";
+    // <OrderConstraints>: the mods this one goes above / below (7th Heaven's auto-sort)
+    j += "],\"before\":[";
+    for (size_t i = 0; i < m.order_before.size(); i++) j += std::string(i ? "," : "") + "\"" + esc(m.order_before[i]) + "\"";
+    j += "],\"after\":[";
+    for (size_t i = 0; i < m.order_after.size(); i++) j += std::string(i ? "," : "") + "\"" + esc(m.order_after[i]) + "\"";
     j += "],\"unsupported\":[";
     for (size_t i = 0; i < m.windows_code.size(); i++) j += std::string(i ? "," : "") + "\"" + esc(m.windows_code[i]) + "\"";
     j += "]}";
