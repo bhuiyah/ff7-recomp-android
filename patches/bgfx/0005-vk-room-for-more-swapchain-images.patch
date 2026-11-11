@@ -1,0 +1,13 @@
+--- a/src/renderer_vk.h
++++ b/src/renderer_vk.h
+@@ -775,7 +775,9 @@
+ 		static VkImageAspectFlags getAspectMask(VkFormat _format);
+ 	};
+ 
+-	constexpr uint32_t kMaxBackBuffers = bx::max(BGFX_CONFIG_MAX_BACK_BUFFERS, 10);
++	// FF7Recomp: 16, not 10: some Android drivers (Mali-G57) hand out 11 swapchain images,
++	// and the swapchain then failed (Vulkan did not start: GitHub issue #8).
++	constexpr uint32_t kMaxBackBuffers = bx::max(BGFX_CONFIG_MAX_BACK_BUFFERS, 16);
+ 
+ 	struct SwapChainVK
+ 	{

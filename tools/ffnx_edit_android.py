@@ -11,6 +11,20 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, 'external', 'FFNx', 'src')
 
+# FF7Recomp CRT filter, the end of FFNx's post shaders (FSHDRFlags.z: crt_filter).
+CRT_BLOCK = (
+    '\t// FF7Recomp: CRT filter (crt_filter): scanlines over the game\'s 240 lines, an\n'
+    '\t// aperture-grille mask on the screen\'s pixels, a soft vignette.\n'
+    '\tif (FSHDRFlags.z > 0.0) {\n'
+    '\t\tfloat scan = 0.5 + 0.5 * cos(6.2831853 * v_texcoord0.y * 240.0);\n'
+    '\t\tcolor.rgb *= mix(0.68, 1.0, scan);\n'
+    '\t\tfloat px = mod(gl_FragCoord.x, 3.0);\n'
+    '\t\tvec3 mask = px < 1.0 ? vec3(1.0, 0.8, 0.8) : (px < 2.0 ? vec3(0.8, 1.0, 0.8) : vec3(0.8, 0.8, 1.0));\n'
+    '\t\tvec2 d = v_texcoord0.xy - vec2(0.5, 0.5);\n'
+    '\t\tcolor.rgb = clamp(color.rgb * mask * 1.3 * (1.0 - 0.3 * dot(d, d)), 0.0, 1.0);\n'
+    '\t}\n'
+)
+
 EDITS = [
     # Host variables that hold *game* functions must be gfn (calling a guest VA as native
     # code would jump to a 32-bit address).
@@ -123,6 +137,58 @@ EDITS = [
      'extern "C" const char* ff7_bgfx_vk_trace();   // FF7Recomp: patches/bgfx/0004\n'
      '#endif\n\n'
      'void Renderer::init()\n{\n'),
+    # CRT filter (Settings > Display; requested in the comments): crt_filter in FFNx.toml,
+    # passed to the post shaders in FSHDRFlags.z (unused there): scanlines over the game's 240
+    # lines, a light aperture-grille mask on the screen's pixels and a soft vignette.
+    ('cfg.h', 'extern bool enable_ntscj_gamut_mode;\n',
+     'extern bool enable_ntscj_gamut_mode;\nextern bool crt_filter;   // FF7Recomp\n'),
+    ('cfg.cpp', 'bool enable_ntscj_gamut_mode;\n',
+     'bool enable_ntscj_gamut_mode;\nbool crt_filter;   // FF7Recomp\n'),
+    ('cfg.cpp', '\tenable_ntscj_gamut_mode = config["enable_ntscj_gamut_mode"].value_or(false);\n',
+     '\tenable_ntscj_gamut_mode = config["enable_ntscj_gamut_mode"].value_or(false);\n'
+     '\tcrt_filter = config["crt_filter"].value_or(false);   // FF7Recomp\n'),
+    ('renderer.cpp',
+     '    internalState.FSHDRFlags = {\n'
+     '        (float)internalState.bIsHDR,\n'
+     '        (float)hdr_max_nits,\n'
+     '        NULL,\n',
+     '    internalState.FSHDRFlags = {\n'
+     '        (float)internalState.bIsHDR,\n'
+     '        (float)hdr_max_nits,\n'
+     '#ifdef FFNX_ANDROID\n'
+     '        crt_filter ? 1.0f : 0.0f,   // FF7Recomp: the post shaders\' CRT filter\n'
+     '#else\n'
+     '        NULL,\n'
+     '#endif\n'),
+    ('../misc/FFNx.post.frag', '\tgl_FragColor = color;\n', CRT_BLOCK + '\tgl_FragColor = color;\n'),
+    ('../misc/FFNx.post.ntscj.frag', '\tgl_FragColor = color;\n', CRT_BLOCK + '\tgl_FragColor = color;\n'),
+    # The game's only _beginthread (0x68944F, battle effects such as Climhazzard: GitHub/Reddit
+    # reports) starts 0x6893CA, which sets the effect object's state to 2, runs its job
+    # ([obj+8]), sets state 3 and ends the thread. The runtime has no guest threads
+    # (CreateThread is not implemented: the game aborted). Run the job in place, as FFNx
+    # already does for the magic thread (magic_thread_start); the handle is never used.
+    ('ff7_opengl.cpp', '\treplace_function(ff7_externals.magic_thread_start, ff7::battle::magic_thread_start);\n',
+     '\treplace_function(ff7_externals.magic_thread_start, ff7::battle::magic_thread_start);\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\tif (*(const uint8_t *)(uintptr_t)0x68944F == 0xE8 && *(const uint32_t *)(uintptr_t)0x68944B == 0x6893CA)   // FF7Recomp: US 1.02 layout\n'
+     '\t\treplace_call_function(0x68944F, ff7r_effect_thread_sync);\n'
+     '#endif\n'),
+    ('ff7_opengl.cpp', 'void ff7_init_hooks(struct game_obj *_game_object)\n',
+     '#ifdef FFNX_ANDROID\n'
+     '// FF7Recomp: _beginthread(0x6893CA, stack, obj) run in place (see tools/ffnx_edit_android.py).\n'
+     'static uint32_t ff7r_effect_thread_sync(uint32_t start, uint32_t stack_size, uint32_t obj)\n'
+     '{\n'
+     '\t(void)start; (void)stack_size;\n'
+     '\tif (obj && *(const uint32_t *)(uintptr_t)(obj + 8))\n'
+     '\t{\n'
+     '\t\tguest::gfn<void(int, uint32_t)>::from_va(0x6893B6)(2, obj);\n'
+     '\t\tguest::gfn<void()>::from_va(*(const uint32_t *)(uintptr_t)(obj + 8))();\n'
+     '\t\tguest::gfn<void(int, uint32_t)>::from_va(0x6893B6)(3, obj);\n'
+     '\t}\n'
+     '\treturn 0x0000F00Du;   // a thread handle, never closed or waited on\n'
+     '}\n'
+     '#endif\n\n'
+     'void ff7_init_hooks(struct game_obj *_game_object)\n'),
     ('ff7/field/model.cpp', 'int model_id = std::distance(*ff7_externals.field_event_data_ptr, field_event_model);',
      'int model_id = std::distance((field_event_data *)*ff7_externals.field_event_data_ptr, field_event_model);'),
     ('ff7/field/opcode.cpp', '        auto *field_global_data_ptr = *ff7_externals.field_global_object_ptr;',

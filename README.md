@@ -49,6 +49,7 @@ and I would rather you know before you install it.
   controls**: Automatic, Always or Off.
 - On screens wider than 16:9 (most phones), **Settings** → **Display** → **16:9, stretched to fill** removes the
   black bars at the sides.
+- A CRT filter (**Settings** → **Display**): scanlines and a phosphor mask, like an old TV.
 - Portrait on phones (**Settings** → **Screen**): the game at the top; below it the party, location,
   enemy HP and a touch deck (menu, save/load state, speed), then the on-screen controls.
 - On the AYN Thor's bottom screen: party status, location, enemy HP in battle, a touch deck

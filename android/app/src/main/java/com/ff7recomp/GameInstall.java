@@ -283,6 +283,7 @@ final class GameInstall {
      */
     /** FFNx's Steam achievement code on (signed in to Steam: SteamLink.java). */
     boolean steamAchievements;
+    boolean crtFilter;          // Settings > Display > CRT filter (FFNx crt_filter, an FF7Recomp edit)
 
     /** The game's languages: FFNx's game_language, the launcher's name, the data/lang-* folder. */
     static final String[][] LANGUAGES = {
@@ -369,6 +370,7 @@ final class GameInstall {
         toml = set(toml, "ff7_fps_limiter", Integer.toString(fpsLimiter));
         toml = set(toml, "speedhack_min", turbo ? "2.0" : "1.0");
         toml = set(toml, "show_fps", showFps ? "true" : "false");
+        toml = set(toml, "crt_filter", crtFilter ? "true" : "false");
         // FFNx's version and renderer lines: debug text drawn every frame, not worth the work
         toml = set(toml, "show_version", "false");
         toml = set(toml, "show_renderer_backend", "false");

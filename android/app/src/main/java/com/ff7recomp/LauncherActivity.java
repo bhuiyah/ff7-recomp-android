@@ -1216,6 +1216,13 @@ public class LauncherActivity extends Activity {
         fps.setChecked(prefs.getBoolean("show_fps", false));
         fps.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("show_fps", on).apply());
         col.addView(fps);
+        CheckBox crt = new CheckBox(this);
+        crt.setText("CRT filter\nScanlines and a phosphor mask, like an old TV");
+        crt.setTextColor(TEXT);
+        crt.setTextSize(16);
+        crt.setChecked(prefs.getBoolean("crt_filter", false));
+        crt.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("crt_filter", on).apply());
+        col.addView(crt);
         col.addView(space(16));
         col.addView(heading("Screen"));
         RadioGroup or = new RadioGroup(this);
@@ -1659,6 +1666,7 @@ public class LauncherActivity extends Activity {
                 steamOn = steam().active();
             }
             install.steamAchievements = steamOn;
+            install.crtFilter = prefs.getBoolean("crt_filter", false);
             int aspect = prefs.getInt("aspect", 2);   // 3: 16:9 stretched by Android (GameActivity), FFNx renders 16:9
             install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, aspect == 3 ? 2 : aspect, prefs.getBoolean("show_fps", false), library.mods,
                                   renderScaleCap());
