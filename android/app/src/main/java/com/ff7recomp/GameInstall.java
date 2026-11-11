@@ -40,6 +40,43 @@ final class GameInstall {
         return new File(game, "ff7_en.exe").isFile() && new File(game, "data/field").isDirectory();
     }
 
+    /** Files under data/ the game opens at start-up and cannot run without: one missing (a copy
+     *  cut short, another release's layout) stopped it on a black screen (GitHub #18, #22). */
+    static final String[] REQUIRED = {
+        "field/char.lgp", "field/flevel.lgp", "battle/battle.lgp", "battle/magic.lgp", "menu/menu_us.lgp",
+        "minigame/chocobo.lgp", "minigame/condor.lgp", "wm/world_us.lgp", "cd/moviecam.lgp",
+        "sound/audio.fmt", "sound/audio.dat",
+    };
+
+    /** The REQUIRED files missing or empty in the imported data folder (names matched ignoring
+     *  case, as the game does), or an empty list. */
+    List<String> missingFiles() {
+        List<String> out = new ArrayList<>();
+        for (String rel : REQUIRED) {
+            File f = new File(game, "data");
+            for (String part : rel.split("/")) {
+                File next = new File(f, part);
+                if (!next.exists()) {
+                    String[] names = f.list();
+                    if (names != null) for (String n : names) if (n.equalsIgnoreCase(part)) { next = new File(f, n); break; }
+                }
+                f = next;
+            }
+            if (!f.isFile() || f.length() == 0) out.add("data/" + rel);
+        }
+        return out;
+    }
+
+    /** What to tell the player when files are missing, or null. */
+    String missingMessage() {
+        List<String> m = missingFiles();
+        if (m.isEmpty()) return null;
+        return "Some of the game's files are missing from the imported copy, so it can't start: "
+                + String.join(", ", m) + ".\n\nThe copy may have been cut short, or the folder picked holds an incomplete "
+                + "install. Check that the game is fully installed (in Steam or GameNative: verify the game files), then "
+                + "import it again: Game files → Import again from another folder.";
+    }
+
     // ---------------------------------------------------------------- import from a folder
     /** A document in the picked tree. */
     private static final class Doc { String id, name; boolean dir; }
@@ -134,6 +171,10 @@ final class GameInstall {
         if (!tmp.renameTo(exeOut)) throw new IOException("cannot write " + exeOut);
         copyTree(tree, data.id, new File(game, "data"), p, "data");
         fixFontWidths();
+        List<String> missing = missingFiles();
+        if (!missing.isEmpty())
+            return "the game's data folder here is incomplete, these files are missing: " + String.join(", ", missing)
+                    + ". Check that the game is fully installed (in Steam or GameNative: verify the game files), then import again";
         return null;
     }
 

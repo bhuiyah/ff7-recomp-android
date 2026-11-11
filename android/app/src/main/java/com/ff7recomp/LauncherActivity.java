@@ -1723,6 +1723,8 @@ public class LauncherActivity extends Activity {
         if (!ready()) { show("game"); return; }
         background(() -> {
             progress("Preparing");
+            String missing = install.missingMessage();
+            if (missing != null) return missing;
             library.load();
             install.gameLanguage = prefs.getInt("game_language", 1);
             library.language = install.hasLanguage(install.gameLanguage) ? GameInstall.languageCode(install.gameLanguage) : "en";
