@@ -227,6 +227,8 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         loadGame(this);
+        // The screen stays on while the game runs (it timed out and the device slept mid-game).
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         portrait = getIntent().getBooleanExtra("portrait", false);
         if (portrait) setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
         SurfaceView view = new SurfaceView(this);
