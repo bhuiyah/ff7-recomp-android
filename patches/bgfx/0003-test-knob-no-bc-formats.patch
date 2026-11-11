@@ -1,0 +1,12 @@
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -2178,6 +2178,9 @@
+ 						fmt = s_textureFormat[ii].m_fmtSrgb;
+ 					}
+ 
++					// FF7Recomp test knob: FF7_NO_BC=1 makes the BC formats unsupported, as on GPUs
++					// without them (Mali, most Adreno 6xx), so their software decoding can be tested.
++					if (ii >= TextureFormat::BC1 && ii <= TextureFormat::BC7 && NULL != getenv("FF7_NO_BC") ) support = BGFX_CAPS_FORMAT_TEXTURE_NONE;
+ 					g_caps.formats[ii] = support;
+ 				}
+ 

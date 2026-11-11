@@ -60,6 +60,37 @@ EDITS = [
      '#ifdef FFNX_ANDROID\n'
      '            ffnx_recomp::step_mirror(ff7_externals.world_init_variables_74E1E9 + 0x15D, (uint32_t)(uintptr_t)ff7_externals.world_movement_multiplier_DFC480);   // FF7Recomp\n'
      '#endif\n'),
+    # Replacement textures in a format the GPU cannot sample (the BC formats of .dds files on
+    # Mali and most Adreno 6xx GPUs): bgfx refuses them and the draw shows whatever texture was
+    # bound before (Composition7's portraits showing the world map: GitHub issue #10). Decode
+    # them to RGBA8 on the CPU first.
+    ('renderer.cpp', '    bimg::ImageContainer* img = createImageContainer(filename);\n',
+     '    bimg::ImageContainer* img = createImageContainer(filename);\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    img = ffnx_android_sampleable(img);   // FF7Recomp\n'
+     '#endif\n'),
+    ('renderer.cpp', '    bimg::ImageContainer* img = createImageContainer(file);\n',
+     '    bimg::ImageContainer* img = createImageContainer(file);\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    img = ffnx_android_sampleable(img);   // FF7Recomp\n'
+     '#endif\n'),
+    ('renderer.cpp', 'bimg::ImageContainer* Renderer::createImageContainer(const char* filename, bimg::TextureFormat::Enum targetFormat)\n',
+     '#ifdef FFNX_ANDROID\n'
+     '// FF7Recomp: an image in a format this GPU cannot sample as a texture, decoded to RGBA8.\n'
+     'static bimg::ImageContainer* ffnx_android_sampleable(bimg::ImageContainer* img)\n'
+     '{\n'
+     '    if (img == nullptr) return img;\n'
+     '    const uint16_t need = img->m_cubeMap ? BGFX_CAPS_FORMAT_TEXTURE_CUBE : BGFX_CAPS_FORMAT_TEXTURE_2D;\n'
+     '    if (bgfx::getCaps()->formats[img->m_format] & need) return img;\n'
+     '    static bx::DefaultAllocator alloc;   // the image keeps its allocator: imageFree / the release callback use it\n'
+     '    bimg::ImageContainer* rgba = bimg::imageConvert(&alloc, bimg::TextureFormat::RGBA8, *img, true);\n'
+     '    if (rgba == nullptr) return img;\n'
+     '    if (trace_all || trace_renderer) ffnx_trace("Renderer: %s texture decoded to RGBA8 (not supported by this GPU)\\n", bimg::getName(img->m_format));\n'
+     '    bimg::imageFree(img);\n'
+     '    return rgba;\n'
+     '}\n'
+     '#endif\n\n'
+     'bimg::ImageContainer* Renderer::createImageContainer(const char* filename, bimg::TextureFormat::Enum targetFormat)\n'),
     ('ff7/field/model.cpp', 'int model_id = std::distance(*ff7_externals.field_event_data_ptr, field_event_model);',
      'int model_id = std::distance((field_event_data *)*ff7_externals.field_event_data_ptr, field_event_model);'),
     ('ff7/field/opcode.cpp', '        auto *field_global_data_ptr = *ff7_externals.field_global_object_ptr;',
