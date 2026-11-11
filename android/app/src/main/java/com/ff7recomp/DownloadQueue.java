@@ -68,6 +68,15 @@ final class DownloadQueue {
     /** Re-queue what was waiting when the launcher last closed. */
     void restore() {
         try {
+            // what the queue still holds, so the sweep keeps their partial downloads
+            java.util.Set<String> ids = new java.util.HashSet<>();
+            if (saveFile.isFile())
+                for (String line : new String(Files.readAllBytes(saveFile.toPath()), StandardCharsets.UTF_8).split("\n")) {
+                    String[] f = line.trim().split("\t");
+                    if (f.length > 0 && !f[0].isEmpty()) ids.add(f[0]);
+                }
+            long freed = downloader.sweep(ids);
+            if (freed > 0) Log.i(TAG, "freed " + (freed >> 20) + " MB of unfinished downloads and unpack folders");
             if (!saveFile.isFile()) return;
             for (String line : new String(Files.readAllBytes(saveFile.toPath()), StandardCharsets.UTF_8).split("\n")) {
                 String[] f = line.trim().split("\t");

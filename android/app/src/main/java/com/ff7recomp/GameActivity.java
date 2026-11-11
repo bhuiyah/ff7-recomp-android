@@ -327,6 +327,11 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
 
     /** The second (bottom) screen, if the device has a presentation display. */
     private void showCompanion() {
+        if (!getIntent().getBooleanExtra("bottom_screen", true)) {
+            // Settings > Screen: the second screen is left to other apps (a guide, a browser)
+            Log.i(TAG, "second screen not used (Settings)");
+            return;
+        }
         DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
         Display[] displays = dm.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
         if (displays.length == 0) {

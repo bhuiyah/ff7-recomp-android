@@ -54,6 +54,8 @@ and I would rather you know before you install it.
   enemy HP and a touch deck (menu, save/load state, speed), then the on-screen controls.
 - On the AYN Thor's bottom screen: party status, location, enemy HP in battle, a touch deck
   (menu, save/load state, speed, random battles, battle enhancement); it dims during cutscenes.
+  **Settings** → **Screen** → **Use the second screen** off leaves the bottom screen to other apps
+  (a guide, a browser).
 - Game boosters as in the console re-releases (speed, no random battles, battle enhancement).
 - Steam achievements on your own Steam account (see [Steam achievements](#steam-achievements)),
   and a local achievement set (RetroAchievements format; offline only).

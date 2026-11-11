@@ -139,6 +139,33 @@ final class ModDownloader {
     /** Exists while a mod unpacks: found at start-up, the app died installing it. */
     File installingMarker(String id) { return new File(downloads, safe(id) + ".installing"); }
 
+    /** At start-up, before any download runs: unpack folders left by an install that did not
+     *  finish (the app was closed or ran out of memory; a big mod's can be ~19 GB) and partial
+     *  downloads of mods no longer in the queue take space for nothing. Returns the bytes freed. */
+    long sweep(java.util.Set<String> queuedIds) {
+        File[] fs = downloads.listFiles();
+        if (fs == null) return 0;
+        java.util.Set<String> keep = new java.util.HashSet<>();
+        for (String id : queuedIds) keep.add(safe(id) + ".part");
+        long freed = 0;
+        for (File f : fs) {
+            String n = f.getName();
+            boolean stale = n.endsWith(".unpack") || (n.endsWith(".part") && !keep.contains(n));
+            if (!stale) continue;
+            freed += sizeOf(f);
+            deleteTree(f);
+        }
+        return freed;
+    }
+
+    private static long sizeOf(File f) {
+        if (f.isFile()) return f.length();
+        long n = 0;
+        File[] c = f.listFiles();
+        if (c != null) for (File x : c) n += sizeOf(x);
+        return n;
+    }
+
     /** Drop a mod's partial download (a cancelled or abandoned install). */
     void discard(String id) {
         new File(downloads, safe(id) + ".part").delete();

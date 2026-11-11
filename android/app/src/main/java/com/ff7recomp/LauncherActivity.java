@@ -1225,6 +1225,13 @@ public class LauncherActivity extends Activity {
         col.addView(crt);
         col.addView(space(16));
         col.addView(heading("Screen"));
+        CheckBox second = new CheckBox(this);
+        second.setText("Use the second screen\nOn dual-screen devices such as the AYN Thor: party, enemy HP and the touch deck. Off: the second screen is free for other apps, such as a guide (tap the game screen to give the controller back to the game)");
+        second.setTextColor(TEXT);
+        second.setTextSize(16);
+        second.setChecked(prefs.getBoolean("bottom_screen", true));
+        second.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("bottom_screen", on).apply());
+        col.addView(second);
         RadioGroup or = new RadioGroup(this);
         String[][] orientations = {
             { "0", "Landscape", "The game fills the screen" },
@@ -1677,6 +1684,7 @@ public class LauncherActivity extends Activity {
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)
                     .putExtra("touch_controls", prefs.getInt("touch_controls", 0))
                     .putExtra("portrait", prefs.getBoolean("portrait", false))
+                    .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
                     .putExtra("aspect", prefs.getInt("aspect", 2))));
             return null;
         });
