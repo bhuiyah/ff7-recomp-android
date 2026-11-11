@@ -1,0 +1,21 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] win32hle: ExitProcess ends the process without static destructors
+
+exit() ran the host's static destructors while other host threads still used those objects;
+a destroyed mutex then aborted the exiting process. Flush output and _exit, as Windows ends
+the process.
+---
+--- a/runtime/win32hle/kernel32.c
++++ b/runtime/win32hle/kernel32.c
+@@ -25,7 +25,10 @@
+ static void k_GetCommandLineA(void)   { RETP(g_cmdline, 0); }
+ static void k_GetCurrentProcess(void) { RET(0xFFFFFFFFu, 0); }          /* pseudo-handle */
+ static void k_GetCurrentThreadId(void){ RET((uint32_t)(uintptr_t)pthread_self(), 0); }
+-static void k_ExitProcess(void)       { exit((int)A32(0)); }
++/* ExitProcess ends the process at once, as on Windows: exit() would run the host's static
++ * destructors while other host threads (the UI, the audio callback) still use those objects
++ * (a destroyed mutex aborts). Output is flushed, and the log pump given a moment. */
++static void k_ExitProcess(void)       { fflush(NULL); usleep(200000); _exit((int)A32(0)); }
+ 
+ /* GetVersion: Win2000 (5.0, build 2195, NT). LOWORD = major|minor<<8,
+  * HIWORD = build (NT clears the top bit). */

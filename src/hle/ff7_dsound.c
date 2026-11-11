@@ -72,6 +72,26 @@ static inline float sample_at(const voice *v, uint32_t frame, int ch) {
     return ((float)p[ch < v->channels ? ch : 0] - 128.0f) * (1.0f / 128.0f);
 }
 
+/* Frame fi of a voice for interpolation: before the start the first frame, past the end the
+ * loop's start (looping) or silence. */
+static inline float sample_near(const voice *v, int64_t fi, int ch, uint32_t n) {
+    if (fi < 0) fi = v->looping ? fi + n : 0;
+    if (fi >= (int64_t)n) { if (!v->looping) return 0.0f; fi -= n; }
+    return sample_at(v, (uint32_t)fi, ch);
+}
+
+/* 4-point Hermite between frames fi and fi+1. The game's sounds are mostly 22050 Hz and
+ * play at other rates too (frequency changes); repeating the nearest frame instead, up to
+ * 48 kHz, gave the menu sounds a harsh, metallic edge (GitHub issue #7). */
+static inline float sample_interp(const voice *v, uint32_t fi, float t, int ch, uint32_t n) {
+    const float x0 = sample_near(v, (int64_t)fi - 1, ch, n), x1 = sample_at(v, fi, ch);
+    const float x2 = sample_near(v, (int64_t)fi + 1, ch, n), x3 = sample_near(v, (int64_t)fi + 2, ch, n);
+    const float c1 = 0.5f * (x2 - x0);
+    const float c2 = x0 - 2.5f * x1 + 2.0f * x2 - 0.5f * x3;
+    const float c3 = 0.5f * (x3 - x0) + 1.5f * (x1 - x2);
+    return ((c3 * t + c2) * t + c1) * t + x1;
+}
+
 static aaudio_data_callback_result_t mix_cb(AAudioStream *s, void *user, void *audio, int32_t frames) {
     (void)s; (void)user;
     float *out = (float *)audio;
@@ -89,8 +109,9 @@ static aaudio_data_callback_result_t mix_cb(AAudioStream *s, void *user, void *a
                 if (!v->looping) { v->playing = 0; v->pos = 0; break; }
                 v->pos -= nframes; fi = (uint32_t)v->pos;
             }
-            out[2 * f]     += sample_at(v, fi, 0) * v->gain_l;
-            out[2 * f + 1] += sample_at(v, fi, 1) * v->gain_r;
+            const float t = (float)(v->pos - fi);
+            out[2 * f]     += sample_interp(v, fi, t, 0, nframes) * v->gain_l;
+            out[2 * f + 1] += sample_interp(v, fi, t, 1, nframes) * v->gain_r;
             v->pos += step;
         }
     }

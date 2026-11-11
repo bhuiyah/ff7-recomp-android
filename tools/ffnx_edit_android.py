@@ -91,6 +91,38 @@ EDITS = [
      '}\n'
      '#endif\n\n'
      'bimg::ImageContainer* Renderer::createImageContainer(const char* filename, bimg::TextureFormat::Enum targetFormat)\n'),
+    # FFNx's WindowProc passes messages on to the game's own window procedure (a game address):
+    # a guest call, not a native jump (crash when the game sends its window a message, such as
+    # Quit from the menu: GitHub issue #7's log).
+    ('common.cpp', '\treturn common_externals.engine_wndproc(hwnd, uMsg, wParam, lParam);\n',
+     '#ifdef FFNX_ANDROID\n'
+     '\treturn guest::gfn<LRESULT(HWND, UINT, WPARAM, LPARAM)>::from_va((uint32_t)(uintptr_t)common_externals.engine_wndproc)(hwnd, uMsg, wParam, lParam);   // FF7Recomp\n'
+     '#else\n'
+     '\treturn common_externals.engine_wndproc(hwnd, uMsg, wParam, lParam);\n'
+     '#endif\n'),
+    # Vulkan that does not start falls back to bgfx's Noop renderer, and FFNx then stops on a
+    # missing shader file (GitHub issue #8). Say what happened instead, with bgfx's Vulkan
+    # start-up traces (patches/bgfx/0004); FF7_TEST_VK_TRACE=1 prints them on any device.
+    ('renderer.cpp', '    if (!bgfx::init(bgfxInit)) exit(1);\n',
+     '    if (!bgfx::init(bgfxInit)) exit(1);\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    if (bgfx::getRendererType() != bgfx::RendererType::Vulkan || getenv("FF7_TEST_VK_TRACE"))   // FF7Recomp\n'
+     '    {\n'
+     '        fprintf(stderr, "[ffnx-android] renderer: %s. Vulkan start-up:\\n%s", bgfx::getRendererName(bgfx::getRendererType()), ff7_bgfx_vk_trace());\n'
+     '        if (bgfx::getRendererType() != bgfx::RendererType::Vulkan)\n'
+     '        {\n'
+     '            fprintf(stderr, "[ffnx-android] FATAL: Vulkan could not start on this device (see above). FF7Recomp needs Vulkan graphics.\\n");\n'
+     '            fflush(stderr);\n'
+     '            usleep(400000);\n'
+     '            _exit(1);\n'
+     '        }\n'
+     '    }\n'
+     '#endif\n'),
+    ('renderer.cpp', 'void Renderer::init()\n{\n',
+     '#ifdef FFNX_ANDROID\n'
+     'extern "C" const char* ff7_bgfx_vk_trace();   // FF7Recomp: patches/bgfx/0004\n'
+     '#endif\n\n'
+     'void Renderer::init()\n{\n'),
     ('ff7/field/model.cpp', 'int model_id = std::distance(*ff7_externals.field_event_data_ptr, field_event_model);',
      'int model_id = std::distance((field_event_data *)*ff7_externals.field_event_data_ptr, field_event_model);'),
     ('ff7/field/opcode.cpp', '        auto *field_global_data_ptr = *ff7_externals.field_global_object_ptr;',

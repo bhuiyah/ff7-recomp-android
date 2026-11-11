@@ -1,0 +1,39 @@
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -10,6 +10,36 @@
+ #	include "renderer_vk.h"
+ #	include "video_vk.h"
+ 
++#if BX_PLATFORM_ANDROID && !BX_CONFIG_DEBUG
++// FF7Recomp: Vulkan start-up traces kept in release builds (in memory; ff7_bgfx_vk_trace()):
++// when Vulkan does not start on a device, the reason goes to the game's log.
++#	include <stdarg.h>
++namespace bgfx { namespace vk {
++	static char s_ff7Trace[16384];
++	static size_t s_ff7TraceLen;
++	static void ff7Trace(const char* _format, ...)
++	{
++		if (s_ff7TraceLen + 2 >= sizeof(s_ff7Trace) ) return;   // full: later traces cost nothing
++		char line[512];
++		va_list args;
++		va_start(args, _format);
++		int n = vsnprintf(line, sizeof(line), _format, args);
++		va_end(args);
++		if (n <= 0) return;
++		size_t len = bx::min<size_t>(size_t(n), sizeof(line) - 1);
++		if (s_ff7TraceLen + len + 2 >= sizeof(s_ff7Trace) ) return;
++		bx::memCopy(s_ff7Trace + s_ff7TraceLen, line, len);
++		s_ff7TraceLen += len;
++		s_ff7Trace[s_ff7TraceLen++] = '\n';
++		s_ff7Trace[s_ff7TraceLen] = '\0';
++	}
++} }
++extern "C" const char* ff7_bgfx_vk_trace() { return bgfx::vk::s_ff7Trace; }
++#	undef BX_TRACE
++#	define BX_TRACE(_format, ...) ::bgfx::vk::ff7Trace(_format, ##__VA_ARGS__)
++#endif
++
++
+ #if BX_PLATFORM_OSX
+ #	import <Cocoa/Cocoa.h>
+ #	import <Foundation/Foundation.h>
