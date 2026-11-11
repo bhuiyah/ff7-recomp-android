@@ -304,6 +304,25 @@ public class LauncherActivity extends Activity {
         checkUpdates(false);
         ticker.removeCallbacks(buildTick);
         ticker.post(buildTick);
+        testPlay(getIntent(), 0);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+    }
+
+    /** TestControl's PLAY (adb): press Play once the launcher is ready, with its Start override. */
+    private void testPlay(Intent i, int tries) {
+        if (i == null || !i.getBooleanExtra(TestControl.EXTRA_PLAY, false)) return;
+        if (busy || !install.hasGame() || !ready()) {
+            if (tries < 40) ticker.postDelayed(() -> testPlay(i, tries + 1), 250);
+            return;
+        }
+        i.removeExtra(TestControl.EXTRA_PLAY);
+        String start = i.getStringExtra(TestControl.EXTRA_START);
+        play(start == null ? null : start.equals("normal") ? "" : start);
     }
 
     @Override

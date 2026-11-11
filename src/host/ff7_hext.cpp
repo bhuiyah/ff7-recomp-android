@@ -23,6 +23,9 @@
 #include "mods.h"
 #include "x86_interp.h"
 
+extern "C" void mach_enter(void);   // pcrecomp runtime (win32hle/host_lite.c): the machine lock
+extern "C" void mach_leave(void);
+
 extern "C" {
 void ff7_virtual_range(uint32_t *lo, uint32_t *hi);   // src/hle/ff7_virtual.c
 typedef struct { uint32_t start, end; const char *bytes, *mask; } ff7_code_variant_t;
@@ -194,7 +197,12 @@ void apply_one(const std::string &mod, const std::string &file, const std::strin
         std::thread([mod, file, text, ms = r.delay_ms]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(ms));
             Ctx d;
+            // under the machine lock, like any host thread touching the guest (guest_abi.h):
+            // the game thread is running lifted code and reading the same bytes, overrides
+            // and interpreter marks (GitHub #17)
+            mach_enter();
             apply_one(mod, file, text, false, d);
+            mach_leave();
             std::fprintf(stderr, "[hext] delayed %s %s: %d writes (code: %d lifted, %d interpreted, %d without effect)\n",
                          mod.c_str(), file.c_str(), d.writes, d.code_ok, d.interpreted, d.code_bad);
         }).detach();

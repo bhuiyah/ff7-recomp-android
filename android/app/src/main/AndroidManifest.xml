@@ -47,8 +47,19 @@
             android:process=":game"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             android:screenOrientation="sensorLandscape"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|smallestScreenSize|fontScale|locale|layoutDirection"
             android:launchMode="singleTask" />
+        <!-- Test API over adb (TestControl): settings and Stop (Play: LauncherActivity test_play). DUMP: only the shell may call it -->
+        <receiver
+            android:name=".TestControl"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.ff7recomp.test.GET" />
+                <action android:name="com.ff7recomp.test.SET" />
+                <action android:name="com.ff7recomp.test.STOP" />
+            </intent-filter>
+        </receiver>
         <!-- Pixel Guide's installer answer (GuideInstaller), in the game's process -->
         <receiver
             android:name=".GuideInstaller$Result"

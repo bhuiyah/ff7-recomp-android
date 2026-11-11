@@ -125,10 +125,17 @@ void parse_set(const std::string &text) {
         const char *eol = std::strchr(p, '\n');
         std::string line(p, eol ? eol - p : std::strlen(p));
         p = eol ? eol + 1 : p + line.size();
+        // Windows (CRLF) files: field() stops at the '\r' without consuming it, and the loop
+        // below then never ended (GitHub #15)
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
         if (++line_no <= 2 || line.empty() || !(line[0] >= '0' && line[0] <= '9')) continue;   // version, title, leaderboards
         const char *q = line.c_str();
         std::vector<std::string> f;
-        while (*q) f.push_back(field(q));
+        while (*q) {
+            const char *before = q;
+            f.push_back(field(q));
+            if (q == before) break;     // a field that consumed nothing: stop rather than spin
+        }
         if (f.size() < 4) continue;
         Ach a{ (uint32_t)std::strtoul(f[0].c_str(), nullptr, 10), f[1], f[2], f[3], f.size() > 8 ? (unsigned)std::atoi(f[8].c_str()) : 0 };
         bool dup = false;

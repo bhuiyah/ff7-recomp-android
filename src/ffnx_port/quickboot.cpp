@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
 #include <unistd.h>
 #include <dirent.h>
 #include <strings.h>
@@ -34,7 +35,7 @@ bool g_done;
 uint32_t g_mode = ~0u;
 int64_t g_mode_since, g_started, g_last_press, g_last_skip;
 int g_title_presses;
-char g_resume_slot[8] = "current";
+char g_resume_slot[48] = "current";
 
 int64_t now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -58,6 +59,10 @@ bool have_state(const char *slot) {
     char cwd[1024], path[1100];
     if (!getcwd(cwd, sizeof cwd)) return false;
     int k = std::atoi(slot);
+    if (!k && std::strcmp(slot, "current")) {                 // a named state (tests)
+        std::snprintf(path, sizeof path, "%s/../savestates/%s.ff7s", cwd, slot);
+        return access(path, R_OK) == 0;
+    }
     if (!k) {
         std::snprintf(path, sizeof path, "%s/../savestates/current.txt", cwd);
         k = 1;
@@ -71,7 +76,7 @@ bool have_state(const char *slot) {
 
 int read_target() {
     const char *e = std::getenv("FF7_QUICKBOOT");
-    char buf[32] = "";
+    char buf[96] = "";
     if (e) std::snprintf(buf, sizeof buf, "%s", e);
     else {
         // files/quickboot.txt, beside the game folder the process runs in; a host path, so
@@ -88,8 +93,15 @@ int read_target() {
     }
     if (!std::strncmp(buf, "newgame", 7)) return 0;
     if (!std::strncmp(buf, "resume", 6)) {
-        int k = std::atoi(buf + 6);
-        if (k > 0) std::snprintf(g_resume_slot, sizeof g_resume_slot, "%d", k);
+        // "resume N" (slot N), or "resume NAME": a named state, savestates/NAME.ff7s (tests)
+        const char *arg = buf + 6;
+        while (*arg == ' ') arg++;
+        char name[sizeof g_resume_slot] = "";
+        for (size_t i = 0; arg[i] && i + 1 < sizeof name && (std::isalnum((unsigned char)arg[i]) || arg[i] == '-' || arg[i] == '_'); i++) {
+            name[i] = arg[i];
+            name[i + 1] = 0;
+        }
+        if (name[0]) std::snprintf(g_resume_slot, sizeof g_resume_slot, "%s", name);
         if (have_state(g_resume_slot)) return 2;
         ffnx_info("quickboot: no save state yet, starting a new game instead\n");
         return 0;

@@ -104,7 +104,15 @@ extern "C" void ff7_boosters_command(int cmd) {
 // After each frame (FFNx Renderer::show, ffnx_edit_android.py): is the next one skipped? Sped
 // up, only the share 1 / speed of the frames is drawn and presented -- 2x shows every 2nd, 3x
 // every 3rd -- so the GPU draws as many frames as at 1x. Never during a movie.
+namespace ffnx_recomp { void step_code(); }   // patch_recomp.cpp
+
 extern "C" bool ffnx_frame_skip_next(bool movie) {
+    // Frame rate "Original": FFNx installs none of its frame-limiter hooks (ff7_limit_fps), so the
+    // per-frame work hung there -- quickboot (the Start setting), the bottom screen's buttons and
+    // boosters, achievements -- never ran. It runs here instead, once per presented frame. And
+    // the speed hack cannot work there (it scales FFNx's clock, which Original does not use):
+    // skipping frames for it only made the game look slower (GitHub issue #11).
+    if (ff7_fps_limiter < FPS_LIMITER_DEFAULT) { ffnx_recomp::step_code(); g_skip_acc = 0; return false; }
     const double speed = gamehacks.getCurrentSpeedhack();
     if (!g_frameskip || movie || speed <= 1.01) { g_skip_acc = 0; return false; }
     g_skip_acc += 1.0 / speed;

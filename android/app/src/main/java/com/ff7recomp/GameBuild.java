@@ -209,6 +209,7 @@ final class GameBuild {
         volatile int rc = -1;
         volatile String tail = "";
         volatile Process proc;
+        final PrintWriter log = lw;   // the build's log when the job was made (lw is cleared at the end)
 
         Job(String name, long bytes, ProcessBuilder pb, Lines lines) {
             this.name = name;
@@ -231,9 +232,14 @@ final class GameBuild {
                     rc = -2;
                 }
                 tail = out.toString().trim();
-                synchronized (lw) {
-                    lw.println("[" + name + "] exit " + rc);
-                    if (rc != 0 || !name.startsWith("cc ")) lw.println(tail);
+                // the build may have ended (lw null) while this killed job was winding down:
+                // an exception here, on a plain thread, would take down the launcher (GitHub #14)
+                PrintWriter w = log;
+                if (w != null) {
+                    synchronized (w) {
+                        w.println("[" + name + "] exit " + rc);
+                        if (rc != 0 || !name.startsWith("cc ")) w.println(tail);
+                    }
                 }
                 done = true;
             }, name);
@@ -477,6 +483,8 @@ final class GameBuild {
             }
         } finally {
             for (Job j : running) j.kill();
+            // wait for them, so their output reaches build.log before the build returns
+            for (Job j : running) { try { j.thread.join(5000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); } }
         }
         lw.println("compiled " + (compiledBytes >> 20) + " MB of C in " + (System.currentTimeMillis() - tStart) / 1000 + " s");
     }

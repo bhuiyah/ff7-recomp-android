@@ -4,6 +4,7 @@
 // folder; the lifted game then runs on its own thread via ff7_boot_and_run. stdout/stderr
 // are copied to logcat (tag FF7Recomp) and to <files>/ff7.log so a run can be read back
 // with adb even after the process is gone.
+#include <atomic>
 #include <android/log.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
@@ -154,6 +155,15 @@ Java_com_ff7recomp_GameActivity_nativeSetSurface(JNIEnv *env, jclass, jobject su
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_ff7recomp_GameActivity_nativeStart(JNIEnv *env, jclass, jstring game_dir, jstring log_dir) {
+    // Once per process: if Android recreates GameActivity while the game runs (a display-size or
+    // font-scale change, ...), the new activity only hands the running game its new surface
+    // (nativeSetSurface); a second game thread would re-initialise the allocator under the
+    // running game and then quit (GitHub #16).
+    static std::atomic<bool> started{ false };
+    if (started.exchange(true)) {
+        std::fprintf(stderr, "[ff7] nativeStart again (activity recreated): the game keeps running\n");
+        return;
+    }
     const char *g = env->GetStringUTFChars(game_dir, nullptr);
     const char *l = env->GetStringUTFChars(log_dir, nullptr);
     g_game_dir = g;
