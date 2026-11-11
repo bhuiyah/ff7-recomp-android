@@ -305,6 +305,11 @@ public class LauncherActivity extends Activity {
         ticker.removeCallbacks(buildTick);
         ticker.post(buildTick);
         testPlay(getIntent(), 0);
+        Intent ti = getIntent();
+        if (ti != null && ti.getBooleanExtra(TestControl.EXTRA_STEAM_QR, false)) {
+            ti.removeExtra(TestControl.EXTRA_STEAM_QR);
+            steamSignIn();   // layout check; Cancel leaves the current sign-in untouched
+        }
     }
 
     @Override
@@ -1543,15 +1548,21 @@ public class LauncherActivity extends Activity {
         box.addView(how);
         ImageView qr = new ImageView(this);
         qr.setBackgroundColor(Color.WHITE);
-        int size = dp(260);
+        // The dialog's title, text, status line and Cancel button take about 220 dp. On a short
+        // landscape screen (a 1080p handheld is 360-450 dp tall) a fixed 260 dp code pushed the
+        // bottom of the code off the dialog (#19), so the code shrinks to fit the screen's height.
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        int size = Math.max(dp(150), Math.min(dp(260), Math.min(dm.widthPixels, dm.heightPixels) - dp(220)));
         box.addView(qr, new LinearLayout.LayoutParams(size, size));
         TextView st = text("Connecting to Steam…", 13, DIM);
         box.addView(st);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);   // never cut off
+        scroll.addView(box);
         final java.util.concurrent.Future<?>[] cancel = new java.util.concurrent.Future<?>[1];
         final boolean[] open = { true };
         AlertDialog dlg = ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Sign in to Steam")
-                .setView(box)
+                .setView(scroll)
                 .setNegativeButton("Cancel", null)
                 .show());
         dlg.setOnDismissListener(d -> {

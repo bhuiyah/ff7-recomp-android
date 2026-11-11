@@ -32,6 +32,8 @@ import java.util.Map;
 public class TestControl extends BroadcastReceiver {
     static final String PREFIX = "com.ff7recomp.test.";
     static final String EXTRA_PLAY = "test_play", EXTRA_START = "test_start";
+    /** am start ... --ez test_steam_qr true: open the Steam sign-in (QR) dialog, to check its layout. */
+    static final String EXTRA_STEAM_QR = "test_steam_qr";
 
     // The launcher's settings and their types (LauncherActivity)
     private static final Map<String, Class<?>> TYPES = new HashMap<>();
