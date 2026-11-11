@@ -232,8 +232,17 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         SurfaceView view = new SurfaceView(this);
         view.getHolder().addCallback(this);
         // the game, and the game boosters' icons over its top-right corner (BoosterIcons)
-        gameFrame = new AspectFrame(this, getIntent().getIntExtra("aspect", 2) == 0 ? 3f / 4f : 9f / 16f);
+        int aspect = getIntent().getIntExtra("aspect", 2);
+        gameFrame = new AspectFrame(this, aspect == 0 ? 3f / 4f : 9f / 16f);
         gameFrame.addView(view);
+        // "Stretch to fill" (aspect 3): the game renders 16:9 and Android scales its buffer to
+        // the whole screen, so screens wider than 16:9 (phones, 21:9) have no side bars.
+        if (aspect == 3) view.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            int w = r - l, h = b - t;
+            if (w <= 0 || h <= 0) return;
+            if (!arrangedTall && w * 9 > h * 16 + 9) view.getHolder().setFixedSize(Math.round(h * 16f / 9f), h);
+            else view.getHolder().setSizeFromLayout();
+        });
         gameFrame.addView(new BoosterIcons(this), new android.widget.FrameLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         touchMode = getIntent().getIntExtra("touch_controls", 0);

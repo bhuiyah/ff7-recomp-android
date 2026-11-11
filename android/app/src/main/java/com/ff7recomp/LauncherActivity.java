@@ -1194,6 +1194,7 @@ public class LauncherActivity extends Activity {
         String[][] aspects = {
             { "0", "4:3, original", "Black bars at the sides of a 16:9 screen" },
             { "2", "16:9 widescreen", "3D scenes and menus use the whole screen; fields without widescreen backgrounds keep side bars" },
+            { "3", "16:9, stretched to fill", "For screens wider than 16:9 (most phones): the 16:9 picture is stretched sideways to the screen's edges, no black bars" },
         };
         int curAr = prefs.getInt("aspect", 2);
         for (String[] a : aspects) {
@@ -1658,7 +1659,8 @@ public class LauncherActivity extends Activity {
                 steamOn = steam().active();
             }
             install.steamAchievements = steamOn;
-            install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, prefs.getInt("aspect", 2), prefs.getBoolean("show_fps", false), library.mods,
+            int aspect = prefs.getInt("aspect", 2);   // 3: 16:9 stretched by Android (GameActivity), FFNx renders 16:9
+            install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, aspect == 3 ? 2 : aspect, prefs.getBoolean("show_fps", false), library.mods,
                                   renderScaleCap());
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
             install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false),

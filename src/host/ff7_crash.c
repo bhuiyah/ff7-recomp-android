@@ -1,5 +1,5 @@
 /*
- * ff7_crash.c - on a host fault (SIGSEGV/SIGBUS/SIGILL/SIGFPE), report where the lifted
+ * ff7_crash.c - on a host fault (SIGSEGV/SIGBUS/SIGILL/SIGFPE) or abort (SIGABRT), report where the lifted
  * program was: the faulting address, the lifted function (g_cur_func), the last shim,
  * the guest registers and the last indirect calls. Diagnostics only; not async-signal
  * safe, which is acceptable for a process that is about to exit.
@@ -84,6 +84,7 @@ void ff7_install_crash_handler(void) {
     sigaction(SIGBUS, &sa, NULL);
     sigaction(SIGILL, &sa, NULL);
     sigaction(SIGFPE, &sa, NULL);
+    sigaction(SIGABRT, &sa, NULL);   /* abort(): guest_abi fatal()s, failed asserts */
 }
 
 /* ---- watchdog (FF7_WATCHDOG=<seconds>): a sampling profile of the lifted program.

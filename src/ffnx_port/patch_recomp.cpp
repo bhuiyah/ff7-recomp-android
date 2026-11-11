@@ -139,6 +139,7 @@ struct step_rec {
     bool alternate;
     long long numer; int denom;        // fraction: numer/denom per frame
     uint8_t even[8], odd[8];           // alternate: bytes on even / odd frames
+    uint32_t mirror;                   // also written here each frame (step_mirror), or 0
 };
 std::vector<variant_rec> g_variants;
 std::vector<step_rec> g_steps;
@@ -170,7 +171,7 @@ void declare_code_variant(uint32_t offset, const void *bytes, uint32_t size) {
 void step_fraction(uint32_t offset, uint32_t size, long long numer, int denom, const char *what) {
     if (size > 8 || denom <= 0) return;
     note_code_write(offset, size, what);
-    step_rec s{ offset, size, false, numer, denom, {}, {} };
+    step_rec s{ offset, size, false, numer, denom, {}, {}, 0 };
     long long q = floor_div(numer, denom);
     uint8_t b[8];
     put_le(b, q, size); declare_code_variant(offset, b, size);
@@ -185,7 +186,7 @@ void step_alternate(uint32_t offset, const void *even, const void *odd, uint32_t
     note_code_write(offset, size, "step_alternate");
     declare_code_variant(offset, even, size);
     declare_code_variant(offset, odd, size);
-    step_rec s{ offset, size, true, 0, 1, {}, {} };
+    step_rec s{ offset, size, true, 0, 1, {}, {}, 0 };
     std::memcpy(s.even, even, size);
     std::memcpy(s.odd, odd, size);
     std::memcpy((void *)(uintptr_t)offset, even, size);
@@ -263,7 +264,18 @@ void step_code() {
         uint8_t b[8];
         put_le(b, floor_div((kk + 1) * s.numer, s.denom) - floor_div(kk * s.numer, s.denom), s.size);
         std::memcpy(p, b, s.size);
+        if (s.mirror) std::memcpy((void *)(uintptr_t)s.mirror, b, s.size);
     }
+}
+
+// A stepped immediate that the game stores into a variable only once (the world map's
+// movement multiplier: "mov [0xDFC480], 2", run when the world map starts, 2/4 at 120 FPS):
+// the variable then keeps whichever step that frame had, 0 freezing the player in place.
+// Write each frame's step into the variable too, so it averages out as the code would.
+void step_mirror(uint32_t offset, uint32_t var) {
+    std::lock_guard<std::mutex> lk(g_lock);
+    for (step_rec &s : g_steps)
+        if (s.offset == offset && !s.alternate) { s.mirror = var; return; }
 }
 
 }  // namespace ffnx_recomp

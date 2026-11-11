@@ -42,6 +42,24 @@ EDITS = [
      '        p_hundred *right_eye = cached_eyes ? ff7_model_data[blink_data->model_id].right_eye_tex : field_anim_data->static_right_eye_tex;',
      '        p_hundred *left_eye = cached_eyes ? (p_hundred *)ff7_model_data[blink_data->model_id].left_eye_tex : (p_hundred *)field_anim_data->static_left_eye_tex;\n'
      '        p_hundred *right_eye = cached_eyes ? (p_hundred *)ff7_model_data[blink_data->model_id].right_eye_tex : (p_hundred *)field_anim_data->static_right_eye_tex;'),
+    # The expression textures' eye file name goes to the game in a struct field (4 bytes): a
+    # guest copy of the name, not the host string (crash entering towns with NinoStyle Chibi
+    # models: GitHub issue #3).
+    ('ff7/field/kawai_eyetx.cpp', '                eye_data.static_left_eye_filename = filename.data();',
+     '#ifdef FFNX_ANDROID\n'
+     '                eye_data.static_left_eye_filename = guest::ptr_of_raw<char>(guest::guest_string(filename.c_str()));   // FF7Recomp\n'
+     '#else\n'
+     '                eye_data.static_left_eye_filename = filename.data();\n'
+     '#endif'),
+    # 120 FPS world map: the movement multiplier (2, divided by 4) is stepped 0/1 per frame,
+    # but the game stores it only once, when the world map starts: on a 0 frame the player
+    # turns but cannot walk. Step the variable itself as well.
+    ('ff7/world/world.cpp',
+     '            patch_divide_code<DWORD>(ff7_externals.world_init_variables_74E1E9 + 0x15D, common_frame_multiplier);\n',
+     '            patch_divide_code<DWORD>(ff7_externals.world_init_variables_74E1E9 + 0x15D, common_frame_multiplier);\n'
+     '#ifdef FFNX_ANDROID\n'
+     '            ffnx_recomp::step_mirror(ff7_externals.world_init_variables_74E1E9 + 0x15D, (uint32_t)(uintptr_t)ff7_externals.world_movement_multiplier_DFC480);   // FF7Recomp\n'
+     '#endif\n'),
     ('ff7/field/model.cpp', 'int model_id = std::distance(*ff7_externals.field_event_data_ptr, field_event_model);',
      'int model_id = std::distance((field_event_data *)*ff7_externals.field_event_data_ptr, field_event_model);'),
     ('ff7/field/opcode.cpp', '        auto *field_global_data_ptr = *ff7_externals.field_global_object_ptr;',
