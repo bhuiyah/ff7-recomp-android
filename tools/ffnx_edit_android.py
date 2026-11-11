@@ -901,6 +901,26 @@ EDITS = [
      '\t\t\t\t}\n'
      '#endif\n'
      '\t\t\t\t// use a pointer to identify the AVFrame object we ultimately want to use\n'),
+    # The battle fade's length (battle_sub_5BCF9D + 0x3A) is the 16-bit value of a
+    # `mov word [edx+0xBFC3A4], 0x15` at +0x33. Enhanced Stock UI's Transparency2 replaces that
+    # instruction with a call and four NOPs (its hext runs before FFNx patches the game), so
+    # FFNx's write landed in the NOPs: widescreen's 30 made `1E 00`, an instruction that is not
+    # there, and every battle at frame rate Original crashed (at 60 FPS the multiplied value
+    # happened to make a harmless jump). Only patch the fade while the original instruction is.
+    ('ff7/widescreen.cpp',
+     '    patch_code_short(ff7_externals.battle_sub_5BCF9D + 0x3A, 30);\n',
+     '#ifdef FFNX_ANDROID\n'
+     '    if (*(volatile uint8_t *)(uintptr_t)(ff7_externals.battle_sub_5BCF9D + 0x33) == 0x66 &&\n'
+     '        *(volatile uint8_t *)(uintptr_t)(ff7_externals.battle_sub_5BCF9D + 0x34) == 0xC7)   // FF7Recomp: not replaced by a mod\n'
+     '#endif\n'
+     '    patch_code_short(ff7_externals.battle_sub_5BCF9D + 0x3A, 30);\n'),
+    ('ff7/battle/animations.cpp',
+     '            patch_multiply_code<WORD>(ff7_externals.battle_sub_5BCF9D + 0x3A, battle_frame_multiplier);\n',
+     '#ifdef FFNX_ANDROID\n'
+     '            if (*(volatile uint8_t *)(uintptr_t)(ff7_externals.battle_sub_5BCF9D + 0x33) == 0x66 &&\n'
+     '                *(volatile uint8_t *)(uintptr_t)(ff7_externals.battle_sub_5BCF9D + 0x34) == 0xC7)   // FF7Recomp: see widescreen.cpp\n'
+     '#endif\n'
+     '            patch_multiply_code<WORD>(ff7_externals.battle_sub_5BCF9D + 0x3A, battle_frame_multiplier);\n'),
     ('common.cpp', '\t\t\t\tif (strstr(basedir, "workingdir") != NULL)',
      '\t\t\t\tif (FFNX_ANDROID || strstr(basedir, "workingdir") != NULL)   // FF7Recomp: 2026 rerelease exe'),
     # Save states: which graphics objects carry button prompts is host state (prompt_resources)
