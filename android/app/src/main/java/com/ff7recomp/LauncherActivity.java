@@ -347,21 +347,25 @@ public class LauncherActivity extends Activity {
         col.addView(heading("Mods"));
         col.addView(text("Higher in the list wins when two mods change the same file. Mods are 7th Heaven archives (.iro) or mod folders.", 14, DIM));
         LinearLayout actions = row();
-        actions.addView(button("Add .iro archive", v -> pick(PICK_IRO)));
-        actions.addView(button("Add mod folder", v -> pick(PICK_FOLDER)));
+        actions.addView(button("Add .iro", v -> pick(PICK_IRO)));
+        actions.addView(button("Add folder", v -> pick(PICK_FOLDER)));
         actions.addView(button("Get mods…", v -> show("catalog")));
         java.util.List<ModCatalog.Mod> ups = catalog.updates();
         if (!ups.isEmpty()) actions.addView(button("Update all (" + ups.size() + ")", v -> installMods(ups, true)));
         // 7th Heaven's Auto-sort: category order, then the mods' own load-order rules (requested in the comments)
-        if (library.mods.size() > 1) actions.addView(button("Auto‑sort",v -> {
-            boolean changed = library.autoSort(m -> {
-                ModCatalog.Mod c = m.id == null || m.id.isEmpty() ? null : catalog.byId(m.id);
-                return c != null ? c.category : null;
+        if (library.mods.size() > 1) {
+            Button sort = button("Auto-sort", v -> {
+                boolean changed = library.autoSort(m -> {
+                    ModCatalog.Mod c = m.id == null || m.id.isEmpty() ? null : catalog.byId(m.id);
+                    return c != null ? c.category : null;
+                });
+                if (changed) { saveProfile(); ensureConflicts(); refresh(); }
+                android.widget.Toast.makeText(this, changed ? "Sorted like 7th Heaven: by category, then each mod's own load order"
+                        : "Already in 7th Heaven's order", android.widget.Toast.LENGTH_LONG).show();
             });
-            if (changed) { saveProfile(); ensureConflicts(); refresh(); }
-            android.widget.Toast.makeText(this, changed ? "Sorted like 7th Heaven: by category, then each mod's own load order"
-                    : "Already in 7th Heaven's order", android.widget.Toast.LENGTH_LONG).show();
-        }));
+            sort.setSingleLine(true);   // one line: "Auto-" / "sort" read badly
+            actions.addView(sort);
+        }
         col.addView(actions);
         // what the enabled mods share (computed in the background: archives are read)
         ensureConflicts();

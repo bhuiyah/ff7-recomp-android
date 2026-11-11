@@ -11,7 +11,7 @@ Built for the AYN Thor (dual screen), and meant to run on other Android handheld
 > nothing derived from the game is ever published here.
 > Not affiliated with or endorsed by Square Enix. FINAL FANTASY is a trademark of Square Enix.
 
-![FF7Recomp on the AYN Thor: a battle on the top screen, the enemies' HP and a touch deck on the bottom screen](docs/images/dual-screen-battle.jpg)
+![FF7Recomp on the AYN Thor: Cosmo Canyon at 118 FPS on the top screen; the party, location, playtime and a touch deck on the bottom screen](docs/images/dual-screen-field.jpg)
 
 ## Made with AI
 
@@ -69,13 +69,17 @@ and I would rather you know before you install it.
 
 ## Screenshots
 
+On the AYN Thor, with mods from the 7th Heaven catalogs (Tsunamods' Finishing Touch, Enhanced Stock UI and others) and a tester's mid-game save.
+
 | | |
 |---|---|
-| ![The field on the top screen, the party, location, playtime and touch deck on the bottom screen](docs/images/dual-screen-field.jpg) | ![A battle at 118 FPS; enemy HP on the bottom screen](docs/images/dual-screen-battle.jpg) |
+| ![Cosmo Canyon on the top screen; the party, location, playtime, the Pixel Guide book and the touch deck on the bottom screen](docs/images/dual-screen-field.jpg) | ![A battle at 118 FPS with the widescreen battle layout; enemy HP and the touch deck on the bottom screen](docs/images/dual-screen-battle.jpg) |
 | **Dual screen: field** | **Dual screen: battle** |
-| ![Get mods: the 7th Heaven catalogs by category, with search](docs/images/launcher-get-mods.jpg) | ![Mods: enable, order, options; overlaps between mods are shown](docs/images/launcher-mods.jpg) |
+| ![The world map near Wutai on the top screen; the whole world map with the party's position on the bottom screen](docs/images/dual-screen-world-map.jpg) | ![Cosmo Canyon with the CRT filter: scanlines and a phosphor mask](docs/images/crt-filter.jpg) |
+| **Dual screen: world map, with where you are** | **CRT filter** |
+| ![Get mods: the 7th Heaven catalogs by category, with search](docs/images/launcher-get-mods.jpg) | ![Mods: enable, order, options; the options one mod sets for another are shown](docs/images/launcher-mods.jpg) |
 | **Get mods** | **Your mods** |
-| ![Building the game on the device from your own copy of FF7](docs/images/launcher-build.jpg) | ![Settings: frame rate, performance, menu sounds](docs/images/launcher-settings.jpg) |
+| ![Building the game on the device from your own copy of FF7](docs/images/launcher-build.jpg) | ![Settings: aspect ratio, frame-rate counter, renderer (Vulkan or OpenGL ES)](docs/images/launcher-settings.jpg) |
 | **First run: building the game on the device** | **Settings** |
 
 ## Playing
