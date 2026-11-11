@@ -348,6 +348,17 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
             fh.write("    { 0, 0, 0, 0 },\n")
         fh.write("};\n")
         fh.write(f"const uint32_t {prefix}ff7_code_variant_count = {len(rows)};\n")
+        # Dword operands the lift reads live (the manifests' patch_code_dword/int/uint sites):
+        # FFNx's write to any other dword is not seen by the lifted code, so
+        # src/ffnx_port/patch_recomp.cpp runs the function holding it interpreted (GitHub #23).
+        sites = sorted(patch_sites)
+        fh.write(f"const uint32_t {prefix}ff7_live_dword_sites[] = {{\n")
+        for a in sites:
+            fh.write(f"    0x{a:08X}u,\n")
+        if not sites:
+            fh.write("    0,\n")
+        fh.write("};\n")
+        fh.write(f"const uint32_t {prefix}ff7_live_dword_site_count = {len(sites)};\n")
     # Which functions hold each guest address (inline copies included): ff7_hext.cpp switches
     # every one of them to the interpreter for a patch the lift has no variant for.
     if shard:

@@ -31,6 +31,10 @@ final class BoosterIcons extends View {
     private String achTitle = "";
     private int achPoints;
     private static final long ACH_MS = 5000;
+    // Test: FF7_BANNER_TEST=<seconds> in files/env.txt shows a made-up unlock that often, to
+    // exercise the banner without unlocking anything (GitHub #21).
+    private long testEveryMs, testNext;
+    private int testCount;
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -51,6 +55,15 @@ final class BoosterIcons extends View {
                     handler.postDelayed(BoosterIcons.this::invalidate, ACH_MS + 50);
                 }
                 achSeq = seq;
+                if (testEveryMs > 0 && System.currentTimeMillis() >= testNext) {
+                    testNext = System.currentTimeMillis() + testEveryMs;
+                    achTitle = "Test banner " + (++testCount);
+                    achPoints = 10;
+                    achUntil = System.currentTimeMillis() + ACH_MS;
+                    android.util.Log.i("FF7Recomp", "banner test " + testCount);
+                    invalidate();
+                    handler.postDelayed(BoosterIcons.this::invalidate, ACH_MS + 50);
+                }
             } catch (Exception ignored) { }
             handler.postDelayed(this, 500);
         }
@@ -66,6 +79,13 @@ final class BoosterIcons extends View {
         ink.setStrokeJoin(Paint.Join.ROUND);
         ink.setTextAlign(Paint.Align.CENTER);
         ink.setFakeBoldText(true);
+        java.io.File env = new java.io.File(Storage.root(c), "env.txt");
+        try (java.io.BufferedReader rd = new java.io.BufferedReader(new java.io.FileReader(env))) {
+            for (String line; (line = rd.readLine()) != null; )
+                if (line.startsWith("FF7_BANNER_TEST="))
+                    testEveryMs = 1000L * Math.max(1, Integer.parseInt(line.substring(16).trim()));
+        } catch (Exception ignored) { }
+        testNext = System.currentTimeMillis() + testEveryMs;
     }
 
     @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); handler.post(poll); }

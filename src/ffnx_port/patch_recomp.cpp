@@ -10,6 +10,7 @@
 // ffnx_recomp_report() prints a summary; ffnx_recomp_write_manifest(path) writes JSON.
 //
 // get_relative_call / get_absolute_value / check_is_call are FFNx's (GPL-3.0), unchanged.
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -209,12 +210,27 @@ bool fallback_enabled() {
 }
 }  // namespace
 
+// The dword operands the lift reads live (generated recomp_variants.c, run_lift.py: the
+// manifests' patch_code_dword/int/uint sites), sorted. Weak: absent from an older lift.
+extern "C" __attribute__((weak)) const uint32_t ff7_live_dword_sites[];
+extern "C" __attribute__((weak)) const uint32_t ff7_live_dword_site_count;
+
+static bool live_dword_site(uint32_t va) {
+    if (!&ff7_live_dword_site_count || !&ff7_live_dword_sites[0]) return true;   // older lift: as before
+    const uint32_t *b = ff7_live_dword_sites, *e = b + ff7_live_dword_site_count;
+    const uint32_t *p = std::lower_bound(b, e, va);
+    return p != e && *p == va;
+}
+
 static void verify_code_writes_locked() {
     for (; g_verified < g_code_writes.size(); g_verified++) {
         const write_rec &w = g_code_writes[g_verified];
-        // A dword value is an operand the lift reads live (run_lift.py DWORD_VALUE_KINDS).
+        // A dword value at a site the lift reads live (run_lift.py DWORD_VALUE_KINDS) takes
+        // effect as is. One at a site no manifest recorded (an FFNx option that was off when
+        // they were collected: Cosmos Gaia's enable_worldmap_external_mesh, GitHub #23) is
+        // checked like any other write below, so the function holding it runs interpreted.
         if (w.size == 4 && (!std::strcmp(w.what, "patch_code_dword") || !std::strcmp(w.what, "patch_code_int") ||
-                            !std::strcmp(w.what, "patch_code_uint")))
+                            !std::strcmp(w.what, "patch_code_uint")) && live_dword_site(w.offset))
             continue;
         if (!std::memcmp(w.before.data(), (const void *)(uintptr_t)w.offset, w.size)) continue;   // nothing changed
         int rc = ff7_code_runnable(w.offset, w.size);
