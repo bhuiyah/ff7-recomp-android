@@ -35,12 +35,13 @@ public class CrtOverlay extends View {
             double dy = (y + 0.5) / h - 0.5;
             for (int x = 0; x < w; x++) {
                 double dx = (x + 0.5) / w - 0.5;
-                double keep = (0.76 + 0.24 * scan) * (1.0 - 0.3 * (dx * dx + dy * dy)) * 0.94;
+                // the grille: one column in three a little brighter
+                double grille = x % 3 == 0 ? 1.0 : 0.92;
+                double keep = (0.76 + 0.24 * scan) * (1.0 - 0.3 * (dx * dx + dy * dy)) * grille;
                 int a = (int) Math.round(255 * Math.max(0, Math.min(1, 1 - keep)));
-                // the grille: each column leans to red, green or blue
-                int m = x % 3;
-                int r = m == 0 ? 90 : 0, g = m == 1 ? 90 : 0, b = m == 2 ? 90 : 0;
-                px[y * w + x] = (a << 24) | (r << 16) | (g << 8) | b;   // setPixels: not premultiplied
+                // pure black, so the layer only darkens: black stays black (a coloured tint
+                // lit up the battle screen's black area with lines and a ring)
+                px[y * w + x] = a << 24;
             }
         }
         layer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
