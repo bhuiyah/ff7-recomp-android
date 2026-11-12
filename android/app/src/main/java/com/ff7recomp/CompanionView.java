@@ -58,6 +58,10 @@ public class CompanionView extends View {
         new Button("Battle+", CMD_BPLUS, 0),
     };
     private Button pressed;
+    // Settings > Screen > Second screen buttons (requested in the comments): off, the panels
+    // take the deck's place and the controller does everything.
+    private boolean deck = true;
+    void setDeck(boolean on) { deck = on; if (!on) for (Button b : buttons) b.box.setEmpty(); invalidate(); }
     // Pixel Guide (a game guide app, requested in the comments): a book at the top right opens
     // it here on the bottom screen; when it is not installed the book offers to install it.
     static final String GUIDE_PACKAGE = "app.nanostack.pixelguide";
@@ -237,7 +241,7 @@ public class CompanionView extends View {
         battleNow = battle;
 
         // command deck at the bottom (in battle the first button is Back)
-        float deckH = 150 * u, deckT = H - pad - deckH;
+        float deckH = deck ? 150 * u : 0, deckT = deck ? H - pad - deckH : H;
 
         if (battle) {
             // enemies, compact, on top: two columns
@@ -337,7 +341,7 @@ public class CompanionView extends View {
         }
 
         float bw = (W - pad * (buttons.length + 1)) / buttons.length;
-        for (int i = 0; i < buttons.length; i++) {
+        for (int i = 0; deck && i < buttons.length; i++) {
             Button b = buttons[i];
             float l = pad + i * (bw + pad);
             b.box.set(l, deckT, l + bw, deckT + deckH);

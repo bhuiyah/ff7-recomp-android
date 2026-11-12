@@ -1323,7 +1323,7 @@ public class LauncherActivity extends Activity {
         }
         col.addView(rg);
         CheckBox crt = new CheckBox(this);
-        crt.setText("CRT filter\nScanlines and a phosphor mask, like an old TV");
+        crt.setText("CRT filter\nScanlines and a phosphor mask, like an old TV (on the second screen too)");
         crt.setTextColor(TEXT);
         crt.setTextSize(16);
         crt.setChecked(prefs.getBoolean("crt_filter", false));
@@ -1338,6 +1338,14 @@ public class LauncherActivity extends Activity {
         second.setChecked(prefs.getBoolean("bottom_screen", true));
         second.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("bottom_screen", on).apply());
         col.addView(second);
+        CheckBox deckBox = new CheckBox(this);
+        deckBox.setText("Second screen buttons\nMenu, Save, Load, Speed, Battles and Battle+ along the bottom. "
+                + "Off: the panels fill the screen and the controller does everything");
+        deckBox.setTextColor(TEXT);
+        deckBox.setTextSize(16);
+        deckBox.setChecked(prefs.getBoolean("bottom_buttons", true));
+        deckBox.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("bottom_buttons", on).apply());
+        col.addView(deckBox);
         RadioGroup or = new RadioGroup(this);
         String[][] orientations = {
             { "0", "Landscape", "The game fills the screen" },
@@ -1815,6 +1823,8 @@ public class LauncherActivity extends Activity {
                     .putExtra("touch_layout", prefs.getString("touch_layout", ""))
                     .putExtra("portrait", prefs.getBoolean("portrait", false))
                     .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
+                    .putExtra("bottom_buttons", prefs.getBoolean("bottom_buttons", true))
+                    .putExtra("crt_filter", prefs.getBoolean("crt_filter", false))
                     .putExtra("aspect", prefs.getInt("aspect", 2))));
             return null;
         });

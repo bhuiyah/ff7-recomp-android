@@ -455,7 +455,11 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             @Override public void surfaceDestroyed(SurfaceHolder h) { nativeSetCompanionSurface(null, 0, 0); }
         });
         layers.addView(windows);
-        layers.addView(new CompanionView(companion.getContext()));
+        CompanionView panels = new CompanionView(companion.getContext());
+        panels.setDeck(getIntent().getBooleanExtra("bottom_buttons", true));
+        layers.addView(panels);
+        // the top screen's CRT filter here too, over the panels and the battle windows
+        if (getIntent().getBooleanExtra("crt_filter", false)) layers.addView(new CrtOverlay(companion.getContext()));
         companion.setContentView(layers);
         preferHighestRefreshRate(companion.getWindow(), d);
         companion.show();
