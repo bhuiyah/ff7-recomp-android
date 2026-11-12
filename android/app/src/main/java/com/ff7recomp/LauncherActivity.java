@@ -1330,6 +1330,16 @@ public class LauncherActivity extends Activity {
         }
         col.addView(tc);
         col.addView(space(16));
+        col.addView(heading("Controller"));
+        CheckBox analog = new CheckBox(this);
+        analog.setText("Analog stick\nTilt the left stick a little to walk, all the way to run. In battles the right stick turns "
+                + "the camera and L2/R2 zoom it (FFNx's analogue controls)");
+        analog.setTextColor(TEXT);
+        analog.setTextSize(16);
+        analog.setChecked(prefs.getBoolean("analog_controls", false));
+        analog.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("analog_controls", on).apply());
+        col.addView(analog);
+        col.addView(space(16));
         col.addView(heading("Start"));
         RadioGroup st = new RadioGroup(this);
         String[][] starts = {
@@ -1739,6 +1749,7 @@ public class LauncherActivity extends Activity {
             }
             install.steamAchievements = steamOn;
             install.crtFilter = prefs.getBoolean("crt_filter", false);
+            install.analogControls = prefs.getBoolean("analog_controls", false);
             install.openGl = prefs.getInt("renderer", 0) == 1;
             int aspect = prefs.getInt("aspect", 2);   // 3: 16:9 stretched by Android (GameActivity), FFNx renders 16:9
             install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, aspect == 3 ? 2 : aspect, prefs.getBoolean("show_fps", false), library.mods,

@@ -1,0 +1,36 @@
+diff --git a/src/glcontext_egl.cpp b/src/glcontext_egl.cpp
+index f0bc505cd..953f7004d 100644
+--- a/src/glcontext_egl.cpp
++++ b/src/glcontext_egl.cpp
+@@ -988,6 +988,13 @@ WL_EGL_IMPORT
+ 		}
+ 
+ #	if BX_PLATFORM_ANDROID
++		if (NULL != _swapChain.nwh)
++		{
++			// FF7Recomp: a new window (the app's surface came back after the device slept)
++			// gets the new EGL surface, not the old window's.
++			m_nwh = _swapChain.nwh;
++		}
++
+ 		if (m_ownsContext
+ 		&&  NULL != m_display
+ 		&&  NULL != m_nwh)
+diff --git a/src/renderer_vk.cpp b/src/renderer_vk.cpp
+index c39277be7..24644515d 100644
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -3597,9 +3597,11 @@ VK_IMPORT_DEVICE
+ 			{
+ 				uint32_t flags = _reset & (~BGFX_RESET_INTERNAL_FORCE);
+ 
+-				if (m_backBuffer.m_nwh != m_mainSwapChain.nwh)
++				if (m_backBuffer.m_nwh != _swapChain.nwh)
+ 				{
+-					m_backBuffer.m_nwh = m_mainSwapChain.nwh;
++					// FF7Recomp: the new window, not the one being replaced (the app's surface came
++					// back after the device slept; the old window may already be gone).
++					m_backBuffer.m_nwh = _swapChain.nwh;
+ 				}
+ 
+ 				m_mainSwapChain = _swapChain;

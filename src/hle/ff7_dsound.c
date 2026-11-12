@@ -400,6 +400,14 @@ const win32hle_shim ff7_dsound[] = {
     { NULL, NULL }
 };
 
+/* The game is paused while the app has no surface (src/android/ff7_android_main.cpp): stop
+ * the stream, or its looping buffers would keep sounding while the device sleeps. */
+void ff7_dsound_suspend(int on) {
+    if (!g_stream) return;
+    if (on) AAudioStream_requestPause(g_stream);
+    else AAudioStream_requestStart(g_stream);
+}
+
 /* ---- save states: the voice table is plain data (guest object and buffer addresses,
  * positions, flags), restored with the guest memory it refers to. ---- */
 unsigned ff7_dsound_state_size(void) { return (unsigned)sizeof g_voices; }

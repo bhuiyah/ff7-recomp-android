@@ -13,6 +13,8 @@ void *ff7_platform_window(int *width, int *height) {
     return NULL;
 }
 
+void *ff7_platform_frame_window(void) { return NULL; }
+
 void *ff7_platform_companion_window(int *width, int *height) {
     if (width) *width = 0;
     if (height) *height = 0;

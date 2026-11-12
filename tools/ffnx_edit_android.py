@@ -1326,6 +1326,34 @@ EDITS = [
     ('ff7/multilanguage.cpp',
      '\t\t\tmemcpy_code(reinterpret_cast<uint32_t>(time_args.data() + 6), const_cast<uint8_t *>(original + 3), 6);',
      '\t\t\tmemcpy(time_args.data() + 6, const_cast<uint8_t *>(original + 3), 6);   // FF7Recomp: host array'),
+    # The device going to sleep (or the app to the background) destroys the game's surface.
+    # The renderer takes the window to draw into each frame (src/android/ff7_android_main.cpp:
+    # it waits there, the game paused, while there is none) and moves bgfx to a new one when
+    # the surface comes back; before, the game crashed on wake (GitHub #26).
+    ('renderer.cpp',
+     '    if (!presentFrame) frameFlags |= BGFX_FRAME_FLUSH;\n'
+     '    bgfx::frame(frameFlags);\n',
+     '    if (!presentFrame) frameFlags |= BGFX_FRAME_FLUSH;\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    if (void *nwh = ff7_platform_frame_window(); nwh && nwh != bgfxInit.swapChain.nwh)   // FF7Recomp\n'
+     '    {\n'
+     '        bgfxInit.swapChain.nwh = nwh;\n'
+     '        bgfx::reset(bgfxInit.reset, &bgfxInit.swapChain);\n'
+     '    }\n'
+     '#endif\n'
+     '    bgfx::frame(frameFlags);\n'),
+    # ... with the music silent meanwhile (SoLoud's miniaudio output cannot pause; FFNx does
+    # not use the global volume otherwise).
+    ('audio.h', '\tbool init();\n\tvoid flush();\n\tvoid cleanup();\n',
+     '\tbool init();\n\tvoid flush();\n\tvoid cleanup();\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\tvoid ff7rSuspend(bool on) { _engine.setGlobalVolume(on ? 0.0f : 1.0f); }   // FF7Recomp: no surface\n'
+     '#endif\n'),
+    ('audio.cpp', 'bool NxAudioEngine::init()\n',
+     '#ifdef FFNX_ANDROID\n'
+     'extern "C" void ff7r_ffnx_audio_suspend(int on) { nxAudioEngine.ff7rSuspend(on != 0); }   // FF7Recomp\n'
+     '#endif\n\n'
+     'bool NxAudioEngine::init()\n'),
 ]
 
 

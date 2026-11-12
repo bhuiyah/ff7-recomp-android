@@ -5,6 +5,9 @@
 // are copied to logcat (tag FF7Recomp) and to <files>/ff7.log so a run can be read back
 // with adb even after the process is gone.
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <vector>
 #include <android/log.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
@@ -20,10 +23,38 @@
 namespace {
 
 std::mutex g_win_lock;
+std::condition_variable g_win_cv;
 ANativeWindow *g_window;
 int g_width, g_height;
 ANativeWindow *g_companion;         // the Thor's bottom screen, if any
 int g_cwidth, g_cheight;
+
+// A window the app replaced (its surface was destroyed: the device went to sleep, the app
+// went to the background) can still be bgfx's: its Vulkan swap chain re-creates a lost
+// surface from the same window. Releasing it at once freed it under bgfx, which crashed in
+// libvulkan on the next frame (GitHub #26). Replaced windows are kept until the renderer has
+// moved to the new one and a few frames have passed.
+struct Retired { ANativeWindow *win; unsigned long frame; };
+std::vector<Retired> g_retired;
+unsigned long g_frames;             // the renderer's frames (ff7_platform_frame_window)
+bool g_renderer_live;               // the renderer draws into g_window
+bool g_parked;                      // the game waits for a surface
+
+void retire_locked(ANativeWindow *w) {
+    if (w) g_retired.push_back({ w, g_frames });
+}
+
+void release_retired_locked() {
+    for (size_t i = 0; i < g_retired.size();) {
+        if (g_frames - g_retired[i].frame >= 8) {
+            ANativeWindow_release(g_retired[i].win);
+            g_retired[i] = g_retired.back();
+            g_retired.pop_back();
+        } else {
+            i++;
+        }
+    }
+}
 
 std::string g_game_dir;
 FILE *g_logfile;
@@ -77,6 +108,33 @@ extern "C" void *ff7_platform_window(int *width, int *height) {
     std::lock_guard<std::mutex> lk(g_win_lock);
     if (width) *width = g_width;
     if (height) *height = g_height;
+    return g_window;
+}
+
+// Audio while the game is paused for want of a surface (src/hle/ff7_dsound.c, FFNx's audio).
+extern "C" void ff7_dsound_suspend(int on) __attribute__((weak));
+extern "C" void ff7r_ffnx_audio_suspend(int on) __attribute__((weak));
+
+// The renderer, once a frame before presenting (FFNx's Renderer::draw): returns the window
+// to draw into. While the app has no surface (asleep, in the background) the game waits
+// here, silent, and goes on where it was when a surface comes back (GitHub #26).
+extern "C" void *ff7_platform_frame_window(void) {
+    std::unique_lock<std::mutex> lk(g_win_lock);
+    g_renderer_live = true;
+    g_frames++;
+    release_retired_locked();
+    if (!g_window) {
+        g_parked = true;
+        g_win_cv.notify_all();
+        std::fprintf(stderr, "[ff7] no surface (asleep or in the background): game paused\n");
+        if (ff7_dsound_suspend) ff7_dsound_suspend(1);
+        if (ff7r_ffnx_audio_suspend) ff7r_ffnx_audio_suspend(1);
+        g_win_cv.wait(lk, [] { return g_window != nullptr; });
+        if (ff7r_ffnx_audio_suspend) ff7r_ffnx_audio_suspend(0);
+        if (ff7_dsound_suspend) ff7_dsound_suspend(0);
+        g_parked = false;
+        std::fprintf(stderr, "[ff7] surface back (%dx%d): game resumed\n", g_width, g_height);
+    }
     return g_window;
 }
 
@@ -138,19 +196,25 @@ Java_com_ff7recomp_GameActivity_nativePad(JNIEnv *, jclass, jint buttons, jint l
 extern "C" JNIEXPORT void JNICALL
 Java_com_ff7recomp_GameActivity_nativeSetCompanionSurface(JNIEnv *env, jclass, jobject surface, jint w, jint h) {
     std::lock_guard<std::mutex> lk(g_win_lock);
-    if (g_companion) { ANativeWindow_release(g_companion); g_companion = nullptr; }
-    if (surface) g_companion = ANativeWindow_fromSurface(env, surface);
+    retire_locked(g_companion);         // bgfx may still hold it: released a few frames later
+    g_companion = surface ? ANativeWindow_fromSurface(env, surface) : nullptr;
     g_cwidth = w;
     g_cheight = h;
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_ff7recomp_GameActivity_nativeSetSurface(JNIEnv *env, jclass, jobject surface, jint w, jint h) {
-    std::lock_guard<std::mutex> lk(g_win_lock);
-    if (g_window) { ANativeWindow_release(g_window); g_window = nullptr; }
-    if (surface) g_window = ANativeWindow_fromSurface(env, surface);
+    std::unique_lock<std::mutex> lk(g_win_lock);
+    retire_locked(g_window);            // bgfx may still hold it: released a few frames later
+    g_window = surface ? ANativeWindow_fromSurface(env, surface) : nullptr;
     g_width = w;
     g_height = h;
+    g_win_cv.notify_all();
+    // The surface is going away (surfaceDestroyed): give the game a moment to finish its frame
+    // and stop at ff7_platform_frame_window, so it does not present into a destroyed surface.
+    // Not forever: a game busy elsewhere (loading) parks at its next frame.
+    if (!g_window && g_renderer_live)
+        g_win_cv.wait_for(lk, std::chrono::milliseconds(500), [] { return g_parked || g_window != nullptr; });
 }
 
 extern "C" JNIEXPORT void JNICALL

@@ -13,6 +13,11 @@ int ff7_boot_and_run(const char *game_dir);
  * the headless runner has none and gets NULL. */
 void *ff7_platform_window(int *width, int *height);
 
+/* The renderer, once a frame before presenting: the window to draw into now. While the app
+ * has no surface (the device asleep, the app in the background) it waits for one, with the
+ * game's sound paused. The headless runner returns NULL at once. */
+void *ff7_platform_frame_window(void);
+
 /* The second (companion) screen -- the AYN Thor's bottom display -- or NULL if the device
  * has none, or before its surface exists. */
 void *ff7_platform_companion_window(int *width, int *height);

@@ -326,6 +326,7 @@ final class GameInstall {
     boolean steamAchievements;
     boolean openGl;             // Settings > Display > Renderer: OpenGL ES instead of Vulkan
     boolean crtFilter;          // Settings > Display > CRT filter (FFNx crt_filter, an FF7Recomp edit)
+    boolean analogControls;     // Settings > Controller > Analog stick (FFNx's analogue controls and auto run)
 
     /** The game's languages: FFNx's game_language, the launcher's name, the data/lang-* folder. */
     static final String[][] LANGUAGES = {
@@ -423,6 +424,13 @@ final class GameInstall {
         // 16:9 (FFNx aspect_ratio 2) also uncrops: the Thor's screen is 16:9 top to bottom.
         toml = set(toml, "aspect_ratio", Integer.toString(aspectRatio));
         toml = set(toml, "enable_uncrop", aspectRatio != 0 ? "true" : "false");
+        // FFNx's analogue controls: the left stick walks when tilted a little and runs when tilted
+        // all the way; the right stick and L2/R2 move the camera in battles (GitHub #25). Off: as
+        // the template or a mod sets them.
+        if (analogControls) {
+            toml = set(toml, "enable_analogue_controls", "true");
+            toml = set(toml, "enable_auto_run", "true");
+        }
         for (int i = mods.size() - 1; i >= 0; i--) {
             ModLibrary.Mod m = mods.get(i);
             if (!m.enabled || m.error != null) continue;
