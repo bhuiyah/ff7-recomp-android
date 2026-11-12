@@ -125,6 +125,40 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             case KeyEvent.KEYCODE_BUTTON_B:     return 0x1000;
             case KeyEvent.KEYCODE_BUTTON_X:     return 0x4000;
             case KeyEvent.KEYCODE_BUTTON_Y:     return 0x8000;
+            default: return keyboardBit(keyCode);
+        }
+    }
+
+    /**
+     * A physical keyboard (#29): arrows or the number pad move, Enter/Space/Z confirm (Circle),
+     * Backspace/X cancel (Cross), Tab/C open the menu (Triangle), V is Square, Q/Page Up and
+     * E/Page Down are L1/R1, 1/Home and 3/End are L2/R2 (see dispatchKeyEvent), Esc/P is Start,
+     * Shift/Insert is Select.
+     */
+    private static int keyboardBit(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_NUMPAD_8:     return 0x0001;
+            case KeyEvent.KEYCODE_NUMPAD_2:     return 0x0002;
+            case KeyEvent.KEYCODE_NUMPAD_4:     return 0x0004;
+            case KeyEvent.KEYCODE_NUMPAD_6:     return 0x0008;
+            case KeyEvent.KEYCODE_ESCAPE:
+            case KeyEvent.KEYCODE_P:            return 0x0010;
+            case KeyEvent.KEYCODE_SHIFT_LEFT:
+            case KeyEvent.KEYCODE_SHIFT_RIGHT:
+            case KeyEvent.KEYCODE_INSERT:       return 0x0020;
+            case KeyEvent.KEYCODE_Q:
+            case KeyEvent.KEYCODE_PAGE_UP:      return 0x0100;
+            case KeyEvent.KEYCODE_E:
+            case KeyEvent.KEYCODE_PAGE_DOWN:    return 0x0200;
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_NUMPAD_ENTER:
+            case KeyEvent.KEYCODE_SPACE:
+            case KeyEvent.KEYCODE_Z:            return 0x2000;
+            case KeyEvent.KEYCODE_DEL:
+            case KeyEvent.KEYCODE_X:            return 0x1000;
+            case KeyEvent.KEYCODE_V:            return 0x4000;
+            case KeyEvent.KEYCODE_TAB:
+            case KeyEvent.KEYCODE_C:            return 0x8000;
             default: return 0;
         }
     }
@@ -208,6 +242,10 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
     }
 
+    private static boolean isPhysicalKeyboard(InputDevice d) {
+        return d != null && !d.isVirtual() && d.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
+    }
+
     private static boolean gamepadConnected() {
         for (int id : InputDevice.getDeviceIds()) if (isGamepad(InputDevice.getDevice(id))) return true;
         return false;
@@ -234,10 +272,12 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
         int code = e.getKeyCode();
-        // Digital L2/R2 on pads that report them as keys.
-        if (code == KeyEvent.KEYCODE_BUTTON_L2 || code == KeyEvent.KEYCODE_BUTTON_R2) {
+        // Digital L2/R2 on pads that report them as keys; 1/Home and 3/End on a keyboard.
+        boolean l2 = code == KeyEvent.KEYCODE_BUTTON_L2 || code == KeyEvent.KEYCODE_1 || code == KeyEvent.KEYCODE_MOVE_HOME;
+        boolean r2 = code == KeyEvent.KEYCODE_BUTTON_R2 || code == KeyEvent.KEYCODE_3 || code == KeyEvent.KEYCODE_MOVE_END;
+        if (l2 || r2) {
             int v = e.getAction() == KeyEvent.ACTION_DOWN ? 255 : 0;
-            if (code == KeyEvent.KEYCODE_BUTTON_L2) padLt = v; else padRt = v;
+            if (l2) padLt = v; else padRt = v;
             sendPad();
             return true;
         }
@@ -245,7 +285,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         if (bit == 0) return super.dispatchKeyEvent(e);   // volume etc. stay with the system
         // a controller is in use: the on-screen pad (auto) steps aside
         if (touchMode == 0 && touch != null && touch.getVisibility() == android.view.View.VISIBLE
-                && isGamepad(e.getDevice())) touch.setVisibility(android.view.View.GONE);
+                && (isGamepad(e.getDevice()) || isPhysicalKeyboard(e.getDevice()))) touch.setVisibility(android.view.View.GONE);
         if (e.getAction() == KeyEvent.ACTION_DOWN) padButtons |= bit;
         else if (e.getAction() == KeyEvent.ACTION_UP) padButtons &= ~bit;
         sendPad();

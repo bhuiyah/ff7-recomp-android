@@ -42,6 +42,9 @@ and I would rather you know before you install it.
   (.iro, .zip, .7z), set mod order and options, settings, save states, achievements. It plays
   FF7's own menu sounds (or your mods' versions of them).
 - 16:9 widescreen, controller support (A confirms, B cancels), save states.
+- Keyboard support: arrow keys or number pad move; Enter, Space or Z confirm; Backspace or X
+  cancel; Tab or C open the menu; V is Square; Q/Page Up and E/Page Down are L1/R1; 1/Home
+  and 3/End are L2/R2; Esc or P is Start; Shift or Insert is Select.
 - English, French, German or Spanish (**Settings** → **Language**), from the languages
   your Steam copy includes. Mods that replace text stay in their own language (most are English).
 - On-screen touch controls for devices with one screen and no controller (D-pad, A/B/X/Y,
