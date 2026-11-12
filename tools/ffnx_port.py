@@ -35,7 +35,7 @@ HOST_STRUCTS = {
 HEADERS = ['common_imports.h', 'common.h', 'ff7.h', 'ff8.h']
 
 FN_TYPEDEF = re.compile(r'^\s*typedef\s+[^;()]+?\(\s*(\w+)\s*\)\s*\(.*\)\s*;|^\s*typedef\s+[^;()]*?[\s*](\w+)\s*\([^()]*\)\s*;', re.M)
-FN_MEMBER = re.compile(r'^(?P<ind>\s*)(?P<ret>[^;()]+?)\s*\(\s*(?P<cc>__\w+\s+)?\*\s*(?P<name>\w+)\s*\)\s*\((?P<args>.*)\)\s*;(?P<tail>.*)$')
+FN_MEMBER = re.compile(r'^(?P<ind>\s*)(?P<ret>[^;()]+?)\s*\(\s*(?P<cc>_{1,2}[a-z]+\s+)?\*\s*(?P<name>\w+)\s*\)\s*\((?P<args>.*)\)\s*;(?P<tail>.*)$')
 PTR_MEMBER = re.compile(r'^(?P<ind>\s*)(?P<type>(?:(?:const|volatile|struct|union|enum|unsigned|signed)\s+)*[\w:]+(?:\s*<[^;]*?>)?(?:\s+(?:const|int|char|long|short))*)\s*(?P<decls>\*[^;]*);(?P<tail>.*)$')
 DECL = re.compile(r'^\s*(?P<stars>\*+)\s*(?:const\s+)?(?P<name>\w+)(?P<arr>(?:\s*\[[^\]]*\])*)\s*(?P<init>=\s*[^,]+?)?\s*$')
 
@@ -97,6 +97,8 @@ def convert_line(line, host, fntypes, stats):
     m = FN_MEMBER.match(line)
     if m and '=' not in m.group('ret'):
         cc = (m.group('cc') or '').strip()
+        if cc.startswith('_') and not cc.startswith('__'):
+            cc = '_' + cc                    # MSVC also accepts _stdcall / _cdecl / _thiscall
         tmpl = {'__thiscall': 'gfn_thiscall', '__stdcall': 'gfn_stdcall'}.get(cc, 'gfn')
         stats['fn'] += 1
         return f"{m.group('ind')}{tmpl}<{fix_params(m.group('ret').strip())}({fix_params(m.group('args').strip())})> {m.group('name')};{m.group('tail')}"
