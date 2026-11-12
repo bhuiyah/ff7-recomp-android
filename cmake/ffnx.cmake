@@ -119,6 +119,9 @@ target_compile_options(ffnx PRIVATE
   # MSVC semantics FFNx relies on: null checks after arithmetic on possibly-null game
   # pointers (&p->array[i] then `if (ptr)`) and type punning between game structs.
   -fno-delete-null-pointer-checks -fno-strict-aliasing
+  # char is signed on x86 and unsigned on arm64: game structs hold signed bytes as `char`
+  # (field shake offsets: -1 read as 255 moved the background 256 px every other frame, #20)
+  -fsigned-char
   -ferror-limit=0 -fms-extensions -Wno-microsoft -Wno-invalid-offsetof -Wno-writable-strings
   -Wno-unused-value -Wno-format -Wno-c++11-narrowing-const-reference)
 target_compile_features(ffnx PUBLIC cxx_std_20)
