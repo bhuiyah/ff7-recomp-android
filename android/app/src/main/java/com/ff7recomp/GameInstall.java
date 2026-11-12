@@ -327,6 +327,7 @@ final class GameInstall {
     boolean openGl;             // Settings > Display > Renderer: OpenGL ES instead of Vulkan
     boolean crtFilter;          // Settings > Display > CRT filter (FFNx crt_filter, an FF7Recomp edit)
     boolean analogControls;     // Settings > Controller > Analog stick (FFNx's analogue controls and auto run)
+    int resolutionScale;        // Settings > Display > Resolution: 1-4 times the original, 0 automatic
 
     /** The game's languages: FFNx's game_language, the launcher's name, the data/lang-* folder. */
     static final String[][] LANGUAGES = {
@@ -437,6 +438,11 @@ final class GameInstall {
             for (String[] kv : m.ffnx)
                 if (m.optionsMatch(kv.length > 2 ? kv[2] : null)) toml = set(toml, kv[0], tomlValue(kv[1]));
         }
+        // Settings > Display > Resolution: a chosen multiple of the original resolution, whatever
+        // the mods or Performance would pick (0 = automatic, below)
+        if (resolutionScale > 0) {
+            toml = set(toml, "internal_resolution_scale", Integer.toString(resolutionScale));
+        } else
         // Performance: the internal resolution at most scaleCap times 640x480 (mods ask for 4x,
         // which on a 1080p screen renders 2.4 times the pixels shown; 0 = as the mods set it)
         if (scaleCap > 0) {

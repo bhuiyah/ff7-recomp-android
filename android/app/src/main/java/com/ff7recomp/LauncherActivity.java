@@ -1278,6 +1278,31 @@ public class LauncherActivity extends Activity {
         fps.setChecked(prefs.getBoolean("show_fps", false));
         fps.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("show_fps", on).apply());
         col.addView(fps);
+        col.addView(text("Resolution", 16, TEXT));
+        col.addView(text("What the game is drawn at before it is fitted to the screen. Above the screen's own "
+                + "resolution it is sharper (supersampling), but the GPU works harder: 4× draws about 3 times "
+                + "the pixels of a 1080p screen.", 14, DIM));
+        RadioGroup resg = new RadioGroup(this);
+        String[][] resolutions = {
+            { "0", "Automatic (recommended)", "As Performance sets it: the screen's resolution on Balanced" },
+            { "1", "Original", "640×480 (854×480 in 16:9)" },
+            { "2", "2×", "1280×960 (1708×960 in 16:9), about 1080p" },
+            { "3", "3×", "1920×1440 (2562×1440 in 16:9), 1440p" },
+            { "4", "4×", "2560×1920 (3416×1920 in 16:9), close to 4K" },
+        };
+        int curRes = prefs.getInt("resolution", 0);
+        for (String[] r : resolutions) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(r[1] + "\n" + r[2]);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            final int v = Integer.parseInt(r[0]);
+            rb.setOnClickListener(x -> prefs.edit().putInt("resolution", v).apply());
+            resg.addView(rb);
+            if (v == curRes) rb.setChecked(true);
+        }
+        col.addView(resg);
         col.addView(text("Renderer", 16, TEXT));
         RadioGroup rg = new RadioGroup(this);
         String[][] renderers = {
@@ -1774,6 +1799,7 @@ public class LauncherActivity extends Activity {
             install.steamAchievements = steamOn;
             install.crtFilter = prefs.getBoolean("crt_filter", false);
             install.analogControls = prefs.getBoolean("analog_controls", false);
+            install.resolutionScale = prefs.getInt("resolution", 0);
             install.openGl = prefs.getInt("renderer", 0) == 1;
             int aspect = prefs.getInt("aspect", 2);   // 3: 16:9 stretched by Android (GameActivity), FFNx renders 16:9
             install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, aspect == 3 ? 2 : aspect, prefs.getBoolean("show_fps", false), library.mods,
