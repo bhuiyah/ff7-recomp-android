@@ -1226,6 +1226,14 @@ public class LauncherActivity extends Activity {
         bplus.setChecked(prefs.getBoolean("battle_plus", false));
         bplus.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("battle_plus", on).apply());
         col.addView(bplus);
+        CheckBox saveAny = new CheckBox(this);
+        saveAny.setText("Save anywhere" + "\n" + "Save from the menu outside save points too. Keep a second save file: a save made in the "
+                + "middle of an event can leave you stuck.");
+        saveAny.setTextColor(TEXT);
+        saveAny.setTextSize(16);
+        saveAny.setChecked(prefs.getBoolean("save_anywhere", false));
+        saveAny.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("save_anywhere", on).apply());
+        col.addView(saveAny);
         col.addView(space(16));
         col.addView(heading("Display"));
         RadioGroup ar = new RadioGroup(this);
@@ -1756,7 +1764,7 @@ public class LauncherActivity extends Activity {
                                   renderScaleCap());
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
             install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false),
-                                  prefs.getInt("perf", 1) != 2);
+                                  prefs.getInt("perf", 1) != 2, prefs.getBoolean("save_anywhere", false));
             install.writeCompanion("off");   // battle windows stay on the top screen
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)
                     .putExtra("touch_controls", prefs.getInt("touch_controls", 0))

@@ -234,6 +234,17 @@ extern "C" void ff7_hext_apply_mods(void) {
     ff7_mods_hext([](const char *mod, const char *file, const char *text, unsigned len, void *ctx) {
         apply_one(mod, file, std::string(text, len), true, *static_cast<Ctx *>(ctx));
     }, &c);
+    // Settings > Game boosters > Save anywhere (boosters.txt "saveanywhere=on", beside the game folder):
+    // the main menu builds its lock mask from the save data, then always unlocks Quit
+    // (and cx, 0xFBFF at 0x6CA3F5). Clearing the Save bit (0x200) there as well unlocks Save
+    // everywhere, without changing what is saved.
+    if (FILE *f = std::fopen("../boosters.txt", "rb")) {
+        char line[64];
+        bool on = false;
+        while (std::fgets(line, sizeof line, f)) on |= !std::strncmp(line, "saveanywhere=on", 15);
+        std::fclose(f);
+        if (on) apply_one("FF7Recomp", "Save anywhere", "FF7Recomp: Save anywhere\n6CA3F9 = F9\n", false, c);
+    }
     if (c.files || c.delayed)
         std::fprintf(stderr, "[hext] %d file(s) applied, %d delayed: %d writes (%d data; code: %d lifted, %d interpreted, %d without effect), %d error(s)\n",
                      c.files, c.delayed, c.writes, c.data_writes, c.code_ok, c.interpreted, c.code_bad, c.errors);
