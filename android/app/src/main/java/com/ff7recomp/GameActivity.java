@@ -307,6 +307,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
                 touchRt = rt;
                 sendPad();
             });
+            touch.setLayout(getIntent().getStringExtra("touch_layout"));   // size, opacity, positions (#28)
         }
         if (portrait) panel = new CompanionView(this);
         arrange(portrait && isTall());

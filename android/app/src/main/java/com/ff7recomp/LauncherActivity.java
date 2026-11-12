@@ -1378,6 +1378,7 @@ public class LauncherActivity extends Activity {
             if (v == curTc) rb.setChecked(true);
         }
         col.addView(tc);
+        col.addView(button("Size and layout…", v -> startActivity(new Intent(this, TouchLayoutActivity.class))));
         col.addView(space(16));
         col.addView(heading("Controller"));
         CheckBox analog = new CheckBox(this);
@@ -1811,6 +1812,7 @@ public class LauncherActivity extends Activity {
             install.writeCompanion("off");   // battle windows stay on the top screen
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)
                     .putExtra("touch_controls", prefs.getInt("touch_controls", 0))
+                    .putExtra("touch_layout", prefs.getString("touch_layout", ""))
                     .putExtra("portrait", prefs.getBoolean("portrait", false))
                     .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
                     .putExtra("aspect", prefs.getInt("aspect", 2))));

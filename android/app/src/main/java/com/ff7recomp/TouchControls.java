@@ -19,6 +19,10 @@ import android.view.View;
  *
  * Multi-touch: every finger presses what is under it, and a finger can slide from one button to
  * another (the D-pad follows the finger's angle).
+ *
+ * Settings > On-screen controls (GitHub #28): a size, an opacity and where each of the four groups
+ * sits (the D-pad, the face buttons, L2/L1/SELECT, R1/R2/START), as a layout string (layout()).
+ * In edit mode (TouchLayoutActivity) a finger drags a group instead of pressing buttons.
  */
 final class TouchControls extends View {
     interface Listener { void pad(int buttons, int lt, int rt); }
@@ -48,6 +52,50 @@ final class TouchControls extends View {
     private float padX, padY, padR, unit;
     private int state;
 
+    // the four groups that move together
+    static final int G_PAD = 0, G_FACE = 1, G_LEFT = 2, G_RIGHT = 3;
+    private float scale = 1f;
+    private final float[] groupOff = new float[8];   // each group's offset, as fractions of the width / height
+    private boolean editing;
+    private int dragGroup = -1;
+    private float dragX, dragY;
+    private Runnable onEdited;
+
+    /** "scale;opacity;padX,padY;faceX,faceY;leftX,leftY;rightX,rightY" (Settings > On-screen controls). */
+    void setLayout(String layout) {
+        java.util.Arrays.fill(groupOff, 0f);
+        scale = 1f;
+        float alpha = 1f;
+        if (layout != null && !layout.isEmpty()) {
+            try {
+                String[] p = layout.split(";");
+                scale = Math.max(0.5f, Math.min(2f, Float.parseFloat(p[0])));
+                alpha = Math.max(0.15f, Math.min(1f, Float.parseFloat(p[1])));
+                for (int g = 0; g < 4 && 2 + g < p.length; g++) {
+                    String[] xy = p[2 + g].split(",");
+                    groupOff[2 * g] = Float.parseFloat(xy[0]);
+                    groupOff[2 * g + 1] = Float.parseFloat(xy[1]);
+                }
+            } catch (RuntimeException ignored) { }   // a damaged setting: the default layout
+        }
+        setAlpha(alpha);
+        if (getWidth() > 0) { place(getWidth(), getHeight()); invalidate(); }
+    }
+
+    String layout() {
+        StringBuilder b = new StringBuilder();
+        b.append(String.format(java.util.Locale.ROOT, "%.2f;%.2f", scale, getAlpha()));
+        for (int g = 0; g < 4; g++) b.append(String.format(java.util.Locale.ROOT, ";%.4f,%.4f", groupOff[2 * g], groupOff[2 * g + 1]));
+        return b.toString();
+    }
+
+    void setScale(float s) { scale = s; if (getWidth() > 0) { place(getWidth(), getHeight()); invalidate(); } }
+    float scale() { return scale; }
+    void resetPositions() { java.util.Arrays.fill(groupOff, 0f); if (getWidth() > 0) { place(getWidth(), getHeight()); invalidate(); } }
+
+    /** Edit mode: fingers drag the groups; edited runs after each drag. */
+    void setEditing(boolean on, Runnable edited) { editing = on; onEdited = edited; invalidate(); }
+
     TouchControls(Context c, Listener l) {
         super(c);
         listener = l;
@@ -63,8 +111,10 @@ final class TouchControls extends View {
     }
 
     @Override
-    protected void onSizeChanged(int w, int h, int ow, int oh) {
-        unit = Math.min(w, h) / 8f;
+    protected void onSizeChanged(int w, int h, int ow, int oh) { place(w, h); }
+
+    private void place(int w, int h) {
+        unit = Math.min(w, h) / 8f * scale;
         line.setStrokeWidth(Math.max(2f, unit * 0.04f));
         text.setTextSize(unit * 0.38f);
         small.setTextSize(unit * 0.24f);
@@ -89,12 +139,54 @@ final class TouchControls extends View {
         float pw = unit * 1.4f, ph = unit * 0.5f, py = m + sh + unit * 0.25f;
         select.r.set(m, py, m + pw, py + ph);
         start.r.set(w - m - pw, py, w - m, py + ph);
+        // each group moved by its offset, then kept on the screen (a bigger size can push it off)
+        for (int gi = 0; gi < 4; gi++) {
+            shift(gi, groupOff[2 * gi] * w, groupOff[2 * gi + 1] * h);
+            RectF r = bounds(gi);
+            float dx = r.left < 0 ? -r.left : r.right > w ? w - r.right : 0;
+            float dy = r.top < 0 ? -r.top : r.bottom > h ? h - r.bottom : 0;
+            if (dx != 0 || dy != 0) {
+                shift(gi, dx, dy);
+                groupOff[2 * gi] += dx / w;
+                groupOff[2 * gi + 1] += dy / h;
+            }
+        }
+    }
+
+    private Btn[] members(int g) {
+        switch (g) {
+            case G_FACE: return new Btn[] { a, b, x, y };
+            case G_LEFT: return new Btn[] { l2, l1, select };
+            case G_RIGHT: return new Btn[] { r1, r2, start };
+            default: return new Btn[0];
+        }
+    }
+
+    private void shift(int g, float dx, float dy) {
+        if (g == G_PAD) { padX += dx; padY += dy; return; }
+        for (Btn btn : members(g)) btn.r.offset(dx, dy);
+    }
+
+    private RectF bounds(int g) {
+        if (g == G_PAD) return new RectF(padX - padR, padY - padR, padX + padR, padY + padR);
+        RectF r = null;
+        for (Btn btn : members(g)) { if (r == null) r = new RectF(btn.r); else r.union(btn.r); }
+        return r;
     }
 
     private static void circle(Btn btn, float cx, float cy, float r) { btn.r.set(cx - r, cy - r, cx + r, cy + r); }
 
     @Override
     protected void onDraw(Canvas c) {
+        if (editing) {
+            fill.setColor(0x30FFD54F);
+            for (int g = 0; g < 4; g++) {
+                RectF r = bounds(g);
+                r.inset(-unit * 0.15f, -unit * 0.15f);
+                fill.setColor(g == dragGroup ? 0x60FFD54F : 0x30FFD54F);
+                c.drawRoundRect(r, unit * 0.2f, unit * 0.2f, fill);
+            }
+        }
         // D-pad: a ring with four arrows; the pressed directions light up
         fill.setColor(0x26FFFFFF);
         c.drawCircle(padX, padY, padR, fill);
@@ -140,6 +232,7 @@ final class TouchControls extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent e) {
+        if (editing) return drag(e);
         int s = 0;
         int lifted = -1;
         int act = e.getActionMasked();
@@ -155,6 +248,39 @@ final class TouchControls extends View {
             state = s;
             listener.pad(s & 0xFFFF, (s & L2) != 0 ? 255 : 0, (s & R2) != 0 ? 255 : 0);
             invalidate();
+        }
+        return true;
+    }
+
+    /** Edit mode: the first finger drags the group it lands on. */
+    private boolean drag(MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN: {
+                dragGroup = -1;
+                for (int g = 0; g < 4; g++) {
+                    RectF r = bounds(g);
+                    r.inset(-unit * 0.3f, -unit * 0.3f);
+                    if (r.contains(e.getX(), e.getY())) { dragGroup = g; break; }
+                }
+                dragX = e.getX(); dragY = e.getY();
+                invalidate();
+                return true;
+            }
+            case MotionEvent.ACTION_MOVE:
+                if (dragGroup >= 0) {
+                    groupOff[2 * dragGroup] += (e.getX() - dragX) / getWidth();
+                    groupOff[2 * dragGroup + 1] += (e.getY() - dragY) / getHeight();
+                    dragX = e.getX(); dragY = e.getY();
+                    place(getWidth(), getHeight());
+                    invalidate();
+                }
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                if (dragGroup >= 0 && onEdited != null) onEdited.run();
+                dragGroup = -1;
+                invalidate();
+                return true;
         }
         return true;
     }

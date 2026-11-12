@@ -44,6 +44,7 @@ public class TestControl extends BroadcastReceiver {
                                        "menu_sounds", "quiet_build", "turbo", "analog_controls", "save_anywhere" })
             TYPES.put(k, Boolean.class);
         TYPES.put("quickboot", String.class);
+        TYPES.put("touch_layout", String.class);
     }
 
     @Override

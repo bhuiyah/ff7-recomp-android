@@ -49,6 +49,12 @@
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|smallestScreenSize|fontScale|locale|layoutDirection"
             android:launchMode="singleTask" />
+        <!-- Settings > On-screen controls > Size and layout (TouchLayoutActivity, GitHub #28) -->
+        <activity
+            android:name=".TouchLayoutActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode" />
         <!-- Test API over adb (TestControl): settings and Stop (Play: LauncherActivity test_play). DUMP: only the shell may call it -->
         <receiver
             android:name=".TestControl"
