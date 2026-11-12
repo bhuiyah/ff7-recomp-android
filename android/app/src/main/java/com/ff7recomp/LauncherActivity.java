@@ -1234,6 +1234,22 @@ public class LauncherActivity extends Activity {
         saveAny.setChecked(prefs.getBoolean("save_anywhere", false));
         saveAny.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("save_anywhere", on).apply());
         col.addView(saveAny);
+        col.addView(text("Gil from battles", 16, TEXT));
+        RadioGroup gg = new RadioGroup(this);
+        gg.setOrientation(LinearLayout.HORIZONTAL);
+        int curGil = prefs.getInt("gil", 1);
+        for (int gm : new int[] { 1, 2, 5, 10 }) {
+            RadioButton rb = new RadioButton(this);
+            rb.setText(gm + "×   ");
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            rb.setId(View.generateViewId());
+            final int v = gm;
+            rb.setOnClickListener(x -> prefs.edit().putInt("gil", v).apply());
+            gg.addView(rb);
+            if (gm == curGil) rb.setChecked(true);
+        }
+        col.addView(gg);
         col.addView(space(16));
         col.addView(heading("Display"));
         RadioGroup ar = new RadioGroup(this);
@@ -1764,7 +1780,8 @@ public class LauncherActivity extends Activity {
                                   renderScaleCap());
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
             install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false),
-                                  prefs.getInt("perf", 1) != 2, prefs.getBoolean("save_anywhere", false));
+                                  prefs.getInt("perf", 1) != 2, prefs.getBoolean("save_anywhere", false),
+                                  prefs.getInt("gil", 1));
             install.writeCompanion("off");   // battle windows stay on the top screen
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)
                     .putExtra("touch_controls", prefs.getInt("touch_controls", 0))

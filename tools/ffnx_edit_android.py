@@ -323,6 +323,17 @@ EDITS = [
      'vgm_log_set_callback(NULL, 100, 0, (void *)NxAudioEngineVgmstreamCallback);'),
     ('movies.cpp', 'uint32_t ff7_prepare_movie(char *name, uint32_t loop, struct dddevice **dddevice, uint32_t dd2interface)',
      'uint32_t ff7_prepare_movie(char *name, uint32_t loop, gptr<struct dddevice> *dddevice, uint32_t dd2interface)'),
+    # The opening's music cue ("cmp edx, 0x6E0", movie frame 1760 at 15 FPS) is an immediate in
+    # the field loop's code. A plain store into .text never reaches the lifted code, so a 30 FPS
+    # movie started the field music halfway through (GitHub #27). patch_code_dword records it, and
+    # the safety net (patch_recomp.cpp) runs the function with the new bytes. Scaled from the
+    # original each time, so a second opening in one session does not compound it.
+    ('movies.cpp',
+     '\t\t\t*ff7_externals.opening_movie_music_start_frame = *ff7_externals.opening_movie_music_start_frame * movie_fps_ratio;\n',
+     '\t\t\t// FF7Recomp: a code write (GitHub #27): through patch_code_dword, from the original value\n'
+     '\t\t\tstatic DWORD ff7r_opening_music_frame = 0;\n'
+     '\t\t\tif (!ff7r_opening_music_frame) ff7r_opening_music_frame = *ff7_externals.opening_movie_music_start_frame;\n'
+     '\t\t\tpatch_code_dword((uint32_t)(uintptr_t)ff7_externals.opening_movie_music_start_frame, ff7r_opening_music_frame * movie_fps_ratio);\n'),
     ('steam.cpp', '\t\tMessageBoxA(nullptr, message, "Error", MB_ICONERROR | MB_OK);',
      '\t\tMessageBoxA(0, message, "Error", MB_ICONERROR | MB_OK);'),
     # The game unloads the object and clears the pointer cell: the cell must be guest memory.

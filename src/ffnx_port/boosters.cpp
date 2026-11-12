@@ -18,6 +18,7 @@
 #include "log.h"
 #include "cfg.h"
 #include "ff7.h"
+#include "ff7_savestate.h"
 
 extern "C" {
 int ff7_booster_battle = 0;     // battle enhancement on
@@ -27,6 +28,13 @@ namespace {
 
 bool g_inited;
 bool g_frameskip = true;   // sped up: draw only the frames 1x would (boosters.txt frameskip=on|off)
+int g_gil_mult = 1;        // gil won in battle times this (boosters.txt gil=N, Settings > Game boosters)
+bool g_gil_in_battle;      // a battle started and the game has not been back in the field since
+uint32_t g_gil_before;     // the party's gil when it started
+// A save state loaded mid-battle, or after it, is not that battle's spoils.
+void gil_after_load(void *) { g_gil_in_battle = false; }
+const ff7_savestate_hook g_gil_hook = { "boosters-gil", nullptr, nullptr, nullptr, nullptr, gil_after_load };
+struct GilHook { GilHook() { ff7_savestate_register(&g_gil_hook); } } g_gil_register;
 double g_skip_acc;
 
 // The battle's party records (1.02 US): the 0x44-byte ones beside the ATB gauge, and the
@@ -55,6 +63,9 @@ void read_defaults() {
             ff7_booster_battle = !std::strcmp(val, "on");
         } else if (!std::strcmp(key, "frameskip")) {
             g_frameskip = std::strcmp(val, "off") != 0;
+        } else if (!std::strcmp(key, "gil")) {
+            const int g = std::atoi(val);
+            if (g >= 1 && g <= 100) g_gil_mult = g;
         }
     }
     std::fclose(f);
@@ -140,6 +151,28 @@ extern "C" void ff7_boosters_frame() {
     }
 
     const bool battle = mode == MODE_BATTLE && ff7_externals.battle_context;
+
+    // more gil: the gil a battle adds (its spoils screen pays it out after the battle) times
+    // g_gil_mult, added when the game is back in the field or on the world map. Gil spent in
+    // battle (Yuffie's coin toss) leaves the difference negative: nothing is added then.
+    if (g_gil_mult > 1 && ff7_externals.savemap) {
+        uint32_t &gil = ff7_externals.savemap->gil;
+        if (mode == MODE_BATTLE && !g_gil_in_battle) {
+            g_gil_in_battle = true;
+            g_gil_before = gil;
+        } else if (mode == MODE_GAMEOVER || mode == MODE_MAIN_MENU) {
+            g_gil_in_battle = false;            // lost, or back to the title: no spoils
+        } else if (g_gil_in_battle && (mode == MODE_FIELD || mode == MODE_WORLDMAP)) {
+            g_gil_in_battle = false;
+            if (gil > g_gil_before) {
+                const uint32_t won = gil - g_gil_before;
+                const uint64_t more = (uint64_t)won * (uint64_t)(g_gil_mult - 1);
+                const uint64_t total = gil + more;
+                gil = total > 999999999u ? 999999999u : (uint32_t)total;   // the game's own cap
+                std::fprintf(stderr, "[boosters] battle gil %u, x%d: %u gil now\n", won, g_gil_mult, gil);
+            }
+        }
+    }
 
     // battle enhancement: the party's HP and MP full in battle, the Limit gauge full
     if (!ff7_booster_battle || !ff7_externals.savemap) return;
