@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/icon.svg" width="128" alt="FF7Recomp app icon: the Buster Sword planted under a burning sky, a turquoise meteor falling"></p>
+<p align="center"><img src="docs/images/banner.png" alt="FF7Recomp: FINAL FANTASY VII, native Android recomp. The app icon, the Buster Sword planted under a burning sky as a turquoise meteor falls"></p>
 
 # FF7Recomp
 
