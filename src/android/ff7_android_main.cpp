@@ -19,6 +19,7 @@
 #include <mutex>
 #include <string>
 #include "ff7_boot.h"
+#include "ff7_pad_remap.h"
 
 namespace {
 
@@ -178,7 +179,13 @@ extern "C" int ff7_platform_pad_state(unsigned index, ff7_pad_state *out) {
     } else {
         g_fire_held = false;
     }
-    out->buttons |= g_inject;
+    // the launcher's presses mean menu / OK / cancel: on the buttons the game now has for them (#34)
+    if (g_inject) {
+        const unsigned short to = ff7_pad_remap(g_inject, (const volatile uint32_t *)(uintptr_t)FF7_PAD_MAP);
+        static unsigned short logged;
+        if (to != g_inject && logged != g_inject) { logged = g_inject; std::fprintf(stderr, "[pad] press %04X sent as %04X (the game's button mapping)\n", g_inject, to); }
+        out->buttons |= to;
+    }
     return 1;
 }
 
