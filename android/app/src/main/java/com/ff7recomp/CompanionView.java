@@ -425,7 +425,8 @@ public class CompanionView extends View {
                 bookPressed = false;
                 if (bookBox.contains(x, y)) {
                     refreshGuide();          // installed or removed meanwhile
-                    if (guide != null) openGuide();
+                    if (GameActivity.guideIsUp()) GameActivity.backToGuide();   // still open under the panels (#30)
+                    else if (guide != null) openGuide();
                     else GuideInstaller.start(getContext(), getDisplay() != null ? getDisplay().getDisplayId() : -1);
                 }
                 invalidate();

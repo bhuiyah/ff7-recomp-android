@@ -42,7 +42,9 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         GameActivity a = current;
         if (a == null) return;
         a.runOnUiThread(() -> {
+            guideUp = true;
             if (a.companion != null) a.companion.hide();
+            a.showGuideTab(true);
             new android.os.Handler(a.getMainLooper()).postDelayed(() -> {
                 // Android gives keys to the display that last started or touched an activity:
                 // starting the game again on the top screen (singleTask: no new instance, see
@@ -78,10 +80,82 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         GameActivity a = current;
         if (a == null) return;
         a.runOnUiThread(() -> {
-            if (a.companion == null || a.companion.isShowing()) return;
-            a.companion.show();
-            hideSystemBars(a.companion.getWindow().getInsetsController());
+            guideUp = false;
+            a.showGuideTab(false);
+            a.showPanels();
         });
+    }
+
+    // Switching between Pixel Guide and the panels without closing the guide (GitHub #30): the
+    // guide keeps running under the panels (a Presentation is drawn above activities on that
+    // screen), so it is where it was left. Over the guide, a small "Panels" tab brings the
+    // panels back; on the panels, the book shows the guide again.
+    private static volatile boolean guideUp;
+    private Presentation guideTab;
+
+    /** Pixel Guide is open (in view, or under the panels). */
+    static boolean guideIsUp() { return guideUp; }
+
+    /** The panels' book while the guide is open: the panels step aside, the guide is in view. */
+    static void backToGuide() {
+        GameActivity a = current;
+        if (a == null) return;
+        a.runOnUiThread(() -> {
+            if (!guideUp) return;
+            if (a.companion != null) a.companion.hide();
+            a.showGuideTab(true);
+        });
+    }
+
+    private void showPanels() {
+        if (companion == null || companion.isShowing()) return;
+        companion.show();
+        hideSystemBars(companion.getWindow().getInsetsController());
+    }
+
+    private void showGuideTab(boolean on) {
+        if (!on) { if (guideTab != null) guideTab.hide(); return; }
+        if (companion == null) return;
+        if (guideTab == null) {
+            Display d = companion.getDisplay();
+            guideTab = new Presentation(this, d) {
+                @Override public boolean dispatchKeyEvent(KeyEvent e) { return GameActivity.this.dispatchKeyEvent(e); }
+                @Override public boolean dispatchGenericMotionEvent(MotionEvent e) { return GameActivity.this.dispatchGenericMotionEvent(e); }
+            };
+            float dp = getResources().getDisplayMetrics().density;
+            android.widget.TextView tab = new android.widget.TextView(guideTab.getContext());
+            tab.setText("◧  Panels");
+            tab.setTextColor(0xFFFFFFFF);
+            tab.setTextSize(17);
+            tab.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            tab.setPadding((int) (18 * dp), (int) (10 * dp), (int) (18 * dp), (int) (10 * dp));
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TL_BR, new int[] { 0xF02B4BA8, 0xF00B1A4E });
+            bg.setCornerRadius(12 * dp);
+            bg.setStroke((int) (2 * dp), 0xFFDCDCF0);
+            tab.setBackground(bg);
+            tab.setOnClickListener(v -> {
+                v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+                showGuideTab(false);
+                showPanels();
+            });
+            guideTab.setContentView(tab);
+            android.view.Window w = guideTab.getWindow();
+            // a small window: touches beside it go to the guide, keys stay with the game
+            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                    | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
+            w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            android.view.WindowManager.LayoutParams lp = w.getAttributes();
+            lp.width = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+            lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+            lp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.END;
+            lp.x = (int) (16 * dp);
+            lp.y = (int) (16 * dp);
+            w.setAttributes(lp);
+            guideTab.setCanceledOnTouchOutside(false);
+        }
+        guideTab.show();
     }
 
     /** libff7.so: built on this device from the player's exe (GameBuild.java), or bundled in a
@@ -510,6 +584,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onDestroy() {
         if (companion != null) companion.dismiss();
+        if (guideTab != null) guideTab.dismiss();
         if (current == this) current = null;
         steamSyncRunning = false;
         ((android.hardware.input.InputManager) getSystemService(Context.INPUT_SERVICE)).unregisterInputDeviceListener(deviceListener);
