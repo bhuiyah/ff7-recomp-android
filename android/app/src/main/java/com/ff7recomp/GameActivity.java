@@ -164,6 +164,15 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
 
     private static void loadGame(android.content.Context ctx) {
         if (loaded) return;
+        // Test: FF7_SIMULATE_STATIC_TAKEN=1 in files/env.txt (the rest of env.txt is applied by
+        // nativeStart; this one is read while the library loads, src/ffnx_port/ffnx_guest_static.cpp).
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(
+                new java.io.File(Storage.root(ctx), "env.txt")))) {
+            for (String line; (line = r.readLine()) != null; )
+                if (line.trim().equals("FF7_SIMULATE_STATIC_TAKEN=1"))
+                    android.system.Os.setenv("FF7_SIMULATE_STATIC_TAKEN", "1", true);
+        } catch (Exception ignored) {
+        }
         if (new java.io.File(ctx.getApplicationInfo().nativeLibraryDir, "libff7.so").isFile()) System.loadLibrary("ff7");
         else System.load(new java.io.File(ctx.getFilesDir(), "game/libff7.so").getAbsolutePath());
         loaded = true;

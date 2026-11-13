@@ -39,8 +39,8 @@
 #define SS_VERSION 3   /* 3: records the graphics settings (R_CONFIG) */
 #define IMG_DATA_LO 0x007BA000u          /* ff7_en .data/.bss */
 #define IMG_DATA_HI 0x00F51000u
-#define FFNX_STATIC_LO 0x6B000000u       /* src/ffnx_port/ffnx_guest_static.cpp */
-#define FFNX_STATIC_HI 0x6B010000u
+#define FFNX_STATIC_LO 0x6B000000u       /* src/ffnx_port/ffnx_guest_static.cpp: its usual place */
+#define FFNX_STATIC_SIZE 0x10000u
 
 enum { R_CPU = 1, R_MEM, R_FREE, R_VREGIONS, R_DSOUND, R_FILES, R_CWD, R_HOOK, R_CONFIG, R_END = 0xFFFF };
 
@@ -123,6 +123,8 @@ __attribute__((weak)) void ff7_achievements_reset(void) {}   /* src/ffnx_port/ac
 /* The settings a state depends on (FFNx's frame-rate and widescreen patches change code and
  * data layouts): a state is only loaded under the same ones. */
 __attribute__((weak)) void ff7_ss_config(char *out, unsigned n) { if (n) out[0] = 0; }
+/* Where the FFNx port's guest static block is (it moves where its usual place is taken, #36). */
+__attribute__((weak)) uint32_t ffnx_guest_static_base(void) { return FFNX_STATIC_LO; }
 __attribute__((weak)) void ff7_ss_location(char *out, unsigned n, uint32_t *play_seconds) { if (n) out[0] = 0; *play_seconds = 0; }
 /* The settings a state must match: FFNx's graphics settings, and the guest arena when it is
  * not at its usual place (ff7_boot.c moves it on devices with a large Java heap). */
@@ -132,6 +134,9 @@ static void ss_config(char *out, unsigned n) {
     guest_alloc_arena(&lo, &hi);
     size_t l = strlen(out);
     if (lo != FF7_ARENA_LO && l < n) snprintf(out + l, n - l, ", memory at 0x%08X", lo);
+    const uint32_t st = ffnx_guest_static_base();
+    l = strlen(out);
+    if (st != FFNX_STATIC_LO && l < n) snprintf(out + l, n - l, ", FFNx block at 0x%08X", st);
 }
 static void notify(const char *msg) { fprintf(stderr, "[savestate] %s\n", msg); fflush(stderr); ff7_ss_notify(msg); }
 
@@ -196,7 +201,7 @@ static int capture(buf_t *b) {
     ss_config(cfg, sizeof cfg);
     if (rec(b, R_CONFIG, cfg, (uint32_t)strlen(cfg))) return -1;
 
-    if (rec_mem(b, IMG_DATA_LO, IMG_DATA_HI) || rec_mem(b, FFNX_STATIC_LO, FFNX_STATIC_HI)) return -1;
+    if (rec_mem(b, IMG_DATA_LO, IMG_DATA_HI) || rec_mem(b, ffnx_guest_static_base(), ffnx_guest_static_base() + FFNX_STATIC_SIZE)) return -1;
 
     /* the heap: everything between the free ranges (under the allocator lock) */
     uint32_t lo, hi;

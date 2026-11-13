@@ -26,6 +26,9 @@ void ff7_install_crash_handler(void);
 void ff7_start_watchdog(void);   /* ff7_crash.c, FF7_WATCHDOG=<s> */
 int ff7_ffnx_attach(void);   /* src/ffnx_port/ffnx_boot.cpp (FF7_WITH_FFNX) */
 void ff7_hext_apply_mods(void);   /* ff7_hext.cpp */
+/* src/ffnx_port/ffnx_guest_static.cpp (moved where 0x6B000000 is taken, #36); weak: the
+ * headless runner has no FFNx */
+__attribute__((weak)) uint32_t ffnx_guest_static_base(void) { return 0x6B000000u; }
 
 /* Where the guest heap arena and the VirtualAlloc region go. Their usual places,
  * [FF7_ARENA_LO, FF7_ARENA_HI) and [FF7_VM_LO, FF7_VM_HI), when both are free: on most devices
@@ -110,7 +113,8 @@ int ff7_boot_and_run(const char *game_dir) {
     if (ff7_pick_layout(&arena_lo, &arena_hi, &vm_lo, &vm_hi) != 0) return 70;
     if (guest_alloc_init(arena_lo, arena_hi) != 0) return 70;
     if (ff7_virtual_init(vm_lo, vm_hi) != 0) return 70;
-    fprintf(stderr, "[ff7] guest arena [0x%08X,0x%08X), game dir %s\n", arena_lo, arena_hi, game_dir);
+    fprintf(stderr, "[ff7] guest arena [0x%08X,0x%08X), FFNx block 0x%08X, game dir %s\n", arena_lo, arena_hi,
+            ffnx_guest_static_base(), game_dir);
 
     ff7_hle_register();          /* FF7 shims first: a name here wins over win32hle */
     recomp_host_init();
