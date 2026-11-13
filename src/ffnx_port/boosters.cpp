@@ -23,6 +23,7 @@
 
 extern "C" {
 int ff7_booster_battle = 0;     // battle enhancement on
+void ff7_platform_pad_autofire(int on);   // src/android: confirm held repeats (GitHub #33)
 }
 
 namespace {
@@ -30,6 +31,7 @@ namespace {
 bool g_inited;
 bool g_frameskip = true;   // sped up: draw only the frames 1x would (boosters.txt frameskip=on|off)
 int g_gil_mult = 1;        // gil won in battle times this (boosters.txt gil=N, Settings > Game boosters)
+bool g_autofire;           // in battles, holding confirm repeats it (boosters.txt autofire=on, Settings > Controller)
 double g_skip_acc;
 
 // More gil, EXP and AP from battles (GitHub #32; boosters.txt gil=N, exp=N, ap=N). At the end
@@ -100,6 +102,8 @@ void read_defaults() {
         } else if (!std::strcmp(key, "ap")) {
             const int g = std::atoi(val);
             if (g >= 1 && g <= 100) g_ap_mult = g;
+        } else if (!std::strcmp(key, "autofire")) {
+            g_autofire = !std::strcmp(val, "on");
         }
     }
     std::fclose(f);
@@ -191,6 +195,13 @@ extern "C" void ff7_boosters_frame() {
     }
 
     const bool battle = mode == MODE_BATTLE && ff7_externals.battle_context;
+    static int fire_state = -1;
+    const int fire = g_autofire && battle ? 1 : 0;
+    if (fire != fire_state) {
+        ff7_platform_pad_autofire(fire);
+        if (g_autofire) std::fprintf(stderr, "[boosters] hold-confirm repeat %s\n", fire ? "on (battle)" : "off");
+        fire_state = fire;
+    }
 
     // battle enhancement: the party's HP and MP full in battle, the Limit gauge full
     if (!ff7_booster_battle || !ff7_externals.savemap) return;

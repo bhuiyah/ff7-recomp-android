@@ -150,7 +150,18 @@ namespace {
 std::mutex g_pad_lock;
 ff7_pad_state g_pad{};
 unsigned short g_inject;               // buttons src/ffnx_port/quickboot.cpp presses
+
+// Hold confirm to repeat (GitHub #33; Settings > Controller, battles only, set each frame by
+// src/ffnx_port/boosters.cpp): while Circle (confirm, 0x2000) is held, the game sees it pressed
+// for k_fire_ms, released for k_fire_ms, and so on -- about five presses a second. The first
+// press counts at once.
+constexpr long k_fire_ms = 100;
+std::atomic<bool> g_autofire{ false };
+bool g_fire_held;
+std::chrono::steady_clock::time_point g_fire_since;
 }
+
+extern "C" void ff7_platform_pad_autofire(int on) { g_autofire.store(on != 0); }
 
 extern "C" int ff7_platform_pad_state(unsigned index, ff7_pad_state *out) {
     if (index != 0) return 0;          // the Thor's built-in controls (and any paired pad) are pad 0
@@ -159,6 +170,14 @@ extern "C" int ff7_platform_pad_state(unsigned index, ff7_pad_state *out) {
     // Select+L1 / Select+R1 / Select+Left / Select+Right are the save-state buttons
     // (src/host/ff7_savestate.c): the game does not see those combinations.
     if ((out->buttons & 0x0020) && (out->buttons & 0x030C)) out->buttons &= (unsigned short)~0x032C;
+    if (g_autofire.load(std::memory_order_relaxed) && (out->buttons & 0x2000)) {
+        const auto now = std::chrono::steady_clock::now();
+        if (!g_fire_held) { g_fire_held = true; g_fire_since = now; }
+        const long ms = (long)std::chrono::duration_cast<std::chrono::milliseconds>(now - g_fire_since).count();
+        if ((ms / k_fire_ms) & 1) out->buttons &= (unsigned short)~0x2000;
+    } else {
+        g_fire_held = false;
+    }
     out->buttons |= g_inject;
     return 1;
 }

@@ -1397,6 +1397,14 @@ public class LauncherActivity extends Activity {
         analog.setChecked(prefs.getBoolean("analog_controls", false));
         analog.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("analog_controls", on).apply());
         col.addView(analog);
+        CheckBox fire = new CheckBox(this);   // GitHub #33
+        fire.setText("Hold confirm to repeat in battles\nHolding the confirm button keeps picking, about five times a "
+                + "second, like auto-fire. Outside battles it presses once, as in the original");
+        fire.setTextColor(TEXT);
+        fire.setTextSize(16);
+        fire.setChecked(prefs.getBoolean("autofire", false));
+        fire.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("autofire", on).apply());
+        col.addView(fire);
         col.addView(space(16));
         col.addView(heading("Start"));
         RadioGroup st = new RadioGroup(this);
@@ -1816,7 +1824,8 @@ public class LauncherActivity extends Activity {
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
             install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false),
                                   prefs.getInt("perf", 1) != 2, prefs.getBoolean("save_anywhere", false),
-                                  prefs.getInt("gil", 1), prefs.getInt("exp", 1), prefs.getInt("ap", 1));
+                                  prefs.getInt("gil", 1), prefs.getInt("exp", 1), prefs.getInt("ap", 1),
+                                  prefs.getBoolean("autofire", false));
             install.writeCompanion("off");   // battle windows stay on the top screen
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)
                     .putExtra("touch_controls", prefs.getInt("touch_controls", 0))
