@@ -88,7 +88,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
 
     // Switching between Pixel Guide and the panels without closing the guide (GitHub #30): the
     // guide keeps running under the panels (a Presentation is drawn above activities on that
-    // screen), so it is where it was left. Over the guide, a small "Panels" tab brings the
+    // screen), so it is where it was left. Over the guide, a small back button brings the
     // panels back; on the panels, the book shows the guide again.
     private static volatile boolean guideUp;
     private Presentation guideTab;
@@ -123,12 +123,29 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
                 @Override public boolean dispatchGenericMotionEvent(MotionEvent e) { return GameActivity.this.dispatchGenericMotionEvent(e); }
             };
             float dp = getResources().getDisplayMetrics().density;
-            android.widget.TextView tab = new android.widget.TextView(guideTab.getContext());
-            tab.setText("◧  Panels");
-            tab.setTextColor(0xFFFFFFFF);
-            tab.setTextSize(17);
-            tab.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            tab.setPadding((int) (18 * dp), (int) (10 * dp), (int) (18 * dp), (int) (10 * dp));
+            // a back arrow, drawn (no text, so it covers as little of the guide as it can)
+            android.view.View tab = new android.view.View(guideTab.getContext()) {
+                final android.graphics.Paint pen = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                final android.graphics.Path arrow = new android.graphics.Path();
+                @Override protected void onDraw(android.graphics.Canvas c) {
+                    float w = getWidth(), h = getHeight(), cx = w / 2, cy = h / 2, r = Math.min(w, h) * 0.24f;
+                    pen.setColor(0xFFFFFFFF);
+                    pen.setStyle(android.graphics.Paint.Style.STROKE);
+                    pen.setStrokeWidth(3.2f * dp);
+                    pen.setStrokeCap(android.graphics.Paint.Cap.ROUND);
+                    pen.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+                    arrow.reset();
+                    arrow.moveTo(cx + r, cy);
+                    arrow.lineTo(cx - r, cy);
+                    arrow.moveTo(cx - r * 0.1f, cy - r * 0.9f);
+                    arrow.lineTo(cx - r, cy);
+                    arrow.lineTo(cx - r * 0.1f, cy + r * 0.9f);
+                    c.drawPath(arrow, pen);
+                }
+            };
+            tab.setContentDescription("Back to the panels");
+            tab.setMinimumWidth((int) (52 * dp));
+            tab.setMinimumHeight((int) (52 * dp));
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable(
                     android.graphics.drawable.GradientDrawable.Orientation.TL_BR, new int[] { 0xF02B4BA8, 0xF00B1A4E });
             bg.setCornerRadius(12 * dp);
@@ -139,7 +156,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
                 showGuideTab(false);
                 showPanels();
             });
-            guideTab.setContentView(tab);
+            guideTab.setContentView(tab, new android.view.ViewGroup.LayoutParams((int) (52 * dp), (int) (52 * dp)));
             android.view.Window w = guideTab.getWindow();
             // a small window: touches beside it go to the guide, keys stay with the game
             w.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
