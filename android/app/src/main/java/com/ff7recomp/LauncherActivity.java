@@ -1409,7 +1409,7 @@ public class LauncherActivity extends Activity {
         RadioGroup rumbleGroup = new RadioGroup(this);
         String[][] rumbles = {
             { "0", "No rumble", "As the original: the game never vibrates" },
-            { "1", "Light rumble", "Field quakes and explosions, and hits the party takes in battles" },
+            { "1", "Light rumble", "Field quakes and explosions, and in battles every hit: the ones you land and the ones you take" },
             { "2", "Strong rumble", "The same, at full strength" },
         };
         int curRumble = prefs.getInt("rumble", 0);
