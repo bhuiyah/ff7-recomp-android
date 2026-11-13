@@ -353,6 +353,10 @@ public class LauncherActivity extends Activity {
         progressViews.clear();
         updateLine = null;
         queueSig = queueSignature();
+        // the same page again (a mod switched on or off, a setting changed): keep its scroll
+        // position, not back to the top (GitHub #32)
+        final int keepY = page.equals(shownPage) ? scrollY : 0;
+        shownPage = page;
         switch (page) {
             case "downloads": content.addView(downloadsPage()); break;
             case "settings": content.addView(settingsPage()); break;
@@ -364,7 +368,16 @@ public class LauncherActivity extends Activity {
         }
         for (java.util.Map.Entry<String, Button> e : nav.entrySet()) e.getValue().setSelected(e.getKey().equals(page));
         theme(content);
+        scrollY = keepY;
+        if (content.getChildCount() > 0 && content.getChildAt(0) instanceof ScrollView) {
+            ScrollView sv = (ScrollView) content.getChildAt(0);
+            sv.setOnScrollChangeListener((v, x, y, ox, oy) -> scrollY = y);
+            if (keepY > 0) sv.post(() -> sv.scrollTo(0, keepY));
+        }
     }
+
+    private String shownPage;
+    private int scrollY;
 
     private View modsPage() {
         LinearLayout col = column();
@@ -1234,22 +1247,9 @@ public class LauncherActivity extends Activity {
         saveAny.setChecked(prefs.getBoolean("save_anywhere", false));
         saveAny.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("save_anywhere", on).apply());
         col.addView(saveAny);
-        col.addView(text("Gil from battles", 16, TEXT));
-        RadioGroup gg = new RadioGroup(this);
-        gg.setOrientation(LinearLayout.HORIZONTAL);
-        int curGil = prefs.getInt("gil", 1);
-        for (int gm : new int[] { 1, 2, 5, 10 }) {
-            RadioButton rb = new RadioButton(this);
-            rb.setText(gm + "×   ");
-            rb.setTextColor(TEXT);
-            rb.setTextSize(16);
-            rb.setId(View.generateViewId());
-            final int v = gm;
-            rb.setOnClickListener(x -> prefs.edit().putInt("gil", v).apply());
-            gg.addView(rb);
-            if (gm == curGil) rb.setChecked(true);
-        }
-        col.addView(gg);
+        multiplierRow(col, "Gil from battles", "gil");
+        multiplierRow(col, "EXP from battles", "exp");    // GitHub #32
+        multiplierRow(col, "AP from battles (materia growth)", "ap");
         col.addView(space(16));
         col.addView(heading("Display"));
         RadioGroup ar = new RadioGroup(this);
@@ -1816,7 +1816,7 @@ public class LauncherActivity extends Activity {
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
             install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false),
                                   prefs.getInt("perf", 1) != 2, prefs.getBoolean("save_anywhere", false),
-                                  prefs.getInt("gil", 1));
+                                  prefs.getInt("gil", 1), prefs.getInt("exp", 1), prefs.getInt("ap", 1));
             install.writeCompanion("off");   // battle windows stay on the top screen
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)
                     .putExtra("touch_controls", prefs.getInt("touch_controls", 0))
@@ -2108,6 +2108,26 @@ public class LauncherActivity extends Activity {
         View v = new View(this);
         v.setLayoutParams(new LinearLayout.LayoutParams(1, dp(h)));
         return v;
+    }
+
+    /** A Game boosters row: 1x / 2x / 5x / 10x, kept in the launcher setting `key`. */
+    private void multiplierRow(LinearLayout col, String title, String key) {
+        col.addView(text(title, 16, TEXT));
+        RadioGroup gg = new RadioGroup(this);
+        gg.setOrientation(LinearLayout.HORIZONTAL);
+        int cur = prefs.getInt(key, 1);
+        for (int gm : new int[] { 1, 2, 5, 10 }) {
+            RadioButton rb = new RadioButton(this);
+            rb.setText(gm + "×   ");
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            rb.setId(View.generateViewId());
+            final int v = gm;
+            rb.setOnClickListener(x -> prefs.edit().putInt(key, v).apply());
+            gg.addView(rb);
+            if (gm == cur) rb.setChecked(true);
+        }
+        col.addView(gg);
     }
 
     private ScrollView scroll(View child) {

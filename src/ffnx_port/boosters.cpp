@@ -19,6 +19,7 @@
 #include "cfg.h"
 #include "ff7.h"
 #include "ff7_savestate.h"
+#include "patch.h"
 
 extern "C" {
 int ff7_booster_battle = 0;     // battle enhancement on
@@ -36,6 +37,32 @@ void gil_after_load(void *) { g_gil_in_battle = false; }
 const ff7_savestate_hook g_gil_hook = { "boosters-gil", nullptr, nullptr, nullptr, nullptr, gil_after_load };
 struct GilHook { GilHook() { ff7_savestate_register(&g_gil_hook); } } g_gil_register;
 double g_skip_acc;
+
+// More EXP and AP from battles (GitHub #32; boosters.txt exp=N, ap=N). At the end of a battle
+// the game (0x4314C5-0x431663) adds up the defeated enemies' EXP, AP and gil (0x99E2C0, 0x99E2C4, 0x99E2C8), then
+// calls 0x6CC173 (clears a byte) and pays the EXP and AP out to the party and its materia. The
+// call is hooked: the totals are multiplied just before they are paid out, so levels and
+// materia growth happen as the game does them, on the battle's results screen.
+int g_exp_mult = 1, g_ap_mult = 1;
+constexpr uint32_t k_spoils_call = 0x431688, k_spoils_callee = 0x6CC173;
+constexpr uint32_t k_total_exp = 0x99E2C0, k_total_ap = 0x99E2C4;
+
+uint32_t scaled(uint32_t v, int mult, uint32_t cap) {
+    const uint64_t r = (uint64_t)v * (uint64_t)mult;
+    return r > cap ? cap : (uint32_t)r;
+}
+
+void spoils_hook() {
+    uint32_t &exp = *reinterpret_cast<uint32_t *>(static_cast<uintptr_t>(k_total_exp));
+    uint32_t &ap = *reinterpret_cast<uint32_t *>(static_cast<uintptr_t>(k_total_ap));
+    const uint32_t e0 = exp, a0 = ap;
+    // caps: a character's EXP stops at 9,999,999 and a materia's AP at 16,777,215 anyway
+    exp = scaled(exp, g_exp_mult, 9999999u);
+    ap = scaled(ap, g_ap_mult, 16777215u);
+    std::fprintf(stderr, "[boosters] battle EXP %u x%d = %u, AP %u x%d = %u\n", e0, g_exp_mult, exp, a0, g_ap_mult, ap);
+    const gfn<void()> callee(k_spoils_callee);
+    callee();   // what the call did
+}
 
 // The battle's party records (1.02 US): the 0x44-byte ones beside the ATB gauge, and the
 // 0x440-byte character records (HP +0x10, Limit gauge +0x1B).
@@ -66,9 +93,21 @@ void read_defaults() {
         } else if (!std::strcmp(key, "gil")) {
             const int g = std::atoi(val);
             if (g >= 1 && g <= 100) g_gil_mult = g;
+        } else if (!std::strcmp(key, "exp")) {
+            const int g = std::atoi(val);
+            if (g >= 1 && g <= 100) g_exp_mult = g;
+        } else if (!std::strcmp(key, "ap")) {
+            const int g = std::atoi(val);
+            if (g >= 1 && g <= 100) g_ap_mult = g;
         }
     }
     std::fclose(f);
+    if (g_exp_mult > 1 || g_ap_mult > 1) {
+        const uint8_t *site = reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(k_spoils_call));
+        int32_t rel; std::memcpy(&rel, site + 1, 4);
+        if (site[0] == 0xE8 && k_spoils_call + 5 + (uint32_t)rel == k_spoils_callee) replace_call(k_spoils_call, &spoils_hook);
+        else std::fprintf(stderr, "[boosters] battle spoils code changed (a mod?): EXP/AP boosters off\n");
+    }
     std::fprintf(stderr, "[boosters] defaults: speed %.0fx, random battles %s, battle enhancement %s, frame skipping %s\n",
                  gamehacks.getCurrentSpeedhack(), gamehacks.companionBattlesWanted() ? "on" : "off",
                  ff7_booster_battle ? "on" : "off", g_frameskip ? "on" : "off");

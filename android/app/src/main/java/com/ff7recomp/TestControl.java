@@ -38,7 +38,7 @@ public class TestControl extends BroadcastReceiver {
     // The launcher's settings and their types (LauncherActivity)
     private static final Map<String, Class<?>> TYPES = new HashMap<>();
     static {
-        for (String k : new String[] { "fps", "renderer", "aspect", "perf", "speed", "touch_controls", "game_language", "gil", "resolution" })
+        for (String k : new String[] { "fps", "renderer", "aspect", "perf", "speed", "touch_controls", "game_language", "gil", "resolution", "exp", "ap" })
             TYPES.put(k, Integer.class);
         for (String k : new String[] { "crt_filter", "show_fps", "no_encounters", "battle_plus", "bottom_screen", "portrait",
                                        "menu_sounds", "quiet_build", "turbo", "analog_controls", "save_anywhere", "bottom_buttons" })
