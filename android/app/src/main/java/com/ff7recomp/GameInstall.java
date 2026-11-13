@@ -115,6 +115,10 @@ final class GameInstall {
     }
 
     /** What to pick, said when the exe found is not the one the game is built from. */
+    /** SHA-1 of the Steam ff7_en after a text-mode copy (every CR LF and lone CR made LF, as an
+     *  FTP transfer in ASCII mode does; GitHub #31). */
+    static final String TEXT_MODE_SHA1 = "31fe8ea66cc70fe01b75b07cce0060bfd0d6347b";
+
     static final String WHICH_FOLDER = "FF7Recomp needs FINAL FANTASY VII as sold today (Steam), unpatched: pick "
             + "the game's main folder, \"FINAL FANTASY VII Steam Edition\" on Steam (the one that holds \"ff7\"). No "
             + "patch or older version is needed; patched game files and the 2013 release are not supported yet";
@@ -152,17 +156,23 @@ final class GameInstall {
         p.update("Checking ff7_en");
         File tmp = new File(game, "ff7_en.exe.new");
         StringBuilder seen = new StringBuilder();
-        boolean ok = false;
+        boolean ok = false, textMode = false;
         java.util.Set<String> tried = new java.util.HashSet<>();
         for (int i = 0; i < exes.size() && !ok; i++) {
             if (!tried.add(exes.get(i).id)) continue;
             copyDoc(tree, exes.get(i).id, tmp);
             String sha = GameBuild.sha1(tmp);
             ok = GameBuild.EXE_SHA1.equals(sha);
+            if (TEXT_MODE_SHA1.equals(sha)) textMode = true;
             if (!ok) seen.append(seen.length() > 0 ? ", " : "").append(exeWhere.get(i)).append(" (SHA-1 ").append(sha, 0, 12).append("…)");
         }
         if (!ok) {
             tmp.delete();
+            if (textMode)
+                return "ff7_en here is the right file, but it was damaged while being copied: it was sent as text, "
+                        + "which changes its line endings (FTP programs such as FileZilla do this to files without an "
+                        + "extension). Copy the game folder again in binary mode (FileZilla: Transfer > Transfer type > "
+                        + "Binary), or over USB, then import again";
             return "none of the game files found here is the one the game is built from: " + seen + ". " + WHICH_FOLDER
                     + " (If you have the game from another store, please report these names and numbers.)";
         }
