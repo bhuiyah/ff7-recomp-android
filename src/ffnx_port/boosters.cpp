@@ -30,22 +30,18 @@ namespace {
 bool g_inited;
 bool g_frameskip = true;   // sped up: draw only the frames 1x would (boosters.txt frameskip=on|off)
 int g_gil_mult = 1;        // gil won in battle times this (boosters.txt gil=N, Settings > Game boosters)
-bool g_gil_in_battle;      // a battle started and the game has not been back in the field since
-uint32_t g_gil_before;     // the party's gil when it started
-// A save state loaded mid-battle, or after it, is not that battle's spoils.
-void gil_after_load(void *) { g_gil_in_battle = false; }
-const ff7_savestate_hook g_gil_hook = { "boosters-gil", nullptr, nullptr, nullptr, nullptr, gil_after_load };
-struct GilHook { GilHook() { ff7_savestate_register(&g_gil_hook); } } g_gil_register;
 double g_skip_acc;
 
-// More EXP and AP from battles (GitHub #32; boosters.txt exp=N, ap=N). At the end of a battle
-// the game (0x4314C5-0x431663) adds up the defeated enemies' EXP, AP and gil (0x99E2C0, 0x99E2C4, 0x99E2C8), then
-// calls 0x6CC173 (clears a byte) and pays the EXP and AP out to the party and its materia. The
-// call is hooked: the totals are multiplied just before they are paid out, so levels and
-// materia growth happen as the game does them, on the battle's results screen.
+// More gil, EXP and AP from battles (GitHub #32; boosters.txt gil=N, exp=N, ap=N). At the end
+// of a won battle the game (0x4314C5-0x431663) adds up the defeated enemies' EXP, AP and gil
+// (0x99E2C0, 0x99E2C4, 0x99E2C8) and applies the gil materia, then calls 0x6CC173 (clears a
+// byte) and pays the EXP and AP out to the party and its materia; the results screen then
+// counts the gil total into the party's gil (0x6C6DE0; confirm pays the rest at once). The
+// call is hooked: the totals are multiplied just before they are paid out, so the results
+// screen shows the boosted amounts and levels and materia growth happen as the game does them.
 int g_exp_mult = 1, g_ap_mult = 1;
 constexpr uint32_t k_spoils_call = 0x431688, k_spoils_callee = 0x6CC173;
-constexpr uint32_t k_total_exp = 0x99E2C0, k_total_ap = 0x99E2C4;
+constexpr uint32_t k_total_exp = 0x99E2C0, k_total_ap = 0x99E2C4, k_total_gil = 0x99E2C8;
 
 uint32_t scaled(uint32_t v, int mult, uint32_t cap) {
     const uint64_t r = (uint64_t)v * (uint64_t)mult;
@@ -55,11 +51,16 @@ uint32_t scaled(uint32_t v, int mult, uint32_t cap) {
 void spoils_hook() {
     uint32_t &exp = *reinterpret_cast<uint32_t *>(static_cast<uintptr_t>(k_total_exp));
     uint32_t &ap = *reinterpret_cast<uint32_t *>(static_cast<uintptr_t>(k_total_ap));
-    const uint32_t e0 = exp, a0 = ap;
-    // caps: a character's EXP stops at 9,999,999 and a materia's AP at 16,777,215 anyway
+    uint32_t &gil = *reinterpret_cast<uint32_t *>(static_cast<uintptr_t>(k_total_gil));
+    const uint32_t e0 = exp, a0 = ap, g0 = gil;
+    // caps: a character's EXP stops at 9,999,999 and a materia's AP at 16,777,215 anyway; the
+    // results screen adds the gil without a cap, so the party's stops at the game's 999,999,999
     exp = scaled(exp, g_exp_mult, 9999999u);
     ap = scaled(ap, g_ap_mult, 16777215u);
-    std::fprintf(stderr, "[boosters] battle EXP %u x%d = %u, AP %u x%d = %u\n", e0, g_exp_mult, exp, a0, g_ap_mult, ap);
+    const uint32_t have = ff7_externals.savemap ? ff7_externals.savemap->gil : 0;
+    gil = scaled(gil, g_gil_mult, have < 999999999u ? 999999999u - have : 0);
+    std::fprintf(stderr, "[boosters] battle EXP %u x%d = %u, AP %u x%d = %u, gil %u x%d = %u\n",
+                 e0, g_exp_mult, exp, a0, g_ap_mult, ap, g0, g_gil_mult, gil);
     const gfn<void()> callee(k_spoils_callee);
     callee();   // what the call did
 }
@@ -102,11 +103,11 @@ void read_defaults() {
         }
     }
     std::fclose(f);
-    if (g_exp_mult > 1 || g_ap_mult > 1) {
+    if (g_exp_mult > 1 || g_ap_mult > 1 || g_gil_mult > 1) {
         const uint8_t *site = reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(k_spoils_call));
         int32_t rel; std::memcpy(&rel, site + 1, 4);
         if (site[0] == 0xE8 && k_spoils_call + 5 + (uint32_t)rel == k_spoils_callee) replace_call(k_spoils_call, &spoils_hook);
-        else std::fprintf(stderr, "[boosters] battle spoils code changed (a mod?): EXP/AP boosters off\n");
+        else std::fprintf(stderr, "[boosters] battle spoils code changed (a mod?): gil/EXP/AP boosters off\n");
     }
     std::fprintf(stderr, "[boosters] defaults: speed %.0fx, random battles %s, battle enhancement %s, frame skipping %s\n",
                  gamehacks.getCurrentSpeedhack(), gamehacks.companionBattlesWanted() ? "on" : "off",
@@ -190,28 +191,6 @@ extern "C" void ff7_boosters_frame() {
     }
 
     const bool battle = mode == MODE_BATTLE && ff7_externals.battle_context;
-
-    // more gil: the gil a battle adds (its spoils screen pays it out after the battle) times
-    // g_gil_mult, added when the game is back in the field or on the world map. Gil spent in
-    // battle (Yuffie's coin toss) leaves the difference negative: nothing is added then.
-    if (g_gil_mult > 1 && ff7_externals.savemap) {
-        uint32_t &gil = ff7_externals.savemap->gil;
-        if (mode == MODE_BATTLE && !g_gil_in_battle) {
-            g_gil_in_battle = true;
-            g_gil_before = gil;
-        } else if (mode == MODE_GAMEOVER || mode == MODE_MAIN_MENU) {
-            g_gil_in_battle = false;            // lost, or back to the title: no spoils
-        } else if (g_gil_in_battle && (mode == MODE_FIELD || mode == MODE_WORLDMAP)) {
-            g_gil_in_battle = false;
-            if (gil > g_gil_before) {
-                const uint32_t won = gil - g_gil_before;
-                const uint64_t more = (uint64_t)won * (uint64_t)(g_gil_mult - 1);
-                const uint64_t total = gil + more;
-                gil = total > 999999999u ? 999999999u : (uint32_t)total;   // the game's own cap
-                std::fprintf(stderr, "[boosters] battle gil %u, x%d: %u gil now\n", won, g_gil_mult, gil);
-            }
-        }
-    }
 
     // battle enhancement: the party's HP and MP full in battle, the Limit gauge full
     if (!ff7_booster_battle || !ff7_externals.savemap) return;
