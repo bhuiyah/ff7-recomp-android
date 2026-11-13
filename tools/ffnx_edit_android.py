@@ -34,6 +34,24 @@ WORLD_MULT = (
 )
 
 EDITS = [
+    # GitHub #34: Config > Customize writes C:\FF7\ff7input.cfg, which a fresh install does not
+    # have (Steam keeps it in the user folder, which this port has not). The Store edition's
+    # redirection calls a missing file "required" and the open failed, so the button mapping
+    # was lost at every launch. A file the game opens to write or create need not exist.
+    ('ff7/file.cpp',
+     '\t\tif (redirect_path_with_override(filename, _filename, sizeof(_filename)) == 1)\n'
+     '\t\t{\n'
+     '\t\t\tstrcpy(_filename, filename);\n'
+     '\n'
+     '\t\t\tgoto error;\n'
+     '\t\t}',
+     '\t\tif (redirect_path_with_override(filename, _filename, sizeof(_filename)) == 1)\n'
+     '\t\t{\n'
+     '\t\t\tstrcpy(_filename, filename);\n'
+     '\n'
+     '\t\t\t// FF7Recomp (#34): a file opened to write or create need not exist yet\n'
+     '\t\t\tif (file_context->mode != FF7_FMODE_WRITE && file_context->mode != FF7_FMODE_CREATE) goto error;\n'
+     '\t\t}'),
     # Host variables that hold *game* functions must be gfn (calling a guest VA as native
     # code would jump to a 32-bit address).
     ('ff7/graphics.cpp',
