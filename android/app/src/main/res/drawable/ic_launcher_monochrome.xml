@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- FF7Recomp launcher icon (original art): a glowing green orb set on a sword, on the
-     launcher's navy. 108dp adaptive-icon canvas; everything sits inside the 66dp safe circle. -->
+<!-- FF7Recomp launcher icon (themed-icon silhouette): the Buster Sword planted under a burning sky, a turquoise
+     meteor falling (drawn as vectors, not taken from the game). Written by tools/make_icon.py;
+     edit that, not this. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <group android:pivotX="54" android:pivotY="55.3" android:scaleX="1.1" android:scaleY="1.1"
-        android:translateY="-1">
-    <path android:fillColor="#FFFFFFFF" android:pathData="M54,23 L60,31 L60,58 L48,58 L48,31 Z M42.75,72.5 h22.5 a2.25,2.25 0 0,1 2.25,2.25 v0.0 a2.25,2.25 0 0,1 -2.25,2.25 h-22.5 a2.25,2.25 0 0,1 -2.25,-2.25 v-0.0 a2.25,2.25 0 0,1 2.25,-2.25 Z M53,77 h2 a1,1 0 0,1 1,1 v4.5 a1,1 0 0,1 -1,1 h-2 a1,1 0 0,1 -1,-1 v-4.5 a1,1 0 0,1 1,-1 Z M51.4,85 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 Z"/>
-    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M39.5,60 a14.5,14.5 0 1,0 29.0,0 a14.5,14.5 0 1,0 -29.0,0 Z M44.4,56 A11,11 0 0,1 53.2,48.6 L53.6,51.4 A8.2,8.2 0 0,0 46.9,57 Z"/>
+    <group android:pivotX="54" android:pivotY="58" android:rotation="180" android:scaleX="0.88" android:scaleY="0.88" android:translateX="-11" android:translateY="-4">
+        <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M45,62 L45,15 L63,27 L63,62 Z M48.5,51 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 Z M48.5,57 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 Z"/>
+        <path android:fillColor="#FFFFFFFF" android:pathData="M43.5,62 h21 v4.5 h-21 Z M51.5,66.5 h5 v12.5 h-5 Z M50.5,79 h7 v2.5 a1.5,1.5 0 0,1 -1.5,1.5 h-4 a1.5,1.5 0 0,1 -1.5,-1.5 Z"/>
     </group>
+    <group android:translateX="70" android:translateY="38">
+        <group android:rotation="135">
+            <path android:fillColor="#FFFFFFFF" android:pathData="M11.24,0 L10.61,3.86 L8.23,6.9 L5.96,10.32 L1.84,10.42 L-1.87,10.63 L-5.15,8.93 L-9.41,7.9 L-10.86,3.95 L-11.97,0 L-11.21,-4.08 L-7.5,-6.3 L-5.67,-9.82 L-2.11,-11.96 L1.79,-10.13 L5.85,-10.13 L7.73,-6.48 L11.36,-4.13 Z"/>
+        </group>
+    </group>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M0,84 Q30,76 54,80 T108,78 V108 H0 Z"/>
 </vector>

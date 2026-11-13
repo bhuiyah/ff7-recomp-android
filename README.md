@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/icon.svg" width="128" alt="FF7Recomp app icon: a green orb set on a sword"></p>
+<p align="center"><img src="docs/images/icon.svg" width="128" alt="FF7Recomp app icon: the Buster Sword planted under a burning sky, a turquoise meteor falling"></p>
 
 # FF7Recomp
 
