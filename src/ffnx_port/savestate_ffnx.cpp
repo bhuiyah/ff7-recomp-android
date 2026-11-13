@@ -53,18 +53,24 @@ int ss_save(void *, ff7_ss_writer put, void *buf) {
 }
 
 // The running game's sets are about to be replaced: free their GPU textures (their guest
-// bytes are about to be overwritten, so read the handles now).
+// bytes are about to be overwritten, so read the handles now). Each texture once: with a
+// texture mod, the palettes that have no image of their own share one (gl_set's
+// default_texture_id, saveload.cpp), and destroying a bgfx handle twice frees whatever got it
+// next.
 void ss_before_load(void *) {
+    std::set<uint32_t> gone;
     for (uint32_t a : g_sets) {
         struct ff7_texture_set *ts = (struct ff7_texture_set *)(uintptr_t)a;
         struct gl_texture_set *gl = ts->ogl.gl_set;
         uint32_t *handles = ts->texturehandle;
         if (!gl || !handles) continue;
-        for (uint32_t i = 0; i < gl->textures; i++)
-            if (handles[i]) newRenderer.deleteTexture(handles[i]);
-        for (auto &kv : gl->additional_textures) if (kv.second) newRenderer.deleteTexture(kv.second);
-        for (auto &kv : gl->animated_textures) if (kv.second) newRenderer.deleteTexture(kv.second);
+        for (uint32_t i = 0; i < gl->textures; i++) gone.insert(handles[i]);
+        gone.insert(gl->default_texture_id);
+        for (auto &kv : gl->additional_textures) gone.insert(kv.second);
+        for (auto &kv : gl->animated_textures) gone.insert(kv.second);
     }
+    gone.erase(0);
+    for (uint32_t t : gone) newRenderer.deleteTexture(t);
     g_sets.clear();
 }
 
@@ -90,6 +96,9 @@ void ss_after_load(void *) {
         new (&gl->animated_textures) std::map<std::string, uint32_t>();
         new (&gl->additional_textures) std::map<uint16_t, uint32_t>();
         for (short slot = RendererTextureSlot::TEX_NML; slot < RendererTextureSlot::COUNT; slot++) gl->additional_textures[slot] = 0;
+        // the shared stand-in for palettes a texture mod has no image for: freed above (or
+        // another process's), so the uploads below must make a new one, not hand this back
+        gl->default_texture_id = 0;
         uint32_t *handles = ts->texturehandle;
         struct tex_header *generic = ts->tex_header;
         if (!handles || !generic) continue;
