@@ -99,6 +99,13 @@ typedef struct {
     uint32_t eip, next;      /* this instruction, the one after it */
     uint32_t fl;             /* EFLAGS: the six arithmetic flags and DF */
     uint32_t func;           /* the activation's function */
+    uint32_t base_esp;       /* esp at entry: [base_esp] is the activation's return address */
+    /* Calls made inside this activation to code it interprets too (do_call): the stack slot
+     * each pushed its return address to and that address, oldest first. A `ret` through one
+     * of these slots comes back after that call; any other `ret` ends the activation, as it
+     * always did. */
+    uint32_t slot[64], ra[64];
+    int depth;
 } cpu_t;
 
 static uint16_t g_fsw;       /* x87 status word: C0 C1 C2 C3 (the lift keeps none) */
@@ -554,10 +561,25 @@ static void do_call(cpu_t *c, uint32_t site, uint32_t target) {
     }
     recomp_func_t f = native_of(target);
     if (f) { call_native(c, f); return; }
-    flags_out(c);
-    ff7_interp_run(target);                          /* code a patch added, or a marked function */
-    flags_in(c);
+    /* Code a patch added, or a marked function: interpreted in this activation, its call
+     * recorded by slot. Hand-written patches pop their own return address and jump on
+     * (GitHub #35: Postscriptthree's Enemy Randomizer, 0x917185, inside 0x5D1050); run as
+     * a nested activation, the function's own `ret` later came back to the abandoned call. */
+    if (c->depth == (int)(sizeof c->slot / sizeof c->slot[0])) {    /* deep: as before */
+        flags_out(c);
+        ff7_interp_run(target);
+        flags_in(c);
+        return;
+    }
+    /* frames below this one are gone; the same call again after its callee popped the return
+     * address and jumped on (the randomizer's loop) takes the abandoned frame's place */
+    while (c->depth && c->slot[c->depth - 1] < g_esp) c->depth--;
+    if (c->depth && c->slot[c->depth - 1] == g_esp && c->ra[c->depth - 1] == c->next) c->depth--;
+    c->slot[c->depth] = g_esp;
+    c->ra[c->depth++] = c->next;
+    c->next = target;
 }
+
 
 /* A jump: continue here, or leave through a tail call. Returns 1 if the activation ended. */
 static int do_jump(cpu_t *c, uint32_t target) {
@@ -565,6 +587,15 @@ static int do_jump(cpu_t *c, uint32_t target) {
         recomp_func_t f = native_of(target);
         if (f && (recomp_lookup(target) || target >= 0x7F000000u)) {   /* a function entry: tail call */
             call_native(c, f);
+            /* Still inside this activation's frame: it returned through a call made in here
+             * (a jump into code the lift made a function of, which then returned for the code
+             * that jumped) -- the nearest one below esp, popped with up to 64 bytes of
+             * arguments. Else it was the activation's own return. */
+            if (g_esp <= c->base_esp)
+                for (int i = c->depth; i-- > 0;)
+                    if (c->slot[i] + 4 <= g_esp && g_esp - c->slot[i] - 4 <= 64) {
+                        c->next = c->ra[i]; c->depth = i; return 0;
+                    }
             flags_out(c);
             return 1;
         }
@@ -877,8 +908,18 @@ static int step(cpu_t *c) {
         rm_set(&d, s, shift(c, d.reg, rm_get(&d, s), cnt, s));
         break;
     }
-    case 0xC2: { uint32_t n = f16(c); g_esp += 4 + n; flags_out(c); return 1; }
-    case 0xC3: g_esp += 4; flags_out(c); return 1;
+    case 0xC2: case 0xC3: {
+        const uint32_t n = op == 0xC2 ? f16(c) : 0;
+        const uint32_t slot = g_esp, ra = rd32(g_esp);
+        g_esp += 4 + n;
+        {
+            int i = c->depth;                                  /* back to a call made in here */
+            while (i > 0 && c->slot[i - 1] != slot) i--;
+            if (i > 0) { c->depth = i - 1; c->next = ra; break; }
+        }
+        flags_out(c);
+        return 1;                                         /* the activation's own return */
+    }
     case 0xC6: case 0xC7: { int s = op == 0xC7 ? sz : 1; modrm(c, &d); rm_set(&d, s, fimm(c, s)); break; }
     case 0xC8: {                                             /* enter n, 0 */
         uint32_t n = f16(c); uint8_t lvl = f8(c);
@@ -1027,6 +1068,8 @@ void ff7_interp_run(uint32_t va) {
     cpu_t c;
     c.func = va;
     c.eip = va;
+    c.depth = 0;
+    c.base_esp = g_esp;
     flags_in(&c);
     uint32_t caller = g_cur_func;
     g_cur_func = va;
@@ -1043,6 +1086,8 @@ void x86_interp_test_range(uint32_t start, uint32_t end) {
     cpu_t c;
     c.func = start;
     c.eip = start;
+    c.depth = 0;
+    c.base_esp = g_esp;
     flags_in(&c);
     while (c.eip != end) {
         if (step(&c)) break;

@@ -9,7 +9,10 @@
  *   - a call from interpreted code goes to the lifted function (or FFNx's replacement:
  *     entry overrides and call-site hooks are honoured), or is interpreted when the target
  *     is marked or was never lifted (code a patch added);
- *   - `ret` ends the activation, as the lifted function's `return` would.
+ *   - a call to code that is interpreted too runs in the same activation, its return slot
+ *     recorded: a `ret` through that slot comes back after the call, any other `ret` ends
+ *     the activation, as the lifted function's `return` would. So a patch may pop its
+ *     return address and jump on, as on a CPU.
  * It executes the bytes in memory now, so everything written there takes effect: the
  * mod's patch, FFNx's code writes, per-frame stepped values.
  *
