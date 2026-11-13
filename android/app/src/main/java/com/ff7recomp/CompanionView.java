@@ -389,15 +389,19 @@ public class CompanionView extends View {
         }
     }
 
-    /** Pixel Guide on this (the bottom) screen, through GuideHostActivity: the panels step
-     *  aside while it is open and come back when it is closed. */
+    /** Pixel Guide on this (the bottom) screen: the panels step aside, and its back button
+     *  brings them back. Started straight from here, with no activity of ours on this screen:
+     *  the Thor gives an app with an activity on the bottom screen that screen's volume (0 out
+     *  of the box), which muted the game while the guide was open. Its launcher intent brings a
+     *  guide that is already running back to the front, on the page it was left on. */
     private void openGuide() {
         try {
-            android.content.Intent i = new android.content.Intent(getContext(), GuideHostActivity.class);
+            android.content.Intent i = new android.content.Intent(guide);
             i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION);
             android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
             if (getDisplay() != null) o.setLaunchDisplayId(getDisplay().getDisplayId());
             getContext().startActivity(i, o.toBundle());
+            GameActivity.guideOpened();
         } catch (RuntimeException e) {
             flash = "Pixel Guide could not open";
             flashUntil = System.currentTimeMillis() + 2500;
@@ -425,8 +429,7 @@ public class CompanionView extends View {
                 bookPressed = false;
                 if (bookBox.contains(x, y)) {
                     refreshGuide();          // installed or removed meanwhile
-                    if (GameActivity.guideIsUp()) GameActivity.backToGuide();   // still open under the panels (#30)
-                    else if (guide != null) openGuide();
+                    if (guide != null) openGuide();   // new, or in front again where it was left (#30)
                     else GuideInstaller.start(getContext(), getDisplay() != null ? getDisplay().getDisplayId() : -1);
                 }
                 invalidate();

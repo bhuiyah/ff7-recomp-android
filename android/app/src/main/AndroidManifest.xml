@@ -71,11 +71,16 @@
             android:name=".GuideInstaller$Result"
             android:exported="false"
             android:process=":game" />
-        <!-- Pixel Guide on the bottom screen (the companion's book): in the game's process -->
+        <!-- Pixel Guide's install confirmation on the bottom screen (GuideInstaller): in a process
+             of its own, telling the game's process through Events -->
+        <receiver
+            android:name=".GuideHostActivity$Events"
+            android:exported="false"
+            android:process=":game" />
         <activity
             android:name=".GuideHostActivity"
             android:exported="false"
-            android:process=":game"
+            android:process=":guide"
             android:taskAffinity=".guide"
             android:excludeFromRecents="true"
             android:noHistory="false"

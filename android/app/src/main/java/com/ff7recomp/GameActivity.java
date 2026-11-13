@@ -33,7 +33,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = "FF7Recomp";
     private boolean started;
     private Presentation companion;
-    private static GameActivity current;          // for GuideHostActivity (same process)
+    private static GameActivity current;          // for CompanionView and GuideHostActivity.Events (this process)
 
     /** Pixel Guide is opening on the bottom screen: the panels step aside (a Presentation is
      *  drawn above activities), and the game is put back in front on the top screen so the
@@ -42,7 +42,6 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         GameActivity a = current;
         if (a == null) return;
         a.runOnUiThread(() -> {
-            guideUp = true;
             if (a.companion != null) a.companion.hide();
             a.showGuideTab(true);
             new android.os.Handler(a.getMainLooper()).postDelayed(() -> {
@@ -75,12 +74,11 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         a.runOnUiThread(() -> { if (a.companion != null) a.companion.hide(); });
     }
 
-    /** Pixel Guide was closed (or its install ended): the panels come back. */
+    /** Pixel Guide's install ended: the panels come back. */
     static void guideClosed() {
         GameActivity a = current;
         if (a == null) return;
         a.runOnUiThread(() -> {
-            guideUp = false;
             a.showGuideTab(false);
             a.showPanels();
         });
@@ -89,23 +87,8 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     // Switching between Pixel Guide and the panels without closing the guide (GitHub #30): the
     // guide keeps running under the panels (a Presentation is drawn above activities on that
     // screen), so it is where it was left. Over the guide, a small back button brings the
-    // panels back; on the panels, the book shows the guide again.
-    private static volatile boolean guideUp;
+    // panels back; on the panels, the book brings the guide to the front again.
     private Presentation guideTab;
-
-    /** Pixel Guide is open (in view, or under the panels). */
-    static boolean guideIsUp() { return guideUp; }
-
-    /** The panels' book while the guide is open: the panels step aside, the guide is in view. */
-    static void backToGuide() {
-        GameActivity a = current;
-        if (a == null) return;
-        a.runOnUiThread(() -> {
-            if (!guideUp) return;
-            if (a.companion != null) a.companion.hide();
-            a.showGuideTab(true);
-        });
-    }
 
     private void showPanels() {
         if (companion == null || companion.isShowing()) return;
