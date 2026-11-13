@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.REORDER_TASKS" />
     <!-- Updates from the GitHub releases, installed in the app (Updater.java). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Rumble (Settings > Controller): the device's motor, or a controller's. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Pixel Guide: the bottom screen's book opens it when it is installed (CompanionView) -->
     <queries>
         <package android:name="app.nanostack.pixelguide" />

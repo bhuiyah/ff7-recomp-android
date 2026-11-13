@@ -1405,6 +1405,26 @@ public class LauncherActivity extends Activity {
         fire.setChecked(prefs.getBoolean("autofire", false));
         fire.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("autofire", on).apply());
         col.addView(fire);
+        // Rumble (src/ffnx_port/rumble.cpp): FF7 has none of its own, so it follows the game
+        RadioGroup rumbleGroup = new RadioGroup(this);
+        String[][] rumbles = {
+            { "0", "No rumble", "As the original: the game never vibrates" },
+            { "1", "Light rumble", "Field quakes and explosions, and hits the party takes in battles" },
+            { "2", "Strong rumble", "The same, at full strength" },
+        };
+        int curRumble = prefs.getInt("rumble", 0);
+        for (String[] t : rumbles) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(t[1] + "\n" + t[2]);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            final int v = Integer.parseInt(t[0]);
+            rb.setOnClickListener(x -> prefs.edit().putInt("rumble", v).apply());
+            rumbleGroup.addView(rb);
+            if (v == curRumble) rb.setChecked(true);
+        }
+        col.addView(rumbleGroup);
         col.addView(space(16));
         col.addView(heading("Start"));
         RadioGroup st = new RadioGroup(this);
@@ -1825,7 +1845,7 @@ public class LauncherActivity extends Activity {
             install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false),
                                   prefs.getInt("perf", 1) != 2, prefs.getBoolean("save_anywhere", false),
                                   prefs.getInt("gil", 1), prefs.getInt("exp", 1), prefs.getInt("ap", 1),
-                                  prefs.getBoolean("autofire", false));
+                                  prefs.getBoolean("autofire", false), prefs.getInt("rumble", 0));
             install.writeCompanion("off");   // battle windows stay on the top screen
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)
                     .putExtra("touch_controls", prefs.getInt("touch_controls", 0))

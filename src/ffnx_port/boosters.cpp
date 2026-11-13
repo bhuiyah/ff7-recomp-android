@@ -24,6 +24,8 @@
 extern "C" {
 int ff7_booster_battle = 0;     // battle enhancement on
 void ff7_platform_pad_autofire(int on);   // src/android: confirm held repeats (GitHub #33)
+void ff7_rumble_set_level(int level);     // rumble.cpp: 0 off, 1 light, 2 strong
+void ff7_rumble_frame(int mode);
 }
 
 namespace {
@@ -104,6 +106,8 @@ void read_defaults() {
             if (g >= 1 && g <= 100) g_ap_mult = g;
         } else if (!std::strcmp(key, "autofire")) {
             g_autofire = !std::strcmp(val, "on");
+        } else if (!std::strcmp(key, "rumble")) {
+            ff7_rumble_set_level(std::atoi(val));   // Settings > Controller > Rumble
         }
     }
     std::fclose(f);
@@ -193,6 +197,8 @@ extern "C" void ff7_boosters_frame() {
         newRenderer.setVsync(want != 0);
         vsync_state = want;
     }
+
+    ff7_rumble_frame(mode);
 
     const bool battle = mode == MODE_BATTLE && ff7_externals.battle_context;
     static int fire_state = -1;

@@ -173,6 +173,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private static native void nativeSetCompanionSurface(Surface surface, int width, int height);
     private static native void nativeStart(String gameDir, String logDir);
     private static native void nativePad(int buttons, int lt, int rt, int lx, int ly, int rx, int ry);
+    private static native int nativeRumbleWait(int timeoutMs);
 
     // ---- controls: one XInput-style pad (XINPUT_GAMEPAD_* bits), fed to FFNx's XInput path.
     private int padButtons;
@@ -573,6 +574,58 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         File base = Storage.root(this);
         File game = new File(base, "game");
         nativeStart(game.getAbsolutePath(), base.getAbsolutePath());
+        startRumble(getApplicationContext());
+    }
+
+    // ---- Rumble (Settings > Controller > Rumble; src/ffnx_port/rumble.cpp) ----------------------
+    // The game posts what to play; this thread takes it (nativeRumbleWait) and plays it on a
+    // controller that can vibrate, else on the device itself (the Thor's own motor). Once per
+    // process, like the game thread.
+    private static boolean rumbleStarted;
+
+    private static void startRumble(Context app) {
+        if (rumbleStarted) return;
+        rumbleStarted = true;
+        Thread t = new Thread(() -> {
+            android.os.Vibrator playing = null;
+            while (true) {
+                int r = nativeRumbleWait(1000);
+                if (r < 0) continue;
+                int amp = r & 0xFF, ms = r >>> 8;
+                android.os.Vibrator v = rumbleVibrator(app);
+                if (playing != null && playing != v) playing.cancel();
+                playing = v;
+                if (v == null) continue;
+                try {
+                    if (amp == 0 || ms <= 0) { v.cancel(); continue; }
+                    android.os.VibrationEffect e = android.os.VibrationEffect.createOneShot(ms,
+                            v.hasAmplitudeControl() ? amp : android.os.VibrationEffect.DEFAULT_AMPLITUDE);
+                    if (android.os.Build.VERSION.SDK_INT >= 33)
+                        v.vibrate(e, android.os.VibrationAttributes.createForUsage(android.os.VibrationAttributes.USAGE_MEDIA));
+                    else
+                        v.vibrate(e, new android.media.AudioAttributes.Builder()
+                                .setUsage(android.media.AudioAttributes.USAGE_GAME).build());
+                } catch (RuntimeException ex) {
+                    Log.w(TAG, "rumble: " + ex);
+                }
+            }
+        }, "rumble");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** A gamepad's vibrator if one has it, else the device's; null if neither. */
+    private static android.os.Vibrator rumbleVibrator(Context app) {
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            for (int id : InputDevice.getDeviceIds()) {
+                InputDevice d = InputDevice.getDevice(id);
+                if (!isGamepad(d)) continue;
+                android.os.Vibrator pv = d.getVibratorManager().getDefaultVibrator();
+                if (pv != null && pv.hasVibrator()) return pv;
+            }
+        }
+        android.os.Vibrator v = (android.os.Vibrator) app.getSystemService(Context.VIBRATOR_SERVICE);
+        return v != null && v.hasVibrator() ? v : null;
     }
 
     @Override

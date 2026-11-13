@@ -194,6 +194,36 @@ extern "C" int ff7_platform_pad_buttons(void) {
 
 extern "C" void ff7_platform_pad_rumble(unsigned, unsigned short, unsigned short) {}
 
+// Rumble (src/ffnx_port/rumble.cpp): the game thread posts the latest request, GameActivity's
+// rumble thread waits for it in nativeRumbleWait and drives the vibrator. Only the newest
+// request matters, so a new one replaces one not yet taken.
+namespace {
+std::mutex g_rumble_lock;
+std::condition_variable g_rumble_cv;
+bool g_rumble_pending;
+int g_rumble_amp, g_rumble_ms;
+}
+
+extern "C" void ff7_platform_rumble(int amplitude, int ms) {
+    {
+        std::lock_guard<std::mutex> lk(g_rumble_lock);
+        g_rumble_amp = amplitude;
+        g_rumble_ms = ms;
+        g_rumble_pending = true;
+    }
+    g_rumble_cv.notify_one();
+}
+
+// The next request as (ms << 8) | amplitude (amplitude 0: stop), or -1 after timeout_ms
+// without one (the thread checks whether it should go on).
+extern "C" JNIEXPORT jint JNICALL
+Java_com_ff7recomp_GameActivity_nativeRumbleWait(JNIEnv *, jclass, jint timeout_ms) {
+    std::unique_lock<std::mutex> lk(g_rumble_lock);
+    if (!g_rumble_cv.wait_for(lk, std::chrono::milliseconds(timeout_ms), [] { return g_rumble_pending; })) return -1;
+    g_rumble_pending = false;
+    return (jint)((g_rumble_ms << 8) | (g_rumble_amp & 0xFF));
+}
+
 // No physical keyboard path yet: the game's DirectInput keyboard sees nothing pressed and
 // FFNx drives FF7's controls from the pad.
 extern "C" int ff7_platform_keyboard_state(unsigned char keys[256]) {

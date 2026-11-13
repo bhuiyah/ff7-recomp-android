@@ -79,6 +79,7 @@ add_library(ffnx STATIC ${FFNX_SOURCES}
   "${FF7_ROOT}/src/ffnx_port/companion.cpp"
   "${FF7_ROOT}/src/ffnx_port/companion_render.cpp"
   "${FF7_ROOT}/src/ffnx_port/boosters.cpp"
+  "${FF7_ROOT}/src/ffnx_port/rumble.cpp"
   "${FF7_ROOT}/src/ffnx_port/achievements.cpp"
   # the Steam client FFNx's achievement code talks to, as files shared with the app
   "${FF7_ROOT}/src/ffnx_port/steam_android.cpp"
