@@ -34,12 +34,15 @@ import java.util.zip.ZipOutputStream;
  *   logs/        ff7.log (this run and the one before), build.log, game/FFNx.log, game/APP.LOG,
  *                boosters.txt, env.txt, quickboot.txt, companion.txt, game/FFNx.toml, the mod
  *                profile (mods/profile.xml)
- *   logcat.txt   this app's own Android log (an app only sees its own): a crash's backtrace
+ *   java-crash.txt  the last Java crash's backtrace, written by the app as it crashes
  *   tombstone.pb the last native crash's record from Android, when there is one (Android 12+)
+ *   anr.txt      the last "not responding" record from Android, when there is one (Android 11+)
  *   saves/       the game's saves (game/save/*.ff7), when asked for
  *   savestates/  the newest save state, when asked for
  * Not in it: the game's files, the mods themselves, the Steam sign-in (its own preferences file).
  * Nothing leaves the device here: the zip goes to Downloads and the share sheet, the user sends it.
+ * It reads only the app's own files and Android's records for this app: no system log and no
+ * commands run (0.1.59 ran logcat; some phones began calling the app harmful).
  */
 final class Reports {
     static final String ISSUES = "https://github.com/bhuiyah/ff7-recomp-android/issues/new";
@@ -90,9 +93,12 @@ final class Reports {
                 File f = new File(root, p);
                 if (f.isFile()) putFile(z, "logs/" + p.replace('/', '_'), f, MAX_LOG);
             }
-            put(z, "logcat.txt", logcat());
-            byte[] tomb = lastTombstone(c);
+            File jc = new File(c.getFilesDir(), JAVA_CRASH);
+            if (jc.isFile()) putFile(z, "java-crash.txt", jc, MAX_LOG);
+            byte[] tomb = lastTrace(c, ApplicationExitInfo.REASON_CRASH_NATIVE);
             if (tomb != null) put(z, "tombstone.pb", tomb);
+            byte[] anr = lastTrace(c, ApplicationExitInfo.REASON_ANR);
+            if (anr != null) put(z, "anr.txt", anr);
             if (withSaves) for (File f : saves(c)) putFile(z, "saves/" + f.getName(), f, Long.MAX_VALUE);
             File st = withState ? latestState(c) : null;
             if (st != null) putFile(z, "savestates/" + st.getName(), st, Long.MAX_VALUE);
@@ -135,8 +141,7 @@ final class Reports {
         s.append("FF7Recomp problem report, ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(new Date())).append("\n\n");
         s.append("App: ").append(version(c)).append("\n");
         s.append("Device: ").append(device()).append(" (").append(Build.DEVICE).append(")\n");
-        s.append("Android: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append("), ")
-         .append(Build.FINGERPRINT).append("\n");
+        s.append("Android: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
         s.append("ABIs: ").append(String.join(", ", Build.SUPPORTED_ABIS)).append("\n");
         ActivityManager am = (ActivityManager) c.getSystemService(Context.ACTIVITY_SERVICE);
         ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
@@ -217,11 +222,12 @@ final class Reports {
         }
     }
 
-    /** The newest native crash's tombstone (Android 12+ keeps it for the app), or null. */
-    private static byte[] lastTombstone(Context c) {
-        if (Build.VERSION.SDK_INT < 31) return null;
+    /** The newest record of a native crash (its tombstone, Android 12+) or of "not responding"
+     *  (Android 11+) that Android keeps for this app, or null. */
+    private static byte[] lastTrace(Context c, int reason) {
+        if (Build.VERSION.SDK_INT < (reason == ApplicationExitInfo.REASON_ANR ? 30 : 31)) return null;
         for (ApplicationExitInfo e : exits(c)) {
-            if (e.getReason() != ApplicationExitInfo.REASON_CRASH_NATIVE) continue;
+            if (e.getReason() != reason) continue;
             try (InputStream in = e.getTraceInputStream()) {
                 if (in == null) return null;
                 ByteArrayOutputStream b = new ByteArrayOutputStream();
@@ -234,17 +240,29 @@ final class Reports {
         return null;
     }
 
-    /** This app's own log lines (Android shows an app only its own), the newest 20000. */
-    private static byte[] logcat() {
-        try {
-            Process p = new ProcessBuilder("logcat", "-d", "-v", "threadtime", "-t", "20000", "-b", "main,system,crash")
-                    .redirectErrorStream(true).start();
-            ByteArrayOutputStream b = new ByteArrayOutputStream();
-            try (InputStream in = p.getInputStream()) { copy(in, b, 24L << 20); }
-            p.waitFor();
-            return b.toByteArray();
-        } catch (Exception e) {
-            return ("logcat failed: " + e).getBytes(StandardCharsets.UTF_8);
+    static final String JAVA_CRASH = "java-crash.txt";
+
+    /** Writes a Java crash's backtrace to files/java-crash.txt (for the report), then lets the
+     *  crash go on as before. Each process calls it once (LauncherActivity, GameActivity). */
+    static void keepJavaCrashes(Context c) {
+        File out = new File(c.getApplicationContext().getFilesDir(), JAVA_CRASH);
+        Thread.UncaughtExceptionHandler next = Thread.getDefaultUncaughtExceptionHandler();
+        if (next instanceof CrashKeeper) return;
+        Thread.setDefaultUncaughtExceptionHandler(new CrashKeeper(out, next));
+    }
+
+    private static final class CrashKeeper implements Thread.UncaughtExceptionHandler {
+        private final File out;
+        private final Thread.UncaughtExceptionHandler next;
+        CrashKeeper(File out, Thread.UncaughtExceptionHandler next) { this.out = out; this.next = next; }
+        @Override public void uncaughtException(Thread t, Throwable e) {
+            try (java.io.PrintWriter w = new java.io.PrintWriter(new java.io.FileOutputStream(out))) {
+                w.println(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(new Date())
+                        + "  " + android.app.Application.getProcessName() + ", thread " + t.getName());
+                e.printStackTrace(w);
+            } catch (Throwable ignored) {
+            }
+            if (next != null) next.uncaughtException(t, e);
         }
     }
 

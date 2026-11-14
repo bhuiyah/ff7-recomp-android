@@ -463,6 +463,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        Reports.keepJavaCrashes(this);
         current = this;
         loadGame(this);
         // The screen stays on while the game runs (it timed out and the device slept mid-game).

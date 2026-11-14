@@ -203,6 +203,7 @@ public class LauncherActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        Reports.keepJavaCrashes(this);
         install = new GameInstall(this);
         build = new GameBuild(this);
         library = new ModLibrary(install.files);
