@@ -118,8 +118,8 @@ public class TestControl extends BroadcastReceiver {
     /** A launcher setting (not the Steam sign-in or other private state): Report a problem lists these. */
     static boolean isSetting(String key) { return TYPES.containsKey(key); }
 
-    /** The game's process (":game"), or 0. */
-    private static int gamePid(Context ctx) {
+    /** The game's process (":game"), or 0 (also the launcher's Quit). */
+    static int gamePid(Context ctx) {
         ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
         if (am.getRunningAppProcesses() == null) return 0;
         for (ActivityManager.RunningAppProcessInfo p : am.getRunningAppProcesses())

@@ -34,6 +34,34 @@ WORLD_MULT = (
 )
 
 EDITS = [
+    # GitHub #42: the app sends the pad's A (the bottom button on an Android pad) as XInput B
+    # (FF7 confirms with Circle, XInput B) and B as XInput A. The Xbox prompt icons name the
+    # XInput button, so Config > Customize and the field prompts showed B for the button marked
+    # A. On Android the two icons trade places: the icon names the button the player presses.
+    ('ff7/universal_buttons.cpp',
+     '  int column;\n  int row;\n  switch (button)\n',
+     '  int column;\n  int row;\n'
+     '  // FF7Recomp (#42): Circle (5) is the pad\'s A here, Cross (6) its B\n'
+     '  if (atlas == prompt_atlas::xbox && (button == 5 || button == 6)) button = 11 - button;\n'
+     '  switch (button)\n'),
+    # GitHub #42: Config > Customize's icons took their row from the text's y ((y - 124) / 24),
+    # but menu mods (Enhanced Stock UI) draw the rows a little higher: OK and CANCEL both
+    # came out as row 0 and every row below showed the binding of the row above it. The game
+    # draws one column's 14 bindings top to bottom, then the other's (0x6CDF54), so the row
+    # is counted in drawing order instead.
+    ('ff7/universal_buttons.cpp',
+     '  const int row = (y - first_row_y) / row_height;\n'
+     '  static constexpr int controller_column_x = 300;\n'
+     '  const int column = x >= controller_column_x ? 1 : 0;\n',
+     '  (void)row_height; (void)first_row_y;\n'
+     '  static constexpr int controller_column_x = 300;\n'
+     '  const int column = x >= controller_column_x ? 1 : 0;\n'
+     '  // FF7Recomp (#42): the row in drawing order (a column\'s rows top to bottom), not from y\n'
+     '  static int last_column = -1, last_y, counted_row;\n'
+     '  counted_row = column != last_column || y <= last_y ? 0 : counted_row + 1;\n'
+     '  last_column = column;\n'
+     '  last_y = y;\n'
+     '  const int row = counted_row;\n'),
     # GitHub #34: Config > Customize writes C:\FF7\ff7input.cfg, which a fresh install does not
     # have (Steam keeps it in the user folder, which this port has not). The Store edition's
     # redirection calls a missing file "required" and the open failed, so the button mapping

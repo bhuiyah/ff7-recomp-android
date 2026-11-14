@@ -163,7 +163,28 @@ constexpr long k_fire_ms = 100;
 std::atomic<bool> g_autofire{ false };
 bool g_fire_held;
 std::chrono::steady_clock::time_point g_fire_since;
+
+// Config > Controller > Customize (ff7_en 1.02, 0x6CE3C1). Its state word at 0xDC16B4 is 0 on
+// the list, 1 while it waits for a keyboard key, 2 while it waits for a pad button. The
+// button wait (0x6CDCAA) takes Square and Circle on a new press but every other button
+// while it is held, so with OK moved off Circle the press that started the wait was taken as
+// the new button at once (GitHub #42). The keyboard wait ends only on a keyboard key, which
+// this app never reports, so it never ended. Now buttons held when a wait starts reach the
+// game only after they are let go, and a new press during the keyboard wait goes back to
+// the list.
+constexpr uint32_t k_cfg_wait = 0xDC16B4u;
+constexpr unsigned char k_trigger_on = 30;     // XInput's trigger threshold (FFNx: button 7/8)
+uint32_t g_cfg_prev;
+unsigned short g_cfg_mask;                     // held since a wait started: not shown yet
+bool g_cfg_mask_lt, g_cfg_mask_rt;
+
+// Leave the game (GameActivity: Select+Start held, then Leave): WM_CLOSE to its window on
+// the game thread, the way the window's close button ends it on Windows.
+std::atomic<bool> g_quit{ false };
 }
+
+extern "C" void hle_post_message(uint32_t hwnd, uint32_t message, uint32_t wParam, uint32_t lParam);
+extern "C" uint32_t hle_first_hwnd(void);
 
 extern "C" void ff7_platform_pad_autofire(int on) { g_autofire.store(on != 0); }
 
@@ -189,7 +210,41 @@ extern "C" int ff7_platform_pad_state(unsigned index, ff7_pad_state *out) {
         if (to != g_inject && logged != g_inject) { logged = g_inject; std::fprintf(stderr, "[pad] press %04X sent as %04X (the game's button mapping)\n", g_inject, to); }
         out->buttons |= to;
     }
+    // Customize's waits (#42; see k_cfg_wait)
+    volatile uint32_t *cfg = (volatile uint32_t *)(uintptr_t)k_cfg_wait;
+    uint32_t wait = *cfg;
+    if (wait != 0 && g_cfg_prev == 0) {
+        g_cfg_mask = out->buttons;
+        g_cfg_mask_lt = out->left_trigger >= k_trigger_on;
+        g_cfg_mask_rt = out->right_trigger >= k_trigger_on;
+    }
+    g_cfg_mask &= out->buttons;                // let go: no longer held back
+    if (out->left_trigger < k_trigger_on) g_cfg_mask_lt = false;
+    if (out->right_trigger < k_trigger_on) g_cfg_mask_rt = false;
+    if (wait == 1 && ((out->buttons & ~g_cfg_mask)
+                      || (out->left_trigger >= k_trigger_on && !g_cfg_mask_lt)
+                      || (out->right_trigger >= k_trigger_on && !g_cfg_mask_rt))) {
+        *cfg = wait = 0;                       // back to the list; this press stays unseen
+        g_cfg_mask = out->buttons;
+        g_cfg_mask_lt = out->left_trigger >= k_trigger_on;
+        g_cfg_mask_rt = out->right_trigger >= k_trigger_on;
+        std::fprintf(stderr, "[pad] Customize: no keyboard here, back to the list\n");
+    }
+    g_cfg_prev = wait;
+    out->buttons &= (unsigned short)~g_cfg_mask;
+    if (g_cfg_mask_lt) out->left_trigger = 0;
+    if (g_cfg_mask_rt) out->right_trigger = 0;
+    if (g_quit.exchange(false)) {
+        const uint32_t hwnd = hle_first_hwnd();
+        std::fprintf(stderr, "[ff7] leaving the game: WM_CLOSE to window 0x%X\n", hwnd);
+        if (hwnd) hle_post_message(hwnd, 0x0010u /* WM_CLOSE */, 0, 0);
+    }
     return 1;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_ff7recomp_GameActivity_nativeQuit(JNIEnv *, jclass) {
+    g_quit.store(true);
 }
 
 extern "C" void ff7_platform_pad_inject(unsigned short buttons) {

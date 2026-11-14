@@ -321,9 +321,64 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         if (portrait && !started && isTall() != arrangedTall) arrange(isTall());
     }
 
+    // ---- test API: adb holds pad buttons for a set time (`input keyevent` presses are too short
+    // for the game to see, and --longpress holds long enough for menus to auto-repeat). Only
+    // the shell can send it (DUMP), like TestControl:
+    //   am broadcast -a com.ff7recomp.test.PAD --ei buttons 0x2 --ei ms 100
+    private int testButtons;
+    private final Runnable testRelease = () -> { testButtons = 0; sendPad(); };
+    private final android.content.BroadcastReceiver testPad = new android.content.BroadcastReceiver() {
+        @Override public void onReceive(Context c, android.content.Intent i) {
+            ui.removeCallbacks(testRelease);
+            testButtons = i.getIntExtra("buttons", 0);
+            sendPad();
+            ui.postDelayed(testRelease, Math.max(16, Math.min(10000, i.getIntExtra("ms", 100))));
+        }
+    };
+
     private void sendPad() {
-        nativePad(padButtons | hatButtons | touchButtons, Math.max(padLt, touchLt), Math.max(padRt, touchRt),
+        int buttons = padButtons | hatButtons | touchButtons | testButtons;
+        nativePad(buttons, Math.max(padLt, touchLt), Math.max(padRt, touchRt),
                   padLx, padLy, padRx, padRy);
+        // Select+Start held for a second: leave the game (GitHub #42)
+        boolean combo = (buttons & 0x0030) == 0x0030;
+        if (combo != quitHeld) {
+            quitHeld = combo;
+            if (combo) ui.postDelayed(askQuit, 1000);
+            else ui.removeCallbacks(askQuit);
+        }
+    }
+
+    // ---- leaving the game: Select+Start held, then Leave. The game closes as it does on
+    // Windows (WM_CLOSE, ff7_android_main.cpp), its process ends and the launcher is back.
+    private static native void nativeQuit();
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable askQuit = this::askQuit;
+    private boolean quitHeld;
+    private android.app.AlertDialog quitDialog;
+
+    private void askQuit() {
+        quitHeld = false;
+        if (isFinishing() || (quitDialog != null && quitDialog.isShowing())) return;
+        // the dialog takes the keys from here: the game sees everything let go
+        padButtons = hatButtons = touchButtons = testButtons = 0;
+        padLt = padRt = touchLt = touchRt = 0;
+        sendPad();
+        quitDialog = new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Leave the game?")
+                .setMessage("You go back to the launcher. Anything since your last save is lost.")
+                .setPositiveButton("Leave", (d, w) -> leaveGame())
+                .setNegativeButton("Keep playing", null)
+                .show();
+        android.widget.Button keep = quitDialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE);
+        if (keep != null) keep.requestFocus();
+    }
+
+    private void leaveGame() {
+        Log.i(TAG, "leaving the game (Select+Start)");
+        nativeQuit();
+        // the game ends the process once it has closed; one that does not within 5 s is ended here
+        ui.postDelayed(() -> android.os.Process.killProcess(android.os.Process.myPid()), 5000);
     }
 
     private static boolean isGamepad(InputDevice d) {
@@ -447,6 +502,11 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         if (!portrait) showCompanion();   // in portrait the panels are on this screen
         updateTouch();
         ((android.hardware.input.InputManager) getSystemService(Context.INPUT_SERVICE)).registerInputDeviceListener(deviceListener, null);
+        android.content.IntentFilter padFilter = new android.content.IntentFilter("com.ff7recomp.test.PAD");
+        if (android.os.Build.VERSION.SDK_INT >= 33)
+            registerReceiver(testPad, padFilter, android.Manifest.permission.DUMP, null, Context.RECEIVER_EXPORTED);
+        else
+            registerReceiver(testPad, padFilter, android.Manifest.permission.DUMP, null);
         startSteamSync();
     }
 
@@ -704,6 +764,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         if (current == this) current = null;
         steamSyncRunning = false;
         ((android.hardware.input.InputManager) getSystemService(Context.INPUT_SERVICE)).unregisterInputDeviceListener(deviceListener);
+        try { unregisterReceiver(testPad); } catch (IllegalArgumentException ignored) { }
         super.onDestroy();
     }
 }

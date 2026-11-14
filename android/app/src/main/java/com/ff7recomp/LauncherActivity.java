@@ -264,6 +264,9 @@ public class LauncherActivity extends Activity {
         menu.addView(settingsButton);
         menu.addView(menuItem("Game files", "game"));
         menu.addView(menuItem("Report a problem", "report"));
+        Button quit = menuItem("Quit", null);   // GitHub #42
+        quit.setOnClickListener(v -> quitApp());
+        menu.addView(quit);
         side.addView(menu, new LinearLayout.LayoutParams(dp(200), ViewGroup.LayoutParams.WRAP_CONTENT));
         // the menu scrolls when it is taller than the screen
         ScrollView sideScroll = new ScrollView(this);
@@ -1460,7 +1463,7 @@ public class LauncherActivity extends Activity {
         col.addView(text("Any button stops the automatic start.", 14, DIM));
         col.addView(space(16));
         col.addView(text("In game: press Start during a movie to skip it. Select+L1 / Select+R1 save and load the game's whole state, "
-                + "Select+Left / Right change the slot.", 14, DIM));
+                + "Select+Left / Right change the slot. Hold Select+Start to leave the game.", 14, DIM));
         col.addView(space(16));
         col.addView(catalogSettings());
         return scroll(col);
@@ -2054,6 +2057,19 @@ public class LauncherActivity extends Activity {
 
     private void progress(String what) {
         runOnUiThread(() -> status.setText(what + "…"));
+    }
+
+    /** Quit (GitHub #42): the launcher closes; a game still running is closed too, if you say so. */
+    private void quitApp() {
+        int pid = TestControl.gamePid(this);
+        if (pid <= 0) { finishAndRemoveTask(); return; }
+        ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setMessage("The game is still running. Close it too? Anything since your last save is lost.")
+                .setPositiveButton("Close both", (d, w) -> {
+                    android.os.Process.killProcess(pid);
+                    finishAndRemoveTask();
+                })
+                .setNegativeButton("Cancel", null).show());
     }
 
     private void toastDialog(String msg) {
