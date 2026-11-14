@@ -75,8 +75,15 @@ EDITS = [
     ('ff7/field/kawai.cpp',
      '        std::vector<uint32_t> indices(primitive->indices, primitive->indices + primitive->indexcount);\n'
      '        auto geometry = process_kawai_geometry({primitive->vertices, primitive->vertexcount}, normals, indices, source_colors, light);',
-     '        std::vector<uint32_t> indices((uint32_t*)primitive->indices, (uint32_t*)primitive->indices + primitive->indexcount);\n'
+     '        std::vector<uint32_t> indices((WORD*)primitive->indices, (WORD*)primitive->indices + primitive->indexcount);\n'
      '        auto geometry = process_kawai_geometry({(nvertex*)primitive->vertices, primitive->vertexcount}, normals, indices, source_colors, light);'),
+    # GitHub #37: the indices are 16-bit (WORD). Read as uint32_t, two indices became one
+    # out-of-range index and every KAWAI-lit model was dropped ("KAWAI: vertex index ... exceeds
+    # vertex count" in FFNx.log): the party was invisible in Sunken Gelnika. This entry corrects
+    # trees that already carry the old uint32_t cast.
+    ('ff7/field/kawai.cpp',
+     '        std::vector<uint32_t> indices((uint32_t*)primitive->indices, (uint32_t*)primitive->indices + primitive->indexcount);',
+     '        std::vector<uint32_t> indices((WORD*)primitive->indices, (WORD*)primitive->indices + primitive->indexcount);'),
     ('ff7/field/kawai_eyetx.cpp',
      '        p_hundred *left_eye = cached_eyes ? ff7_model_data[blink_data->model_id].left_eye_tex : field_anim_data->static_left_eye_tex;\n'
      '        p_hundred *right_eye = cached_eyes ? ff7_model_data[blink_data->model_id].right_eye_tex : field_anim_data->static_right_eye_tex;',
