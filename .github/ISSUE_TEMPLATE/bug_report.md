@@ -21,6 +21,8 @@ labels: bug
 **Mods enabled**
 <!-- From the launcher's Mods page, in order. "None" is useful too. -->
 
-**Logs**
-<!-- From Android/data/com.ff7recomp/files/: ff7.log, build.log (if the device build failed),
-     game/FFNx.log. Please do not attach game files or save files. -->
+**Report**
+<!-- In the launcher: Report a problem -> Save to Downloads, then drag the FF7Recomp-report zip
+     here. It has the logs, how the game last closed, your device and mod list (and your saves,
+     if you ticked them). No report? Attach ff7.log, build.log and game/FFNx.log from
+     Android/data/com.ff7recomp/files/ instead. Please do not attach game files. -->

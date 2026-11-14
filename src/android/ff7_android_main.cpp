@@ -81,6 +81,9 @@ void *log_pump(void *arg) {
 }
 
 void redirect_output(const std::string &log_dir) {
+    // the run before stays as ff7.prev.log: a crash's log survives pressing Play again
+    // (Report a problem packs both)
+    std::rename((log_dir + "/ff7.log").c_str(), (log_dir + "/ff7.prev.log").c_str());
     g_logfile = std::fopen((log_dir + "/ff7.log").c_str(), "w");
     int fds[2];
     if (pipe(fds) != 0) return;

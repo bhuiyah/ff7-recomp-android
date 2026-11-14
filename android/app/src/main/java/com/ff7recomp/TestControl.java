@@ -21,6 +21,8 @@ import java.util.Map;
  *   adb shell am broadcast -a com.ff7recomp.test.SET  -n com.ff7recomp/.TestControl --ei fps 3 --es quickboot continue --ez crt_filter false
  *   adb shell am start -n com.ff7recomp/.LauncherActivity --ez test_play true [--es test_start "resume 98"]
  *   adb shell am broadcast -a com.ff7recomp.test.STOP -n com.ff7recomp/.TestControl
+ *   adb shell am broadcast -a com.ff7recomp.test.REPORT -n com.ff7recomp/.TestControl [--ez saves true] [--ez state true]
+ *     (Report a problem's zip, into files/report-test.zip; the answer names its entries)
  *
  * SET takes typed extras (--ei / --ez / --es); a string is converted to the setting's type
  * (fps 0 Original, 1 Original fixed, 2 30 FPS battles, 3 60 FPS, 4 120 FPS; renderer 0 Vulkan,
@@ -80,6 +82,24 @@ public class TestControl extends BroadcastReceiver {
                 out.put("stopped", pid > 0);
                 break;
             }
+            case "REPORT": {
+                java.io.File zip = Reports.build(ctx, intent.getBooleanExtra("saves", false), intent.getBooleanExtra("state", false));
+                java.io.File to = new java.io.File(Storage.root(ctx), "report-test.zip");
+                try (java.io.InputStream in = new java.io.FileInputStream(zip); java.io.OutputStream o = new java.io.FileOutputStream(to)) {
+                    byte[] buf = new byte[1 << 16];
+                    for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
+                }
+                org.json.JSONArray names = new org.json.JSONArray();
+                try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(to)) {
+                    for (java.util.Enumeration<? extends java.util.zip.ZipEntry> en = z.entries(); en.hasMoreElements(); ) {
+                        java.util.zip.ZipEntry ze = en.nextElement();
+                        names.put(ze.getName() + " " + ze.getSize());
+                    }
+                }
+                out.put("report", to.getAbsolutePath());
+                out.put("entries", names);
+                break;
+            }
             default:
                 out.put("error", "unknown action " + a);
             }
@@ -94,6 +114,9 @@ public class TestControl extends BroadcastReceiver {
         setResultCode(out.has("error") ? 1 : 0);
         setResultData(out.toString());
     }
+
+    /** A launcher setting (not the Steam sign-in or other private state): Report a problem lists these. */
+    static boolean isSetting(String key) { return TYPES.containsKey(key); }
 
     /** The game's process (":game"), or 0. */
     private static int gamePid(Context ctx) {

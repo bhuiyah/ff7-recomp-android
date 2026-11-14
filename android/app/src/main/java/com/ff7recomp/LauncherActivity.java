@@ -263,6 +263,7 @@ public class LauncherActivity extends Activity {
         settingsButton = menuItem("Settings", "settings");
         menu.addView(settingsButton);
         menu.addView(menuItem("Game files", "game"));
+        menu.addView(menuItem("Report a problem", "report"));
         side.addView(menu, new LinearLayout.LayoutParams(dp(200), ViewGroup.LayoutParams.WRAP_CONTENT));
         // the menu scrolls when it is taller than the screen
         ScrollView sideScroll = new ScrollView(this);
@@ -363,6 +364,7 @@ public class LauncherActivity extends Activity {
             case "states": content.addView(statesPage()); break;
             case "achievements": content.addView(achievementsPage()); break;
             case "game": content.addView(gamePage()); break;
+            case "report": content.addView(reportPage()); break;
             case "catalog": content.addView(catalogPage()); break;
             default: content.addView(modsPage()); break;
         }
@@ -1759,6 +1761,104 @@ public class LauncherActivity extends Activity {
             col.addView(r);
         }
         return scroll(col);
+    }
+
+    // ------------------------------------------------------------------ report a problem
+    private boolean reportSaves = true, reportState = true, reportBusy;
+    private String reportDone;   // the last zip's name and size, as saved to Downloads
+
+    private View reportPage() {
+        LinearLayout col = column();
+        col.addView(heading("Report a problem"));
+        col.addView(text("One zip with what it takes to look into a problem: the game's logs, how it last closed, your "
+                + "device, settings and mod list. Not your game files, mods or Steam sign-in. Nothing is sent "
+                + "anywhere until you share it.", 14, DIM));
+        String exit = Reports.lastGameExit(this);
+        if (exit != null) { col.addView(space(4)); col.addView(text("The game last closed: " + exit, 14, TEXT)); }
+        col.addView(space(4));
+        java.util.List<File> saves = Reports.saves(this);
+        CheckBox s = new CheckBox(this);
+        s.setText(saves.isEmpty() ? "Your saves (none yet)" : "Your saves (" + saves.size() + (saves.size() == 1 ? " file)" : " files)"));
+        s.setEnabled(!saves.isEmpty());
+        s.setChecked(reportSaves && !saves.isEmpty());
+        s.setOnCheckedChangeListener((b, on) -> reportSaves = on);
+        col.addView(s);
+        File st = Reports.latestState(this);
+        CheckBox t = new CheckBox(this);
+        t.setText(st == null ? "Your newest save state (none yet)"
+                : "Your newest save state: " + st.getName().replace(".ff7s", "") + ", "
+                  + java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(new java.util.Date(st.lastModified()))
+                  + " (" + Math.max(1, st.length() >> 20) + " MB)");
+        t.setEnabled(st != null);
+        t.setChecked(reportState && st != null);
+        t.setOnCheckedChangeListener((b, on) -> reportState = on);
+        col.addView(t);
+        col.addView(text("Saves let the problem be replayed where it happens. A zip attached on GitHub is public: "
+                + "untick them, or share the zip privately, if you'd rather.", 13, DIM));
+        col.addView(space(6));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        Button save = button(reportBusy ? "Packing…" : "Save to Downloads", v -> makeReport(false));
+        Button share = button("Share…", v -> makeReport(true));
+        save.setEnabled(!reportBusy);
+        share.setEnabled(!reportBusy);
+        row.addView(save);
+        row.addView(share);
+        col.addView(row);
+        if (reportDone != null) col.addView(text(reportDone, 15, ACCENT));
+        col.addView(space(10));
+        col.addView(text("Then open an issue on GitHub (the device lines are filled in) and drag the zip from Downloads "
+                + "into the comment box. On another device, copy the zip over first.", 14, DIM));
+        col.addView(button("Open a GitHub issue", v -> {
+            try { startActivity(new Intent(Intent.ACTION_VIEW, Reports.issueUrl(this))); }
+            catch (Exception e) { toastDialog("No browser to open " + Reports.ISSUES); }
+        }));
+        return scroll(col);
+    }
+
+    /** Builds the zip off the UI thread, saves it to Downloads, then shares it (share: true). */
+    private void makeReport(boolean share) {
+        if (reportBusy) return;
+        reportBusy = true;
+        reportDone = null;
+        refresh();
+        final boolean saves = reportSaves, state = reportState;
+        new Thread(() -> {
+            String done;
+            Uri uri = null;
+            File zip = null;
+            try {
+                zip = Reports.build(this, saves, state);
+                uri = Reports.toDownloads(this, zip);
+                done = "Saved to Downloads: " + zip.getName() + " (" + String.format(java.util.Locale.US, "%.1f MB", zip.length() / 1048576.0) + ")";
+            } catch (Exception e) {
+                done = "Could not make the report: " + e.getMessage();
+            }
+            final String msg = done;
+            final Uri u = uri;
+            final String name = zip == null ? "" : zip.getName();
+            runOnUiThread(() -> {
+                reportBusy = false;
+                reportDone = msg;
+                if (page.equals("report")) {
+                    refresh();
+                    if (content.getChildAt(0) instanceof ScrollView) {   // the result line in view
+                        ScrollView sv = (ScrollView) content.getChildAt(0);
+                        sv.post(() -> sv.smoothScrollTo(0, Math.max(0, sv.getChildAt(0).getHeight() - sv.getHeight())));
+                    }
+                }
+                if (share && u != null) {
+                    Intent send = new Intent(Intent.ACTION_SEND).setType("application/zip")
+                            .putExtra(Intent.EXTRA_STREAM, u)
+                            .putExtra(Intent.EXTRA_SUBJECT, "FF7Recomp problem report")
+                            .putExtra(Intent.EXTRA_TEXT, "FF7Recomp " + Reports.version(this) + " on " + Reports.device())
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    send.setClipData(android.content.ClipData.newRawUri(name, u));
+                    try { startActivity(Intent.createChooser(send, "Send the report")); }
+                    catch (Exception e) { toastDialog("Nothing on this device can share a file"); }
+                }
+            });
+        }).start();
     }
 
     private View statesPage() {
