@@ -51,6 +51,16 @@
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|smallestScreenSize|fontScale|locale|layoutDirection"
             android:launchMode="singleTask" />
+        <!-- Swap screens (GitHub #41): the second-screen panels on the main display, the game on
+             the other one. In the game's process; its own task, so it stays on the main display. -->
+        <activity
+            android:name=".CompanionHostActivity"
+            android:exported="false"
+            android:process=":game"
+            android:taskAffinity=".companion"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density|smallestScreenSize" />
         <!-- Settings > On-screen controls > Size and layout (TouchLayoutActivity, GitHub #28) -->
         <activity
             android:name=".TouchLayoutActivity"

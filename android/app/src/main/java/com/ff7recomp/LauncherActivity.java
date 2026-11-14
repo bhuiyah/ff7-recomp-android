@@ -1348,6 +1348,14 @@ public class LauncherActivity extends Activity {
         deckBox.setChecked(prefs.getBoolean("bottom_buttons", true));
         deckBox.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("bottom_buttons", on).apply());
         col.addView(deckBox);
+        CheckBox swapBox = new CheckBox(this);
+        swapBox.setText("Swap screens\nThe game on the second screen and the panels on the main one. "
+                + "For devices whose main screen is the small one, such as the Ayaneo Pocket DS");
+        swapBox.setTextColor(TEXT);
+        swapBox.setTextSize(16);
+        swapBox.setChecked(prefs.getBoolean("swap_screens", false));
+        swapBox.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("swap_screens", on).apply());
+        col.addView(swapBox);
         RadioGroup or = new RadioGroup(this);
         String[][] orientations = {
             { "0", "Landscape", "The game fills the screen" },
@@ -1954,9 +1962,27 @@ public class LauncherActivity extends Activity {
                     .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
                     .putExtra("bottom_buttons", prefs.getBoolean("bottom_buttons", true))
                     .putExtra("crt_filter", prefs.getBoolean("crt_filter", false))
-                    .putExtra("aspect", prefs.getInt("aspect", 2))));
+                    .putExtra("aspect", prefs.getInt("aspect", 2)), gameDisplayOptions()));
             return null;
         });
+    }
+
+    /** Swap screens (Settings > Screen, GitHub #41): the game starts on the second display and
+     *  GameActivity puts the panels on the main one. Null (this display) otherwise. */
+    private android.os.Bundle gameDisplayOptions() {
+        android.view.Display d = swapDisplay();
+        if (d == null) return null;
+        android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
+        o.setLaunchDisplayId(d.getDisplayId());
+        return o.toBundle();
+    }
+
+    /** The display the game goes to when the screens are swapped, or null when they are not. */
+    private android.view.Display swapDisplay() {
+        if (!prefs.getBoolean("swap_screens", false) || !prefs.getBoolean("bottom_screen", true)) return null;
+        android.hardware.display.DisplayManager dm = (android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE);
+        android.view.Display[] ds = dm.getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
+        return ds.length > 0 ? ds[0] : null;
     }
 
     /** The start speed (1-3); older settings had only the 2x "turbo" switch. */
@@ -1968,7 +1994,8 @@ public class LauncherActivity extends Activity {
         int perf = prefs.getInt("perf", 1);
         if (perf == 2) return 0;
         android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
-        getWindowManager().getDefaultDisplay().getRealMetrics(dm);
+        android.view.Display gd = swapDisplay();   // the screen the game will be on
+        (gd != null ? gd : getWindowManager().getDefaultDisplay()).getRealMetrics(dm);
         int shortSide = Math.min(dm.widthPixels, dm.heightPixels);
         int match = Math.max(1, (shortSide + 240) / 480);
         return perf == 0 ? Math.max(1, match - 1) : match;

@@ -28,12 +28,19 @@ import java.io.File;
  * exists, a Presentation shows CompanionView there (party, battle and location panels, a
  * touch command deck) over a SurfaceView the game draws its battle windows into
  * (docs/ROADMAP.md M7).
+ *
+ * Swap screens (Settings > Screen, GitHub #41): on devices whose main screen is the small one
+ * (Ayaneo Pocket DS), the launcher starts the game on the presentation display and the panels
+ * go to the main display. Android only puts a Presentation on a presentation display, so there
+ * they are the content of CompanionHostActivity, a window that never takes the keys.
  */
 public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private static final String TAG = "FF7Recomp";
     private boolean started;
     private Presentation companion;
+    private Activity companionHost;               // swapped screens: the panels' activity on the main display
     private static GameActivity current;          // for CompanionView and GuideHostActivity.Events (this process)
+    static GameActivity currentGame() { return current; }
 
     /** Pixel Guide is opening on the bottom screen: the panels step aside (a Presentation is
      *  drawn above activities), and the game is put back in front on the top screen so the
@@ -338,7 +345,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     /** Shows or hides the on-screen pad: always, never, or (auto) on one screen with no controller. */
     private void updateTouch() {
         if (touch == null) return;
-        boolean show = touchMode == 1 || (touchMode == 0 && companion == null && !gamepadConnected());
+        boolean show = touchMode == 1 || (touchMode == 0 && companion == null && companionHost == null && !gamepadConnected());
         touch.setVisibility(show ? android.view.View.VISIBLE : android.view.View.GONE);
         if (!show && (touchButtons != 0 || touchLt != 0 || touchRt != 0)) {
             touchButtons = touchLt = touchRt = 0;
@@ -516,6 +523,19 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             return;
         }
         Display d = displays[0];
+        Display mine = getDisplay();
+        if (mine != null && mine.getDisplayId() != Display.DEFAULT_DISPLAY) {
+            // swapped (Settings > Screen): the game is on the presentation display, the panels
+            // go to the main one, in an activity (CompanionHostActivity calls attachCompanionHost)
+            Log.i(TAG, "screens swapped: game on display " + mine.getDisplayId() + ", panels on the main display");
+            try {
+                android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
+                o.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
+                startActivity(new Intent(this, CompanionHostActivity.class)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION), o.toBundle());
+            } catch (RuntimeException e) { Log.w(TAG, "panels not shown on the main display: " + e); }
+            return;
+        }
         Log.i(TAG, "companion display " + d.getDisplayId() + " \"" + d.getName() + "\"");
         // Touching the bottom screen must not take the pad from the game: the window never
         // takes focus, and any key or stick event that reaches it goes to the game anyway.
@@ -524,30 +544,63 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             @Override public boolean dispatchGenericMotionEvent(MotionEvent e) { return GameActivity.this.dispatchGenericMotionEvent(e); }
         };
         companion.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        companion.setContentView(companionLayers(companion.getContext(), d));
+        preferHighestRefreshRate(companion.getWindow(), d);
+        companion.show();
+        hideSystemBars(companion.getWindow().getInsetsController());
+    }
+
+    /** The panels on the main display when the screens are swapped (CompanionHostActivity.onCreate). */
+    static void attachCompanionHost(Activity host) {
+        GameActivity a = current;
+        if (a == null) { host.finish(); return; }
+        a.companionHost = host;
+        Display d = host.getDisplay();
+        host.setContentView(a.companionLayers(host, d));
+        if (d != null) preferHighestRefreshRate(host.getWindow(), d);
+        hideSystemBars(host.getWindow().getInsetsController());
+        a.updateTouch();
+        // The new activity made the main display the focused one: the game is put back in front
+        // on its own screen so the controller keeps playing it (as in guideOpened).
+        new android.os.Handler(a.getMainLooper()).postDelayed(() -> {
+            if (current != a || a.isFinishing()) return;
+            try {
+                android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
+                if (a.getDisplay() != null) o.setLaunchDisplayId(a.getDisplay().getDisplayId());
+                a.startActivity(new Intent(a, GameActivity.class).putExtra("refocus", true)
+                        .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NO_ANIMATION), o.toBundle());
+            } catch (RuntimeException e) { Log.w(TAG, "game not brought back in front: " + e); }
+        }, 400);
+    }
+
+    static void detachCompanionHost(Activity host) {
+        GameActivity a = current;
+        if (a != null && a.companionHost == host) { a.companionHost = null; a.updateTouch(); }
+    }
+
+    /** The second screen's content: the battle windows' surface, the panels and the CRT filter. */
+    private android.view.View companionLayers(Context ctx, Display d) {
         // Under: the game's battle windows (a swap chain native code draws into in battle,
         // src/ffnx_port/companion_render.cpp). Over: the panels and touch deck (CompanionView),
         // which leaves the windows' band clear in battle.
-        android.widget.FrameLayout layers = new android.widget.FrameLayout(companion.getContext());
-        SurfaceView windows = new SurfaceView(companion.getContext());
+        android.widget.FrameLayout layers = new android.widget.FrameLayout(ctx);
+        SurfaceView windows = new SurfaceView(ctx);
         windows.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override public void surfaceCreated(SurfaceHolder h) { }
             @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int hh) {
                 Log.i(TAG, "companion surface " + w + "x" + hh);
-                requestFrameRate(h.getSurface(), d);
+                if (d != null) requestFrameRate(h.getSurface(), d);
                 nativeSetCompanionSurface(h.getSurface(), w, hh);
             }
             @Override public void surfaceDestroyed(SurfaceHolder h) { nativeSetCompanionSurface(null, 0, 0); }
         });
         layers.addView(windows);
-        CompanionView panels = new CompanionView(companion.getContext());
+        CompanionView panels = new CompanionView(ctx);
         panels.setDeck(getIntent().getBooleanExtra("bottom_buttons", true));
         layers.addView(panels);
         // the top screen's CRT filter here too, over the panels and the battle windows
-        if (getIntent().getBooleanExtra("crt_filter", false)) layers.addView(new CrtOverlay(companion.getContext()));
-        companion.setContentView(layers);
-        preferHighestRefreshRate(companion.getWindow(), d);
-        companion.show();
-        hideSystemBars(companion.getWindow().getInsetsController());
+        if (getIntent().getBooleanExtra("crt_filter", false)) layers.addView(new CrtOverlay(ctx));
+        return layers;
     }
 
     @Override
@@ -647,6 +700,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     protected void onDestroy() {
         if (companion != null) companion.dismiss();
         if (guideTab != null) guideTab.dismiss();
+        if (companionHost != null) { companionHost.finish(); companionHost = null; }
         if (current == this) current = null;
         steamSyncRunning = false;
         ((android.hardware.input.InputManager) getSystemService(Context.INPUT_SERVICE)).unregisterInputDeviceListener(deviceListener);
