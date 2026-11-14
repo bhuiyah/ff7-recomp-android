@@ -73,6 +73,9 @@ void spoils_hook() {
 // 0x440-byte character records (HP +0x10, Limit gauge +0x1B).
 constexpr uint32_t k_atb = 0x9A8B14, k_atb_stride = 0x44;
 constexpr uint32_t k_party_rec = 0xDBA498 + 0x10, k_party_rec_stride = 0x440;
+// The battle's Limit values (0x34-byte records; +0 the value, +2 what the gauge rises to) and the
+// party's Limit ready bits.
+constexpr uint32_t k_limit = 0x9A8DC0, k_limit_stride = 0x34, k_limit_ready = 0x9A889E;
 
 // files/boosters.txt beside the game folder (as quickboot.txt): "speed=3", "encounters=off",
 // "battle=on", one per line. Written by the launcher at Play.
@@ -230,8 +233,23 @@ extern "C" void ff7_boosters_frame() {
         if (rec[1] > 0) { rec[0] = rec[1]; rec[2] = rec[3]; }
         uint16_t *atb_rec = (uint16_t *)(uintptr_t)(k_atb + k_atb_stride * slot + 0x38);
         if (rec[1] > 0) { atb_rec[0] = rec[1]; atb_rec[1] = rec[3]; }
-        // the Limit gauge in battle: +0x1B of the character record (0..255; found by watching it rise
-        // as the MPs shot at Cloud)
-        if (rec[1] > 0) *((uint8_t *)rec + 0x0B) = 0xFF;
+        // the Limit gauge in battle. +0x1B of the character record is only the gauge as drawn: the
+        // game raises it towards the value at 0x9A8DC2 + 0x34 * slot (copied from 0x9A8DC0) and,
+        // when it reaches 255 on the way up, makes the Limit ready (0x432426: calls 0x4375CE and
+        // 0x435139). Writing the drawn byte showed a full gauge that never became ready again
+        // after the first Limit (#44). Set the value itself, as Cait Sith's Fury Brand does
+        // (0x5DD148), and let the game fill the gauge and make the Limit ready.
+        if (rec[1] > 0) {
+            uint16_t *limit = (uint16_t *)(uintptr_t)(k_limit + k_limit_stride * slot);
+            limit[0] = 0xFF;   // 0x9A8DC0: the value
+            limit[1] = 0xFF;   // 0x9A8DC2: what the gauge rises to
+        }
+    }
+    // the party's "Limit ready" bits (0x4375CE sets 1 << slot), logged when they change
+    static uint16_t ready_seen = 0xFFFF;
+    const uint16_t ready = *(const uint16_t *)(uintptr_t)k_limit_ready;
+    if (ready != ready_seen) {
+        std::fprintf(stderr, "[boosters] Limit ready bits %#x\n", ready);
+        ready_seen = ready;
     }
 }
