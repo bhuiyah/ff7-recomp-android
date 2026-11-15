@@ -379,7 +379,9 @@ extern "C" void ff7_companion_command(int cmd) __attribute__((weak));
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_ff7recomp_CompanionView_nativeState(JNIEnv *env, jclass) {
-    static char buf[8192];
+    // the tabs' lists (items, materia, enemy details) make it a few KB; the UI thread and the
+    // top screen's booster icons both call this
+    static thread_local char buf[65536];
     if (!ff7_companion_json || ff7_companion_json(buf, sizeof buf) <= 0) std::snprintf(buf, sizeof buf, "{\"ready\":0}");
     return env->NewStringUTF(buf);
 }

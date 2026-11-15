@@ -1,6 +1,7 @@
 package com.ff7recomp;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
@@ -16,12 +17,21 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
- * The AYN Thor's bottom screen while the game runs (docs/ROADMAP.md M7): the party's HP / MP /
- * Limit (and ATB in battle), the enemies' HP in battle, where the party is, play time and gil,
- * and a touch command deck. State comes from the game ten times a second
- * (src/ffnx_port/companion.cpp); the buttons send a short pad press or a command that the
- * game thread runs (save / load state, 2x speed).
+ * The AYN Thor's bottom screen while the game runs (docs/ROADMAP.md M7): where the party is,
+ * play time and gil; a row of tabs (Auto, Materia, Map, Items, Key items, Extras); the party
+ * (HP, MP / ATB, Limit) beside the tab's panel; and a touch command deck. Auto picks the panel
+ * by itself: the enemies (what Sense would tell) in battle, the map on the world map, the items
+ * elsewhere. « hides the party so the panel takes the whole width.
+ *
+ * State comes from the game ten times a second (src/ffnx_port/companion.cpp); the buttons send
+ * a short pad press or a command that the game thread runs (save / load state, boosters).
+ * Nothing from the game ships here: names and the map come from the player's own copy.
  */
 public class CompanionView extends View {
     private static native String nativeState();
@@ -36,32 +46,57 @@ public class CompanionView extends View {
     private static final int CMD_SPEED = 1, CMD_SAVE = 2, CMD_LOAD = 3, CMD_BATTLES = 4, CMD_BPLUS = 5;   // companion.cpp / boosters.cpp
     private static final int PAD_Y = 0x8000;   // Triangle: the game's main menu
 
+    // FF7's menu colours
+    private static final int WHITE = 0xFFFFFFFF, LIGHT = 0xFFDCDCF0, LABEL = 0xFF8FB4E8, DIM = 0xFF8090B0,
+            GOLD = 0xFFF5C84A, LOW = 0xFFFFD040, DIVIDER = 0x30FFFFFF;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private JSONObject state = new JSONObject();
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint emoji = new Paint(Paint.ANTI_ALIAS_FLAG);
     private volatile android.graphics.Bitmap worldMap;   // WorldMap: drawn from the game files
     private final Paint mapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private volatile android.graphics.Bitmap[] portraits;   // Portraits: from the game files
     private final RectF r = new RectF();
+    private final SharedPreferences prefs;
 
     private static final class Button {
-        final String label; final int cmd, pad; final RectF box = new RectF();
-        Button(String label, int cmd, int pad) { this.label = label; this.cmd = cmd; this.pad = pad; }
+        final String label, icon; final int cmd, pad; final RectF box = new RectF();
+        Button(String label, String icon, int cmd, int pad) { this.label = label; this.icon = icon; this.cmd = cmd; this.pad = pad; }
     }
     private final Button[] buttons = {
-        new Button("Menu", 0, PAD_Y),
-        new Button("Save", CMD_SAVE, 0),
-        new Button("Load", CMD_LOAD, 0),
-        new Button("Speed", CMD_SPEED, 0),          // game boosters (docs/ROADMAP.md M8)
-        new Button("Battles", CMD_BATTLES, 0),
-        new Button("Battle+", CMD_BPLUS, 0),
+        new Button("Menu", "☰", 0, PAD_Y),
+        new Button("Save", "💾", CMD_SAVE, 0),
+        new Button("Load", "📂", CMD_LOAD, 0),
+        new Button("Speed", "⏩", CMD_SPEED, 0),          // game boosters (docs/ROADMAP.md M8)
+        new Button("Battles", "🛡", CMD_BATTLES, 0),
+        new Button("Battle+", "✚", CMD_BPLUS, 0),
     };
     private Button pressed;
     // Settings > Screen > Second screen buttons (requested in the comments): off, the panels
     // take the deck's place and the controller does everything.
     private boolean deck = true;
     void setDeck(boolean on) { deck = on; if (!on) for (Button b : buttons) b.box.setEmpty(); invalidate(); }
+
+    // ---- tabs ---------------------------------------------------------------------------------
+    private static final String[] TABS = { "Auto", "Materia", "Map", "Items", "Key items", "Extras" };
+    private static final int V_ENEMIES = 0, V_MATERIA = 1, V_MAP = 2, V_ITEMS = 3, V_KEYS = 4, V_EXTRAS = 5;
+    private int tab;                                   // 0 Auto, else the view (V_MATERIA..V_EXTRAS)
+    private boolean wide;                              // the party column hidden («)
+    private final RectF[] tabBoxes = new RectF[TABS.length + 1];
+    private int pressedTab = -1;
+    private final RectF panelBox = new RectF();
+    private final float[] scroll = new float[6];
+    private final float[] contentH = new float[6];
+    private int shownView = V_ITEMS;
+    private float dragY0, dragScroll0;
+    private boolean dragging, dragMoved;
+    // Extras: its toggle buttons, as drawn (box, command)
+    private final List<RectF> toggleBoxes = new ArrayList<>();
+    private final List<Integer> toggleCmds = new ArrayList<>();
+
     // Pixel Guide (a game guide app, requested in the comments): a book at the top right opens
     // it here on the bottom screen; when it is not installed the book offers to install it.
     static final String GUIDE_PACKAGE = "app.nanostack.pixelguide";
@@ -121,12 +156,20 @@ public class CompanionView extends View {
         text.setColor(Color.WHITE);
         text.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
         stroke.setStyle(Paint.Style.STROKE);
+        emoji.setTextAlign(Paint.Align.CENTER);
         setBackground(null);       // battle: the game's windows show through the top band
         setWillNotDraw(false);
         refreshGuide();
+        for (int i = 0; i < tabBoxes.length; i++) tabBoxes[i] = new RectF();
+        prefs = c.getSharedPreferences("companion", Context.MODE_PRIVATE);
+        tab = Math.max(0, Math.min(TABS.length - 1, prefs.getInt("tab", 0)));
+        wide = prefs.getBoolean("wide", false);
         final Context app = c.getApplicationContext();
         new Thread(() -> {
-            worldMap = WorldMap.get(app.getFilesDir(), new java.io.File(Storage.root(app), "game"));
+            java.io.File game = new java.io.File(Storage.root(app), "game");
+            portraits = Portraits.load(game);
+            postInvalidate();
+            worldMap = WorldMap.get(app.getFilesDir(), game);
             postInvalidate();
         }, "world-map").start();
     }
@@ -138,12 +181,14 @@ public class CompanionView extends View {
         super.onDetachedFromWindow();
     }
 
-    // ---- drawing ------------------------------------------------------------------------------
+    // ---- drawing helpers ----------------------------------------------------------------------
+
+    private float u() { return Math.min(getHeight() / 1080f, getWidth() / 1240f); }
 
     /** An FF7 menu window: blue gradient, light border, rounded corners. */
     private void window(Canvas c, float l, float t, float rr, float b) {
         r.set(l, t, rr, b);
-        float u = getHeight() / 1080f;
+        float u = u();
         fill.setShader(new LinearGradient(l, t, rr, b, 0xFF2B4BA8, 0xFF0B1A4E, Shader.TileMode.CLAMP));
         c.drawRoundRect(r, 14 * u, 14 * u, fill);
         fill.setShader(null);
@@ -152,14 +197,33 @@ public class CompanionView extends View {
         c.drawRoundRect(r, 14 * u, 14 * u, stroke);
     }
 
+    /** A gold window: the selected tab, a lit booster, a warning banner. */
+    private void goldWindow(Canvas c, RectF b, boolean solid) {
+        float u = u();
+        fill.setShader(solid ? new LinearGradient(b.left, b.top, b.left, b.bottom, 0xFFF0CF6A, 0xFFB98A28, Shader.TileMode.CLAMP)
+                             : new LinearGradient(b.left, b.top, b.right, b.bottom, 0xFF5A4410, 0xFF2A1E06, Shader.TileMode.CLAMP));
+        c.drawRoundRect(b, 14 * u, 14 * u, fill);
+        fill.setShader(null);
+        stroke.setColor(0xFFFFE08A);
+        stroke.setStrokeWidth(4 * u);
+        c.drawRoundRect(b, 14 * u, 14 * u, stroke);
+    }
+
     private void bar(Canvas c, float l, float t, float w, float h, double frac, int color) {
+        bar(c, l, t, w, h, frac, color, color);
+    }
+
+    private void bar(Canvas c, float l, float t, float w, float h, double frac, int c0, int c1) {
         frac = Math.max(0, Math.min(1, frac));
-        fill.setColor(0xFF101010);
+        fill.setShader(null);
+        fill.setColor(0xFF0A0E1E);
         r.set(l, t, l + w, t + h);
-        c.drawRect(r, fill);
-        fill.setColor(color);
-        r.set(l, t, l + (float) (w * frac), t + h);
-        c.drawRect(r, fill);
+        c.drawRoundRect(r, h / 2, h / 2, fill);
+        if (frac <= 0) return;
+        fill.setShader(new LinearGradient(l, t, l + w, t, c0, c1, Shader.TileMode.CLAMP));
+        r.set(l, t, l + Math.max(h, (float) (w * frac)), t + h);
+        c.drawRoundRect(r, h / 2, h / 2, fill);
+        fill.setShader(null);
     }
 
     private void label(Canvas c, String s, float x, float y, float size, int color, Paint.Align a) {
@@ -169,9 +233,29 @@ public class CompanionView extends View {
         c.drawText(s, x, y, text);
     }
 
+    /** Text shrunk (to 70%) and then cut to fit maxW. */
+    private void fitLabel(Canvas c, String s, float x, float y, float size, float maxW, int color, Paint.Align a) {
+        text.setTextSize(size);
+        float w = text.measureText(s);
+        if (w > maxW) {
+            float sz = Math.max(size * 0.7f, size * maxW / w);
+            text.setTextSize(sz);
+            if (text.measureText(s) > maxW) {
+                int n = text.breakText(s, true, maxW - text.measureText("…"), null);
+                s = s.substring(0, Math.max(0, n)) + "…";
+            }
+            size = sz;
+        }
+        label(c, s, x, y, size, color, a);
+    }
+
+    private float measure(String s, float size) { text.setTextSize(size); return text.measureText(s); }
+
     private static String clock(long s) {
         return String.format(java.util.Locale.US, "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60);
     }
+
+    private static String grouped(long v) { return String.format(java.util.Locale.US, "%,d", v); }
 
     @Override
     protected void onDraw(Canvas c) {
@@ -186,20 +270,449 @@ public class CompanionView extends View {
         }
     }
 
-    /** On the world map: the map (WorldMap) with the party's position, and the party compact on
-     *  its right. */
-    private void drawWorld(Canvas c, float l, float t, float r, float b, float u, JSONArray party, int n) {
-        float pad = 24 * u, colW = 250 * u;
-        float mapH = b - t, mapW = mapH * WorldMap.WORLD_W / WorldMap.WORLD_H;
-        if (mapW > r - l - colW - pad) { mapW = r - l - colW - pad; mapH = mapW * WorldMap.WORLD_H / WorldMap.WORLD_W; }
-        float mx = l, my = t + (b - t - mapH) / 2;
-        window(c, mx, my, mx + mapW, my + mapH);
-        float in = 10 * u;
-        RectF dst = new RectF(mx + in, my + in, mx + mapW - in, my + mapH - in);
-        c.drawBitmap(worldMap, null, dst, mapPaint);
-        if (state.has("wx")) {
-            float px = dst.left + dst.width() * state.optInt("wx") / WorldMap.WORLD_W;
-            float py = dst.top + dst.height() * state.optInt("wz") / WorldMap.WORLD_H;
+    // ---- the screen ---------------------------------------------------------------------------
+
+    private void drawPanels(Canvas c) {
+        final float W = getWidth(), H = getHeight(), u = u(), pad = 14 * u;
+        fill.setShader(null);
+        if (state.optInt("ready") != 1) {
+            fill.setColor(Color.BLACK);
+            c.drawRect(0, 0, W, H, fill);      // blank until a game is under way (companion.cpp)
+            return;
+        }
+        final String mode = state.optString("mode");
+        final boolean battle = "battle".equals(mode);
+        battleNow = battle;
+        float deckH = deck ? 110 * u : 0, deckT = deck ? H - pad - deckH : H;
+
+        JSONArray layout = state.optJSONArray("layout");
+        if (battle && layout != null && layout.length() > 0) {
+            drawBattleWindows(c, W, u, 24 * u, deckT);   // the game's windows on this screen (testing)
+        } else {
+            regions = null;
+            fill.setColor(Color.BLACK);
+            c.drawRect(0, 0, W, H, fill);
+            float top = pad, headH = 96 * u;
+            drawHeader(c, pad, top, W - pad, top + headH, u);
+            float tabT = top + headH + 12 * u, tabH = 62 * u;
+            drawTabs(c, pad, tabT, W - pad, tabT + tabH, u);
+            float bodyT = tabT + tabH + 12 * u, bodyB = deckT - (deck ? 12 * u : pad);
+            int view = resolveView(mode);
+            boolean party = !wide;
+            float panelL = pad;
+            if (party) {
+                float colW = Math.min(420 * u, W * 0.36f);
+                drawParty(c, pad, bodyT, pad + colW, bodyB, u, battle);
+                panelL = pad + colW + 12 * u;
+            }
+            panelBox.set(panelL, bodyT, W - pad, bodyB);
+            window(c, panelBox.left, panelBox.top, panelBox.right, panelBox.bottom);
+            if (view != shownView) { shownView = view; }
+            float in = 20 * u;
+            RectF inner = new RectF(panelBox.left + in, panelBox.top + 12 * u, panelBox.right - in, panelBox.bottom - 12 * u);
+            c.save();
+            c.clipRect(panelBox.left + 4 * u, panelBox.top + 4 * u, panelBox.right - 4 * u, panelBox.bottom - 4 * u);
+            float maxScroll = Math.max(0, contentH[view] - inner.height());
+            scroll[view] = Math.max(0, Math.min(maxScroll, scroll[view]));
+            float y0 = inner.top - scroll[view];
+            toggleBoxes.clear();
+            toggleCmds.clear();
+            float end;
+            switch (view) {
+            case V_ENEMIES: end = drawEnemies(c, inner, y0, u); break;
+            case V_MATERIA: end = drawMateria(c, inner, y0, u); break;
+            case V_MAP: drawMap(c, inner, u); end = y0 + inner.height(); scroll[view] = 0; break;
+            case V_KEYS: end = drawList(c, inner, y0, u, state.optJSONArray("keys"), false); break;
+            case V_EXTRAS: end = drawExtras(c, inner, y0, u); break;
+            default: end = drawList(c, inner, y0, u, state.optJSONArray("inv"), true); break;
+            }
+            contentH[view] = end - y0;
+            c.restore();
+            if (contentH[view] > inner.height() + 1) {     // a scroll thumb
+                float trackH = panelBox.height() - 40 * u, th = Math.max(40 * u, trackH * inner.height() / contentH[view]);
+                float ty = panelBox.top + 20 * u + (trackH - th) * (scroll[view] / Math.max(1, contentH[view] - inner.height()));
+                fill.setColor(0x60FFFFFF);
+                r.set(panelBox.right - 12 * u, ty, panelBox.right - 7 * u, ty + th);
+                c.drawRoundRect(r, 3 * u, 3 * u, fill);
+            }
+        }
+        drawDeck(c, W, u, pad, deckT, deckH, battle);
+        if (flash != null && System.currentTimeMillis() < flashUntil) {
+            float fy = deckT - 22 * u;
+            text.setTextSize(36 * u);
+            float fw = text.measureText(flash) + 40 * u;
+            fill.setShader(null);
+            fill.setColor(0xD0000000);
+            r.set(W / 2 - fw / 2, fy - 44 * u, W / 2 + fw / 2, fy + 14 * u);
+            c.drawRoundRect(r, 12 * u, 12 * u, fill);
+            label(c, flash, W / 2, fy, 36 * u, 0xFFFFE060, Paint.Align.CENTER);
+        }
+    }
+
+    private int resolveView(String mode) {
+        if (tab > 0) return tab;                       // TABS[i] is view i past Auto
+        if ("battle".equals(mode)) return V_ENEMIES;
+        if ("world".equals(mode)) return V_MAP;
+        return V_ITEMS;
+    }
+
+    private void drawHeader(Canvas c, float l, float t, float rr, float b, float u) {
+        window(c, l, t, rr, b);
+        float h = b - t;
+        {                              // the book, top right: Pixel Guide on this screen
+            float s = h - 24 * u, bw = s * 1.25f;
+            bookBox.set(rr - 14 * u - bw, t + 12 * u, rr - 14 * u, t + 12 * u + s);
+            if (bookPressed) {
+                fill.setShader(null);
+                fill.setColor(0x55FFFFFF);
+                c.drawRoundRect(bookBox, 12 * u, 12 * u, fill);
+            }
+            drawBook(c, bookBox, u);
+            if (guide == null) {       // not installed: a download badge (tap to install)
+                float br = 14 * u, bx = bookBox.right - br, by = bookBox.bottom - br;
+                fill.setColor(GuideInstaller.busy ? 0xFFE0B020 : 0xFF40B060);
+                c.drawCircle(bx, by, br, fill);
+                stroke.setColor(Color.WHITE);
+                stroke.setStrokeWidth(3.5f * u);
+                c.drawLine(bx, by - br * 0.55f, bx, by + br * 0.45f, stroke);
+                c.drawLine(bx - br * 0.45f, by, bx, by + br * 0.45f, stroke);
+                c.drawLine(bx + br * 0.45f, by, bx, by + br * 0.45f, stroke);
+            }
+        }
+        String gil = grouped(state.optLong("gil")) + " G", time = clock(state.optLong("time"));
+        float gx = bookBox.left - 34 * u, gw = Math.max(measure(gil, 36 * u), measure("Gil", 24 * u));
+        label(c, "Gil", gx - gw, t + 36 * u, 24 * u, LABEL, Paint.Align.LEFT);
+        label(c, gil, gx - gw, t + 76 * u, 36 * u, GOLD, Paint.Align.LEFT);
+        float tx = gx - gw - 34 * u, tw = measure(time, 36 * u);
+        label(c, "Time", tx - tw, t + 36 * u, 24 * u, LABEL, Paint.Align.LEFT);
+        label(c, time, tx - tw, t + 76 * u, 36 * u, WHITE, Paint.Align.LEFT);
+        String where = state.optString("loc");
+        fitLabel(c, where.isEmpty() ? "-" : where, l + 24 * u, t + h / 2 + 15 * u, 44 * u, tx - tw - l - 50 * u, WHITE, Paint.Align.LEFT);
+    }
+
+    private void drawTabs(Canvas c, float l, float t, float rr, float b, float u) {
+        float gap = 10 * u, small = 70 * u;
+        float w = (rr - l - small - gap * TABS.length) / TABS.length;
+        for (int i = 0; i <= TABS.length; i++) {
+            float x0 = l + i * (w + gap), x1 = i < TABS.length ? x0 + w : rr;
+            RectF box = tabBoxes[i];
+            box.set(x0, t, x1, b);
+            boolean sel = i < TABS.length && i == tab;
+            if (sel) goldWindow(c, box, true);
+            else window(c, box.left, box.top, box.right, box.bottom);
+            if (i == pressedTab) {
+                fill.setColor(0x40FFFFFF);
+                c.drawRoundRect(box, 14 * u, 14 * u, fill);
+            }
+            String s = i < TABS.length ? TABS[i] : (wide ? "»" : "«");
+            fitLabel(c, s, box.centerX(), box.centerY() + 11 * u, 31 * u, box.width() - 16 * u, sel ? 0xFF2A1A00 : WHITE, Paint.Align.CENTER);
+        }
+    }
+
+    private static final int[] PORTRAIT = { 0xFF7A6430, 0xFF5A4636, 0xFF7A3446, 0xFF8A3A6A, 0xFF8A4020,
+                                            0xFF3A6A3A, 0xFF4A4A7A, 0xFF6A1A22, 0xFF3A5A7A };
+
+    /** The party: a card each (portrait letter, name, Lv, HP, MP or ATB, Limit). */
+    private void drawParty(Canvas c, float l, float t, float rr, float b, float u, boolean battle) {
+        JSONArray party = state.optJSONArray("party");
+        int n = party == null ? 0 : party.length();
+        float gap = 12 * u, cardH = Math.min(260 * u, (b - t - 2 * gap) / 3f);
+        for (int i = 0; i < 3; i++) {
+            float ct = t + i * (cardH + gap), cb = ct + cardH;
+            window(c, l, ct, rr, cb);
+            JSONObject m = i < n ? party.optJSONObject(i) : null;
+            if (m == null) continue;
+            String name = m.optString("name");
+            int id = m.optInt("id");
+            android.graphics.Bitmap[] faces = portraits;
+            android.graphics.Bitmap face = faces != null && id >= 0 && id < faces.length ? faces[id] : null;
+            // the game's own face (84 x 96) where the files have it, else a letter tile
+            float ph = Math.min(cardH - 36 * u, 120 * u);
+            float ps = face != null ? ph * Portraits.FACE_W / Portraits.FACE_H : Math.min(92 * u, ph);
+            float px = l + 18 * u, py = ct + (cardH - (face != null ? ph : ps)) / 2;
+            fill.setShader(null);
+            r.set(px, py, px + ps, py + (face != null ? ph : ps));
+            if (face != null) {
+                c.save();
+                android.graphics.Path clip = new android.graphics.Path();
+                clip.addRoundRect(r, 8 * u, 8 * u, android.graphics.Path.Direction.CW);
+                c.clipPath(clip);
+                c.drawBitmap(face, null, r, mapPaint);
+                c.restore();
+            } else {
+                fill.setColor(PORTRAIT[Math.max(0, Math.min(8, id))]);
+                c.drawRoundRect(r, 8 * u, 8 * u, fill);
+                label(c, name.isEmpty() ? "?" : name.substring(0, 1), px + ps / 2, py + ps / 2 + ps * 0.2f, ps * 0.58f, WHITE, Paint.Align.CENTER);
+            }
+            stroke.setColor(0xFFDCDCF0);
+            stroke.setStrokeWidth(3 * u);
+            c.drawRoundRect(r, 8 * u, 8 * u, stroke);
+            float x = px + ps + 18 * u, xr = rr - 18 * u;
+            label(c, "Lv " + m.optInt("lv"), xr, ct + 52 * u, 26 * u, LABEL, Paint.Align.RIGHT);
+            fitLabel(c, name, x, ct + 52 * u, 36 * u, xr - x - measure("Lv 99", 26 * u) - 12 * u, WHITE, Paint.Align.LEFT);
+            int hp = m.optInt("hp"), mhp = Math.max(1, m.optInt("mhp"));
+            double hf = (double) hp / mhp;
+            float lw = 58 * u, bx = x + lw, bw = xr - bx - 96 * u, rowH = Math.min(42 * u, (cb - ct - 80 * u) / 3f);
+            float y = ct + 66 * u + rowH * 0.75f;
+            label(c, "HP", x, y, 24 * u, LABEL, Paint.Align.LEFT);
+            bar(c, bx, y - 14 * u, bw, 12 * u, hf, hf <= 0.25 ? 0xFFE0B020 : 0xFF5EC8F0, hf <= 0.25 ? 0xFFF0D060 : 0xFF2F6FD8);
+            label(c, String.valueOf(hp), xr, y, 26 * u, hf <= 0.25 ? LOW : WHITE, Paint.Align.RIGHT);
+            y += rowH;
+            int atb = m.optInt("atb", -1);
+            if (battle && atb >= 0) {
+                boolean ready = atb >= 65000;
+                label(c, "ATB", x, y, 24 * u, LABEL, Paint.Align.LEFT);
+                bar(c, bx, y - 14 * u, bw, 12 * u, atb / 65535.0, 0xFFF0E070, 0xFFC09020);
+                if (ready) label(c, "READY", xr, y, 24 * u, GOLD, Paint.Align.RIGHT);
+            } else {
+                int mp = m.optInt("mp"), mmp = Math.max(1, m.optInt("mmp"));
+                label(c, "MP", x, y, 24 * u, LABEL, Paint.Align.LEFT);
+                bar(c, bx, y - 14 * u, bw, 12 * u, (double) mp / mmp, 0xFF7CE07C, 0xFF2E9E4E);
+                label(c, String.valueOf(mp), xr, y, 26 * u, WHITE, Paint.Align.RIGHT);
+            }
+            y += rowH;
+            if (y < cb - 8 * u) {
+                int lim = m.optInt("limit");
+                label(c, "LMT", x, y, 24 * u, LABEL, Paint.Align.LEFT);
+                bar(c, bx, y - 14 * u, bw, 12 * u, lim / 255.0, 0xFFF07FB0, 0xFFC0306E);
+                label(c, lim >= 255 ? "LIMIT" : "Lv " + m.optInt("limlv"), xr, y, 24 * u, lim >= 255 ? 0xFFFF90C8 : DIM, Paint.Align.RIGHT);
+            }
+        }
+    }
+
+    // ---- panels -------------------------------------------------------------------------------
+
+    private void divider(Canvas c, RectF in, float y, float u) {
+        fill.setShader(null);
+        fill.setColor(DIVIDER);
+        c.drawRect(in.left, y, in.right, y + 2 * u, fill);
+    }
+
+    private static List<String> strings(JSONArray a) {
+        List<String> out = new ArrayList<>();
+        for (int i = 0; a != null && i < a.length(); i++) {
+            String s = a.optString(i);
+            if (!s.isEmpty() && !out.contains(s)) out.add(s);   // two drop slots can hold the same item
+        }
+        return out;
+    }
+
+    /** A row: a label on the left and chips (or plain text) packed from the right, wrapping. */
+    private float chipRow(Canvas c, RectF in, float y, float u, String name, List<String> items, int chipFill,
+                          int chipText, boolean chips) {
+        float rowH = 54 * u, size = 28 * u, chipPad = 14 * u, gap = 10 * u;
+        float labelW = measure(name, 30 * u) + 30 * u;
+        label(c, name, in.left, y + 37 * u, 30 * u, LABEL, Paint.Align.LEFT);
+        if (items.isEmpty()) {
+            label(c, "-", in.right, y + 37 * u, 30 * u, DIM, Paint.Align.RIGHT);
+            divider(c, in, y + rowH, u);
+            return y + rowH + 2 * u;
+        }
+        float x = in.right, line = 0, minX = in.left + labelW;
+        if (!chips) {
+            fitLabel(c, android.text.TextUtils.join(" · ", items), in.right, y + 37 * u, 30 * u, in.right - minX, chipText, Paint.Align.RIGHT);
+            divider(c, in, y + rowH, u);
+            return y + rowH + 2 * u;
+        }
+        for (String s : items) {
+            float w = measure(s, size) + 2 * chipPad;
+            if (x - w < minX && x < in.right) { line++; x = in.right; }
+            float cy = y + 8 * u + line * (rowH - 6 * u);
+            r.set(x - w, cy, x, cy + 40 * u);
+            fill.setShader(null);
+            fill.setColor(chipFill);
+            c.drawRoundRect(r, 20 * u, 20 * u, fill);
+            stroke.setColor(chipText & 0x90FFFFFF);
+            stroke.setStrokeWidth(2 * u);
+            c.drawRoundRect(r, 20 * u, 20 * u, stroke);
+            label(c, s, x - w / 2, cy + 29 * u, size, chipText, Paint.Align.CENTER);
+            x -= w + gap;
+        }
+        float h = rowH + line * (rowH - 6 * u);
+        divider(c, in, y + h, u);
+        return y + h + 2 * u;
+    }
+
+    /** Battle: each kind of enemy once (HP of each), then what Sense would tell about it. */
+    private float drawEnemies(Canvas c, RectF in, float y, float u) {
+        JSONArray en = state.optJSONArray("enemies");
+        if (en == null || en.length() == 0) {
+            label(c, "battle".equals(state.optString("mode")) ? "No enemies left" : "Enemy details show here in battle",
+                  in.centerX(), in.top + 70 * u, 32 * u, DIM, Paint.Align.CENTER);
+            return y + 100 * u;
+        }
+        Map<String, List<JSONObject>> kinds = new LinkedHashMap<>();
+        for (int i = 0; i < en.length(); i++) {
+            JSONObject e = en.optJSONObject(i);
+            if (e == null) continue;
+            String k = e.optString("name");
+            if (k.isEmpty()) k = "#" + e.optInt("slot");
+            List<JSONObject> l = kinds.get(k);
+            if (l == null) kinds.put(k, l = new ArrayList<>());
+            l.add(e);
+        }
+        boolean firstKind = true;
+        for (Map.Entry<String, List<JSONObject>> k : kinds.entrySet()) {
+            JSONObject e = k.getValue().get(0);
+            if (!firstKind) y += 18 * u;
+            firstKind = false;
+            float nameW = measure(k.getKey(), 38 * u);
+            label(c, k.getKey(), in.left, y + 42 * u, 38 * u, WHITE, Paint.Align.LEFT);
+            label(c, "Lv " + e.optInt("lv"), in.left + nameW + 14 * u, y + 42 * u, 30 * u, LABEL, Paint.Align.LEFT);
+            boolean many = k.getValue().size() > 1;
+            if (many) y += 56 * u;
+            int nth = 0;
+            for (JSONObject one : k.getValue()) {
+                int hp = one.optInt("hp"), mhp = Math.max(1, one.optInt("mhp"));
+                String hpText = grouped(hp) + " / " + grouped(mhp);
+                if (many) {                           // one line each: A, B, C ... and HP
+                    label(c, String.valueOf((char) ('A' + nth++)), in.left, y + 30 * u, 26 * u, LABEL, Paint.Align.LEFT);
+                    label(c, hpText, in.right, y + 30 * u, 28 * u, hp > 0 ? WHITE : DIM, Paint.Align.RIGHT);
+                    bar(c, in.left + 40 * u, y + 18 * u, in.width() - 40 * u - measure("99,999 / 99,999", 28 * u) - 20 * u, 14 * u,
+                        (double) hp / mhp, 0xFF60D070, 0xFF9AE88A);
+                    y += 46 * u;
+                } else {
+                    label(c, hpText, in.right, y + 42 * u, 34 * u, WHITE, Paint.Align.RIGHT);
+                    bar(c, in.left, y + 60 * u, in.width(), 18 * u, (double) hp / mhp, 0xFF60D070, 0xFF9AE88A);
+                    y += 92 * u;
+                }
+            }
+            y = chipRow(c, in, y, u, "Weak", strings(e.optJSONArray("weak")), 0xFF6A1E1E, 0xFFFF9A8A, true);
+            List<String> abs = strings(e.optJSONArray("absorb"));
+            if (!abs.isEmpty()) y = chipRow(c, in, y, u, "Absorbs", abs, 0xFF0E4A50, 0xFF8AF0F0, true);
+            List<String> vd = strings(e.optJSONArray("void"));
+            if (!vd.isEmpty()) y = chipRow(c, in, y, u, "Void", vd, 0xFF2A2E3E, 0xFFD0D4E0, true);
+            List<String> hv = strings(e.optJSONArray("half"));
+            if (!hv.isEmpty()) y = chipRow(c, in, y, u, "Halves", hv, 0xFF1E3060, 0xFFA8C4FF, true);
+            y = chipRow(c, in, y, u, "Steal", strings(e.optJSONArray("steal")), 0, GOLD, false);
+            y = chipRow(c, in, y, u, "Drops", strings(e.optJSONArray("drop")), 0, WHITE, false);
+            String morph = e.optString("morph");
+            if (!morph.isEmpty()) y = chipRow(c, in, y, u, "Morph", java.util.Collections.singletonList(morph), 0, 0xFFE0B0FF, false);
+            List<String> imm = strings(e.optJSONArray("immune"));
+            if (!imm.isEmpty()) y = chipRow(c, in, y, u, "Immune", imm, 0xFF2A2E3E, 0xFFC0C4D0, true);
+            List<String> st = strings(e.optJSONArray("status"));
+            if (!st.isEmpty()) y = chipRow(c, in, y, u, "Status", st, 0xFF4A3A0A, 0xFFFFE080, true);
+        }
+        return y + 10 * u;
+    }
+
+    /** Equipped materia per party member: AP toward the next level, gold when mastered. */
+    private float drawMateria(Canvas c, RectF in, float y, float u) {
+        JSONArray party = state.optJSONArray("party");
+        for (int i = 0; party != null && i < party.length(); i++) {
+            JSONObject m = party.optJSONObject(i);
+            if (m == null) continue;
+            if (i > 0) y += 16 * u;
+            String name = m.optString("name");
+            float nw = measure(name, 36 * u);
+            label(c, name, in.left, y + 40 * u, 36 * u, WHITE, Paint.Align.LEFT);
+            List<String> eq = new ArrayList<>();
+            for (String k : new String[] { "wpn", "arm", "acc" }) if (!m.optString(k).isEmpty()) eq.add(m.optString(k));
+            fitLabel(c, android.text.TextUtils.join(" · ", eq), in.right, y + 38 * u, 24 * u, in.width() - nw - 30 * u, LABEL, Paint.Align.RIGHT);
+            y += 54 * u;
+            JSONArray mats = m.optJSONArray("mat");
+            if (mats == null || mats.length() == 0) {
+                label(c, "No materia", in.left, y + 34 * u, 28 * u, DIM, Paint.Align.LEFT);
+                y += 50 * u;
+                continue;
+            }
+            for (int k = 0; k < mats.length(); k++) {
+                JSONObject t = mats.optJSONObject(k);
+                if (t == null) continue;
+                long ap = t.optLong("ap"), nx = t.optLong("nx");
+                String right;
+                int rc = WHITE;
+                double frac;
+                if (nx == -1) { right = "mastered"; rc = GOLD; frac = 1; }
+                else if (nx < 0) { right = "-"; rc = DIM; frac = 0; }
+                else { right = grouped(ap) + " / " + grouped(nx) + " AP"; frac = (double) ap / Math.max(1, nx); }
+                String lv = t.optInt("lvs") > 1 ? "  Lv " + t.optInt("lv") : "";
+                float rw = measure(right, 28 * u);
+                fitLabel(c, t.optString("n") + lv, in.left, y + 32 * u, 30 * u, in.width() - rw - 20 * u, WHITE, Paint.Align.LEFT);
+                label(c, right, in.right, y + 32 * u, 28 * u, rc, Paint.Align.RIGHT);
+                if (nx == -1) bar(c, in.left, y + 44 * u, in.width(), 9 * u, 1, 0xFFC09020, 0xFFF5D86A);
+                else bar(c, in.left, y + 44 * u, in.width(), 9 * u, frac, 0xFF2F6FD8, 0xFF7FC8FF);
+                y += 64 * u;
+            }
+        }
+        return y + 10 * u;
+    }
+
+    /** Items (with counts) or key items, in two columns. */
+    private float drawList(Canvas c, RectF in, float y, float u, JSONArray a, boolean counts) {
+        int n = a == null ? 0 : a.length();
+        if (n == 0) {
+            label(c, counts ? "No items" : "No key items", in.centerX(), in.top + 70 * u, 32 * u, DIM, Paint.Align.CENTER);
+            return y + 100 * u;
+        }
+        int cols = in.width() > 560 * u ? 2 : 1;
+        float gap = 36 * u, cw = (in.width() - gap * (cols - 1)) / cols, rowH = 52 * u;
+        int rows = (n + cols - 1) / cols;
+        for (int i = 0; i < n; i++) {
+            int col = i / rows, row = i % rows;       // down the first column, then the next
+            float x = in.left + col * (cw + gap), ry = y + row * rowH;
+            String name;
+            int qty = -1, color = WHITE;
+            if (counts) {
+                JSONArray it = a.optJSONArray(i);
+                if (it == null) continue;
+                name = it.optString(0);
+                qty = it.optInt(1);
+                if (it.optInt(2) == 1) color = 0xFFB8D0FF;    // weapons, armor, accessories
+            } else name = a.optString(i);
+            float qw = qty >= 0 ? measure(String.valueOf(qty), 28 * u) + 12 * u : 0;
+            fitLabel(c, name, x, ry + 36 * u, 29 * u, cw - qw, color, Paint.Align.LEFT);
+            if (qty >= 0) label(c, String.valueOf(qty), x + cw, ry + 36 * u, 28 * u, LIGHT, Paint.Align.RIGHT);
+            fill.setShader(null);
+            fill.setColor(0x18FFFFFF);
+            c.drawRect(x, ry + rowH - 2 * u, x + cw, ry + rowH, fill);
+        }
+        return y + rows * rowH + 10 * u;
+    }
+
+    /** The world map with where the party and its vehicles are (from the savemap when the party
+     *  is not on the world map now). */
+    private float drawMap(Canvas c, RectF in, float u) {
+        android.graphics.Bitmap map = worldMap;
+        if (map == null) {
+            label(c, "The world map appears after the game files are found", in.centerX(), in.top + 70 * u, 28 * u, DIM, Paint.Align.CENTER);
+            return in.top + 100 * u;
+        }
+        float legendH = 50 * u;
+        float aw = in.width(), ah = in.height() - legendH;
+        float mw = aw, mh = mw * WorldMap.WORLD_H / WorldMap.WORLD_W;
+        if (mh > ah) { mh = ah; mw = mh * WorldMap.WORLD_W / WorldMap.WORLD_H; }
+        RectF dst = new RectF(in.centerX() - mw / 2, in.top, in.centerX() + mw / 2, in.top + mh);
+        c.drawBitmap(map, null, dst, mapPaint);
+        stroke.setColor(0x80FFFFFF);
+        stroke.setStrokeWidth(2 * u);
+        c.drawRect(dst, stroke);
+        List<String> legend = new ArrayList<>();
+        JSONArray veh = state.optJSONArray("veh");
+        for (int i = 0; veh != null && i < veh.length(); i++) {
+            JSONArray v = veh.optJSONArray(i);
+            if (v == null) continue;
+            String kind = v.optString(0);
+            String e = vehicleEmoji(kind);
+            float px = dst.left + dst.width() * v.optInt(1) / WorldMap.WORLD_W;
+            float py = dst.top + dst.height() * v.optInt(2) / WorldMap.WORLD_H;
+            fill.setShader(null);
+            fill.setColor(0xB0101830);
+            c.drawCircle(px, py, 22 * u, fill);
+            emoji.setTextSize(28 * u);
+            c.drawText(e, px, py + 10 * u, emoji);
+            String n = vehicleName(kind);
+            if (!legend.contains(e + " " + n)) legend.add(e + " " + n);
+        }
+        int wx = -1, wz = -1;
+        if (state.has("wx")) { wx = state.optInt("wx"); wz = state.optInt("wz"); }
+        else {
+            JSONArray wl = state.optJSONArray("wlead");
+            if (wl != null) { wx = wl.optInt(0); wz = wl.optInt(1); }
+        }
+        if (wx >= 0) {
+            float px = dst.left + dst.width() * wx / WorldMap.WORLD_W;
+            float py = dst.top + dst.height() * wz / WorldMap.WORLD_H;
             float pulse = (float) (0.5 + 0.5 * Math.sin(System.currentTimeMillis() / 180.0));
             fill.setShader(null);
             fill.setColor(0x60FF3030);
@@ -208,159 +721,164 @@ public class CompanionView extends View {
             c.drawCircle(px, py, 9 * u, fill);
             fill.setColor(0xFFE02828);
             c.drawCircle(px, py, 6.5f * u, fill);
-            postInvalidateDelayed(50);   // keep the marker pulsing
+            if (state.has("wx")) postInvalidateDelayed(50);   // keep the marker pulsing
+            legend.add(0, "● You" + (state.has("wx") ? "" : " (last visit)"));
         }
-        // party, compact
-        float x = mx + mapW + pad, w = r - x, rowH = (b - t - 2 * pad) / 3f;
-        for (int i = 0; i < 3; i++) {
-            float rt = t + i * (rowH + pad);
-            window(c, x, rt, r, rt + rowH);
-            JSONObject m = i < n ? party.optJSONObject(i) : null;
-            if (m == null) continue;
-            float ix = x + 18 * u, iw = w - 36 * u;
-            label(c, m.optString("name"), ix, rt + 44 * u, 34 * u, Color.WHITE, Paint.Align.LEFT);
-            int hp = m.optInt("hp"), mhp = Math.max(1, m.optInt("mhp")), mp = m.optInt("mp"), mmp = Math.max(1, m.optInt("mmp"));
-            double hf = (double) hp / mhp;
-            label(c, "HP " + hp, ix, rt + 92 * u, 26 * u, hf <= 0.25 ? 0xFFFFD040 : 0xFFDCDCF0, Paint.Align.LEFT);
-            bar(c, ix, rt + 100 * u, iw, 12 * u, hf, hf <= 0.25 ? 0xFFE0B020 : 0xFF40D070);
-            label(c, "MP " + mp, ix, rt + 148 * u, 26 * u, 0xFFDCDCF0, Paint.Align.LEFT);
-            bar(c, ix, rt + 156 * u, iw, 12 * u, (double) mp / mmp, 0xFF4090F0);
+        float lx = dst.left, ly = dst.bottom + 38 * u;
+        for (String s : legend) {
+            boolean you = s.startsWith("●");
+            if (you) {
+                fill.setColor(0xFFE02828);
+                c.drawCircle(lx + 9 * u, ly - 10 * u, 9 * u, fill);
+                label(c, s.substring(2), lx + 26 * u, ly, 26 * u, LIGHT, Paint.Align.LEFT);
+                lx += 26 * u + measure(s.substring(2), 26 * u) + 30 * u;
+            } else {
+                int sp = s.indexOf(' ');
+                emoji.setTextSize(26 * u);
+                c.drawText(s.substring(0, sp), lx + 14 * u, ly, emoji);
+                label(c, s.substring(sp + 1), lx + 34 * u, ly, 26 * u, LIGHT, Paint.Align.LEFT);
+                lx += 34 * u + measure(s.substring(sp + 1), 26 * u) + 30 * u;
+            }
+        }
+        return in.bottom;
+    }
+
+    private static String vehicleEmoji(String k) {
+        switch (k) {
+        case "highwind": return "✈️";
+        case "buggy": return "🚙";
+        case "bronco": return "🛩️";
+        case "chocobo": return "🐤";
+        default: return "•";
         }
     }
 
-    private void drawPanels(Canvas c) {
-        final float W = getWidth(), H = getHeight(), u = H / 1080f, pad = 24 * u;
-        if (state.optInt("ready") != 1) {
-            fill.setShader(null);
-            fill.setColor(Color.BLACK);
-            c.drawRect(0, 0, W, H, fill);      // blank until a game is under way (companion.cpp)
-            return;
+    private static String vehicleName(String k) {
+        switch (k) {
+        case "highwind": return "Highwind";
+        case "buggy": return "Buggy";
+        case "bronco": return "Tiny Bronco";
+        case "chocobo": return "Chocobo";
+        default: return k;
         }
-        final String mode = state.optString("mode");
-        final boolean battle = "battle".equals(mode);
-        battleNow = battle;
+    }
 
-        // command deck at the bottom (in battle the first button is Back)
-        float deckH = deck ? 150 * u : 0, deckT = deck ? H - pad - deckH : H;
-
-        if (battle) {
-            // enemies, compact, on top: two columns
-            JSONArray en = state.optJSONArray("enemies");
-            int ne = en == null ? 0 : en.length();
-            int rows = Math.max(1, (ne + 1) / 2);
-            float rowH = 50 * u, enT = pad, enB = enT + 16 * u + rows * rowH;
-            fill.setShader(null);
-            fill.setColor(Color.BLACK);
-            c.drawRect(0, 0, W, enB + pad, fill);
-            window(c, pad, enT, W - pad, enB);
-            float colW = (W - pad * 2 - 80 * u) / 2f;   // 20 margins, 40 between the columns
-            for (int i = 0; i < ne; i++) {
-                JSONObject e = en.optJSONObject(i);
-                int hp = e.optInt("hp"), mhp = Math.max(1, e.optInt("mhp"));
-                float x = pad + 20 * u + (i % 2) * (colW + 40 * u), y = enT + 8 * u + (i / 2) * rowH;
-                String nm = e.optString("name");
-                label(c, nm.isEmpty() ? "#" + e.optInt("slot") : nm, x, y + 28 * u, 28 * u, hp > 0 ? Color.WHITE : 0xFF8090B0, Paint.Align.LEFT);
-                label(c, hp + "/" + mhp, x + colW, y + 28 * u, 26 * u, 0xFFDCDCF0, Paint.Align.RIGHT);
-                bar(c, x, y + 36 * u, colW, 8 * u, (double) hp / mhp, 0xFFE05050);
-            }
-            // the game's windows in between (native code draws them; leave the area clear)
-            int areaTop = (int) (enB + pad), areaBottom = (int) (deckT - pad);
-            if (areaTop != this.areaTop || areaBottom != this.areaBottom) {
-                this.areaTop = areaTop; this.areaBottom = areaBottom;
-                nativeSetArea(areaTop, areaBottom);
-            }
-            fill.setColor(Color.BLACK);
-            c.drawRect(0, areaBottom, W, H, fill);
-            regions = state.optJSONArray("layout");
-        } else {
-            regions = null;
-            fill.setShader(null);
-            fill.setColor(Color.BLACK);
-            c.drawRect(0, 0, W, H, fill);
-            // top: where, play time, gil
-            float top = pad, topH = 110 * u;
-            window(c, pad, top, W - pad, top + topH);
-            String where = state.optString("loc");
-            float rightX = W - pad - 30 * u;
-            {                              // the book, top right: Pixel Guide on this screen
-                float s = topH - 24 * u, bw = s * 1.25f;
-                bookBox.set(W - pad - 14 * u - bw, top + 12 * u, W - pad - 14 * u, top + 12 * u + s);
-                if (bookPressed) {
-                    fill.setShader(null);
-                    fill.setColor(0x55FFFFFF);
-                    c.drawRoundRect(bookBox, 12 * u, 12 * u, fill);
-                }
-                drawBook(c, bookBox, u);
-                if (guide == null) {       // not installed: a download badge (tap to install)
-                    float br = 15 * u, bx = bookBox.right - br, by = bookBox.bottom - br;
-                    fill.setColor(GuideInstaller.busy ? 0xFFE0B020 : 0xFF40B060);
-                    c.drawCircle(bx, by, br, fill);
-                    stroke.setColor(Color.WHITE);
-                    stroke.setStrokeWidth(3.5f * u);
-                    c.drawLine(bx, by - br * 0.55f, bx, by + br * 0.45f, stroke);
-                    c.drawLine(bx - br * 0.45f, by, bx, by + br * 0.45f, stroke);
-                    c.drawLine(bx + br * 0.45f, by, bx, by + br * 0.45f, stroke);
-                }
-                rightX = bookBox.left - 24 * u;
-            }
-            label(c, where.isEmpty() ? "-" : where, pad + 30 * u, top + 70 * u, 46 * u, Color.WHITE, Paint.Align.LEFT);
-            label(c, clock(state.optLong("time")) + "    " + state.optLong("gil") + " G", rightX, top + 70 * u, 38 * u,
-                  0xFFDCDCF0, Paint.Align.RIGHT);
-            // party
-            float bodyT = top + topH + pad, bodyB = deckT - pad;
-            float partyR = W - pad;
-            JSONArray party = state.optJSONArray("party");
-            int n = party == null ? 0 : party.length();
-            float rowH = (bodyB - bodyT - pad * 2) / 3f;
-            if ("world".equals(mode) && worldMap != null) {
-                drawWorld(c, pad, bodyT, W - pad, bodyB, u, party, n);
-                n = 0;   // the party is drawn compactly beside the map
-            }
-            for (int i = 0; i < 3 && !("world".equals(mode) && worldMap != null); i++) {
-                float t = bodyT + i * (rowH + pad), b = t + rowH;
-                window(c, pad, t, partyR, b);
-                JSONObject m = i < n ? party.optJSONObject(i) : null;
-                if (m == null) continue;
-                float x = pad + 28 * u, colW = partyR - pad - 56 * u;
-                label(c, m.optString("name"), x, t + 58 * u, 48 * u, Color.WHITE, Paint.Align.LEFT);
-                label(c, "Lv " + m.optInt("lv"), x + colW, t + 58 * u, 36 * u, 0xFFDCDCF0, Paint.Align.RIGHT);
-                int hp = m.optInt("hp"), mhp = Math.max(1, m.optInt("mhp")), mp = m.optInt("mp"), mmp = Math.max(1, m.optInt("mmp"));
-                float barW = colW * 0.48f, bh = 16 * u, by = t + 112 * u;
-                double hf = (double) hp / mhp;
-                label(c, "HP " + hp + "/" + mhp, x, by - 6 * u, 32 * u, hf <= 0.25 ? 0xFFFFD040 : Color.WHITE, Paint.Align.LEFT);
-                bar(c, x, by + 4 * u, barW, bh, hf, hf <= 0.25 ? 0xFFE0B020 : 0xFF40D070);
-                float x2 = x + colW * 0.52f;
-                label(c, "MP " + mp + "/" + mmp, x2, by - 6 * u, 32 * u, Color.WHITE, Paint.Align.LEFT);
-                bar(c, x2, by + 4 * u, barW, bh, (double) mp / mmp, 0xFF4090F0);
-                float y3 = by + bh + 48 * u;
-                if (y3 + bh < b) {
-                    label(c, "Limit " + m.optInt("limlv"), x, y3 - 6 * u, 30 * u, 0xFFFFB0D0, Paint.Align.LEFT);
-                    bar(c, x, y3 + 4 * u, barW, bh, m.optInt("limit") / 255.0, 0xFFF060B0);
-                }
-            }
+    /** The boosters as big buttons, a countdown banner when one runs, and the save's counters. */
+    private float drawExtras(Canvas c, RectF in, float y, float u) {
+        JSONObject st = state.optJSONObject("stats");
+        if (st == null) st = new JSONObject();
+        long cd = st.optLong("countdown");
+        if (cd > 0) {
+            RectF bn = new RectF(in.left, y + 4 * u, in.right, y + 64 * u);
+            goldWindow(c, bn, false);
+            label(c, "Countdown", bn.left + 20 * u, bn.centerY() + 11 * u, 30 * u, 0xFFFFE08A, Paint.Align.LEFT);
+            label(c, String.format(java.util.Locale.US, "%d:%02d left", cd / 60, cd % 60), bn.right - 20 * u, bn.centerY() + 11 * u, 30 * u,
+                  0xFFFFE08A, Paint.Align.RIGHT);
+            y += 80 * u;
         }
+        int speed = Math.max(1, state.optInt("speed", 1));
+        String[] names = { "Speed", "No battles", "Battle+" };
+        int[] cmds = { CMD_SPEED, CMD_BATTLES, CMD_BPLUS };
+        boolean[] on = { speed > 1, state.optInt("noenc") == 1, state.optInt("bplus") == 1 };
+        String[] val = { speed > 1 ? speed + "×" : "OFF", on[1] ? "ON" : "OFF", on[2] ? "ON" : "OFF" };
+        float gap = 12 * u, bw = (in.width() - 2 * gap) / 3f, bh = 74 * u;
+        for (int i = 0; i < 3; i++) {
+            RectF b = new RectF(in.left + i * (bw + gap), y + 4 * u, in.left + i * (bw + gap) + bw, y + 4 * u + bh);
+            if (on[i]) {
+                fill.setShader(new LinearGradient(b.left, b.top, b.left, b.bottom, 0xFF22306A, 0xFF101A44, Shader.TileMode.CLAMP));
+                c.drawRoundRect(b, 12 * u, 12 * u, fill);
+                fill.setShader(null);
+                stroke.setColor(GOLD);
+                stroke.setStrokeWidth(4 * u);
+                c.drawRoundRect(b, 12 * u, 12 * u, stroke);
+            } else window(c, b.left, b.top, b.right, b.bottom);
+            float tw = measure(names[i] + "  ", 30 * u), vw = measure(val[i], 28 * u);
+            float sx = b.centerX() - (tw + vw) / 2;
+            label(c, names[i] + "  ", sx, b.centerY() + 11 * u, 30 * u, on[i] ? GOLD : WHITE, Paint.Align.LEFT);
+            label(c, val[i], sx + tw, b.centerY() + 11 * u, 28 * u, on[i] ? GOLD : LIGHT, Paint.Align.LEFT);
+            toggleBoxes.add(b);
+            toggleCmds.add(cmds[i]);
+        }
+        y += bh + 24 * u;
+        String[][] rows = {
+            { "Battles fought", grouped(st.optLong("battles")) },
+            { "Escapes", grouped(st.optLong("escapes")) },
+            { "Enemies defeated", grouped(st.optLong("kills")) },
+            { "Chocobo races won", grouped(st.optLong("races")) },
+            { "Key items", String.valueOf(strings(state.optJSONArray("keys")).size()) },
+        };
+        for (String[] row : rows) {
+            label(c, row[0], in.left, y + 36 * u, 30 * u, LABEL, Paint.Align.LEFT);
+            label(c, row[1], in.right, y + 36 * u, 30 * u, WHITE, Paint.Align.RIGHT);
+            divider(c, in, y + 52 * u, u);
+            y += 54 * u;
+        }
+        return y + 10 * u;
+    }
 
-        float bw = (W - pad * (buttons.length + 1)) / buttons.length;
-        for (int i = 0; deck && i < buttons.length; i++) {
+    // ---- the deck -----------------------------------------------------------------------------
+
+    private void drawDeck(Canvas c, float W, float u, float pad, float deckT, float deckH, boolean battle) {
+        if (!deck) return;
+        float gap = 12 * u;
+        float bw = (W - 2 * pad - gap * (buttons.length - 1)) / buttons.length;
+        for (int i = 0; i < buttons.length; i++) {
             Button b = buttons[i];
-            float l = pad + i * (bw + pad);
+            float l = pad + i * (bw + gap);
             b.box.set(l, deckT, l + bw, deckT + deckH);
-            window(c, b.box.left, b.box.top, b.box.right, b.box.bottom);
             boolean on = (b.cmd == CMD_SPEED && state.optInt("speed", 1) > 1)
                     || (b.cmd == CMD_BATTLES && state.optInt("noenc") == 1)
                     || (b.cmd == CMD_BPLUS && state.optInt("bplus") == 1);
-            if (b == pressed || on) {
-                fill.setColor(on ? 0x6600FF88 : 0x55FFFFFF);
+            window(c, b.box.left, b.box.top, b.box.right, b.box.bottom);
+            if (on) {
+                stroke.setColor(GOLD);
+                stroke.setStrokeWidth(5 * u);
+                c.drawRoundRect(b.box, 14 * u, 14 * u, stroke);
+            }
+            if (b == pressed) {
+                fill.setColor(0x55FFFFFF);
                 c.drawRoundRect(b.box, 14 * u, 14 * u, fill);
             }
-            String text = (battle && b.pad == PAD_Y) ? "Back" : b.label;
-            if (b.cmd == CMD_SPEED) text = "Speed " + Math.max(1, state.optInt("speed", 1)) + "×";
-            else if (b.cmd == CMD_BATTLES) text = state.optInt("noenc") == 1 ? "No battles" : "Battles";
-            label(c, text, b.box.centerX(), b.box.centerY() + 12 * u, 34 * u, Color.WHITE, Paint.Align.CENTER);
+            String t = (battle && b.pad == PAD_Y) ? "Back" : b.label;
+            if (b.cmd == CMD_SPEED && state.optInt("speed", 1) > 1) t = "Speed " + state.optInt("speed", 1) + "×";
+            else if (b.cmd == CMD_BATTLES && state.optInt("noenc") == 1) t = "No battles";
+            emoji.setTextSize(30 * u);
+            emoji.setColor(on ? GOLD : WHITE);
+            c.drawText(b.icon, b.box.centerX(), b.box.top + deckH * 0.40f, emoji);
+            fitLabel(c, t, b.box.centerX(), b.box.top + deckH * 0.80f, 30 * u, bw - 12 * u, on ? GOLD : WHITE, Paint.Align.CENTER);
         }
+    }
 
-        if (flash != null && System.currentTimeMillis() < flashUntil)
-            label(c, flash, W / 2, deckT - 20 * u, 38 * u, 0xFFFFE060, Paint.Align.CENTER);
+    // ---- battle windows on this screen (Settings: off by default; companion_render.cpp) -------
+
+    private void drawBattleWindows(Canvas c, float W, float u, float pad, float deckT) {
+        JSONArray en = state.optJSONArray("enemies");
+        int ne = en == null ? 0 : en.length();
+        int rows = Math.max(1, (ne + 1) / 2);
+        float rowH = 50 * u, enT = pad, enB = enT + 16 * u + rows * rowH;
+        fill.setShader(null);
+        fill.setColor(Color.BLACK);
+        c.drawRect(0, 0, W, enB + pad, fill);
+        window(c, pad, enT, W - pad, enB);
+        float colW = (W - pad * 2 - 80 * u) / 2f;   // 20 margins, 40 between the columns
+        for (int i = 0; i < ne; i++) {
+            JSONObject e = en.optJSONObject(i);
+            int hp = e.optInt("hp"), mhp = Math.max(1, e.optInt("mhp"));
+            float x = pad + 20 * u + (i % 2) * (colW + 40 * u), y = enT + 8 * u + (i / 2) * rowH;
+            String nm = e.optString("name");
+            label(c, nm.isEmpty() ? "#" + e.optInt("slot") : nm, x, y + 28 * u, 28 * u, hp > 0 ? Color.WHITE : 0xFF8090B0, Paint.Align.LEFT);
+            label(c, hp + "/" + mhp, x + colW, y + 28 * u, 26 * u, 0xFFDCDCF0, Paint.Align.RIGHT);
+            bar(c, x, y + 36 * u, colW, 8 * u, (double) hp / mhp, 0xFFE05050);
+        }
+        // the game's windows in between (native code draws them; leave the area clear)
+        int areaTop = (int) (enB + pad), areaBottom = (int) (deckT - pad);
+        if (areaTop != this.areaTop || areaBottom != this.areaBottom) {
+            this.areaTop = areaTop; this.areaBottom = areaBottom;
+            nativeSetArea(areaTop, areaBottom);
+        }
+        fill.setColor(Color.BLACK);
+        c.drawRect(0, areaBottom, W, getHeight(), fill);
+        regions = state.optJSONArray("layout");
     }
 
     /** An open book: two pages with a few lines, on the window's colours. */
@@ -411,18 +929,39 @@ public class CompanionView extends View {
 
     // ---- touch --------------------------------------------------------------------------------
 
+    private boolean legacyBattle() { return battleNow && regions != null && regions.length() > 0; }
+
     @Override
     public boolean onTouchEvent(MotionEvent e) {
-        float x = e.getX(), y = e.getY();
+        float x = e.getX(), y = e.getY(), u = u();
         if (state.optInt("ready") != 1) { pressed = null; return true; }   // blank: no buttons
         switch (e.getActionMasked()) {
         case MotionEvent.ACTION_DOWN:
             pressed = null;
-            bookPressed = !battleNow && !bookBox.isEmpty() && bookBox.contains(x, y);
+            pressedTab = -1;
+            dragging = false;
+            bookPressed = !legacyBattle() && !bookBox.isEmpty() && bookBox.contains(x, y);
             if (bookPressed) { invalidate(); return true; }
             for (Button b : buttons) if (b.box.contains(x, y)) pressed = b;
-            if (pressed == null && battleNow && y >= areaTop && y < areaBottom) battleTap(x, y);
+            if (pressed == null && legacyBattle()) {
+                if (y >= areaTop && y < areaBottom) battleTap(x, y);
+            } else if (pressed == null) {
+                for (int i = 0; i < tabBoxes.length; i++) if (tabBoxes[i].contains(x, y)) pressedTab = i;
+                if (pressedTab < 0 && panelBox.contains(x, y)) {
+                    dragging = true;
+                    dragMoved = false;
+                    dragY0 = y;
+                    dragScroll0 = scroll[shownView];
+                }
+            }
             invalidate();
+            return true;
+        case MotionEvent.ACTION_MOVE:
+            if (dragging) {
+                float dy = y - dragY0;
+                if (Math.abs(dy) > 14 * u) dragMoved = true;
+                if (dragMoved) { scroll[shownView] = dragScroll0 - dy; invalidate(); }
+            }
             return true;
         case MotionEvent.ACTION_UP:
             if (bookPressed) {
@@ -435,6 +974,26 @@ public class CompanionView extends View {
                 invalidate();
                 return true;
             }
+            if (pressedTab >= 0) {
+                int t = pressedTab;
+                pressedTab = -1;
+                if (tabBoxes[t].contains(x, y)) selectTab(t);
+                invalidate();
+                return true;
+            }
+            if (dragging) {
+                dragging = false;
+                if (!dragMoved) {
+                    for (int i = 0; i < toggleBoxes.size(); i++) {
+                        if (toggleBoxes.get(i).contains(x, y)) {
+                            performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+                            nativeCommand(toggleCmds.get(i));
+                        }
+                    }
+                }
+                invalidate();
+                return true;
+            }
             Button b = pressed;
             pressed = null;
             if (b != null && b.box.contains(x, y)) fire(b);
@@ -442,12 +1001,21 @@ public class CompanionView extends View {
             return true;
         case MotionEvent.ACTION_CANCEL:
             pressed = null;
+            pressedTab = -1;
             bookPressed = false;
+            dragging = false;
             invalidate();
             return true;
         default:
             return true;
         }
+    }
+
+    private void selectTab(int t) {
+        performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+        if (t == TABS.length) wide = !wide;          // « / »: the party column
+        else tab = t;
+        prefs.edit().putInt("tab", tab).putBoolean("wide", wide).apply();
     }
 
     /** A tap on the game's battle windows: back to the game's 2D coordinates through the

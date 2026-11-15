@@ -745,3 +745,22 @@
   game files, mods and saves; they need the same signing key (release key in ~/.ff7recomp, read
   by build.gradle). Each release must raise versionCode. A private repository answers 404:
   "no public releases found".
+
+## 2026-11-14: bottom screen tabs and portraits (v1.1.0)
+- CompanionView: header (location, Time, Gil, guide book), tabs Auto | Materia | Map | Items | Key items |
+  Extras | « (hides the party column), party cards (face, Lv, HP, MP or ATB/READY in battle, Limit),
+  the panel, and the deck (lit boosters in gold). Auto: enemies in battle, map on the world map, items
+  elsewhere. Panels scroll by dragging. The tab and « are remembered (prefs "companion").
+- companion.cpp adds names from kernel2's text sections (FFNx kernel2_sections, index = kernel
+  section - 10), equipped materia with AP to the next level (kernel section 9: u16 thresholds x100,
+  FFFF past the last), inventory (0x04FC, id low 9 bits, count high 7), key items (0x0BE4 bits),
+  battles/escapes (0x0BBC/0x0BBE), kills, chocobo race wins, countdown, and world-map positions
+  (x = low 19 bits, z = low 18 bits; leader 0x0F5C, Tiny Bronco 0x0F6C, buggy/Highwind 0x0F74,
+  shown per 0x0C23). Checked against scene.bin, kernel.bin and a mid-game save.
+- Enemies: scene record at 0x9A8E9C + 0xB8 * type: element rates (2 weak, 4 half, 5 void, 6/7
+  absorb, 0 KO), steal (rate >= 0x80) and drop items, morph, status mask at 0xB0 (a CLEAR bit is an
+  immunity: bosses clear Death, Sleep, Confu...; ordinary enemies FFFFFFFF), current status.
+- Portraits.java: the faces come from the player's data/menu/menu_us.lgp (cloud, barre, tifa, earith,
+  red, yufi, ketc, bins, cido .tex; the face is the top-left 84 x 96 of 128 x 128). Mod HD faces
+  (DDS/BC7 in SYW menus) are not used yet.
+- The snapshot buffer is now 64 KB, thread-local (UI thread and the booster icons both read it).

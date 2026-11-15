@@ -71,6 +71,193 @@ bool cinematic(int mode) {
 
 }  // namespace
 
+// ---- the bottom screen's tabs (CompanionView): names from the game's own text --------------
+// kernel2.bin's text sections, loaded by FFNx (ff7/kernel.cpp): kernel sections 10..27 at
+// index section - 10. Each is a table of u16 offsets, then FF7 text.
+extern char *kernel2_sections[20];
+extern uint32_t kernel2_section_counter;
+
+namespace {
+
+constexpr int k_txt_items = 10, k_txt_weapons = 11, k_txt_armor = 12, k_txt_acc = 13,
+              k_txt_materia = 14, k_txt_keys = 15;
+
+std::string ktext(int sec, unsigned i) {
+    if ((uint32_t)sec >= kernel2_section_counter || !kernel2_sections[sec]) return "";
+    const char *s = kernel2_sections[sec];
+    const uint16_t *off = (const uint16_t *)s;
+    if (i >= off[0] / 2u) return "";
+    return ff7_name(s + off[i], 40);
+}
+
+// An inventory or enemy item number: 0-127 items, 128-255 weapons, 256-287 armor, 288-319
+// accessories (checked against scene.bin: Guard Scorpion drops the Assault Gun, 0x80+x).
+std::string item_name(unsigned id) {
+    if (id < 128) return ktext(k_txt_items, id);
+    if (id < 256) return ktext(k_txt_weapons, id - 128);
+    if (id < 288) return ktext(k_txt_armor, id - 256);
+    if (id < 320) return ktext(k_txt_acc, id - 288);
+    return "";
+}
+
+void json_list(std::string &j, const char *key, const std::string *v, int n) {
+    j += "\""; j += key; j += "\":[";
+    for (int i = 0; i < n; i++) { if (i) j += ","; j += "\""; j += v[i]; j += "\""; }
+    j += "],";
+}
+
+const char *const k_elements[16] = { "Fire", "Ice", "Lightning", "Earth", "Poison", "Gravity", "Water", "Wind",
+                                      "Holy", "Restorative", "Cut", "Hit", "Punch", "Shoot", "Shout", "Hidden" };
+const char *const k_statuses[32] = { "Death", "Near-death", "Sleep", "Poison", "Sadness", "Fury", "Confu", "Silence",
+                                     "Haste", "Slow", "Stop", "Frog", "Mini", "Slow-numb", "Petrify", "Regen",
+                                     "Barrier", "MBarrier", "Reflect", "Dual", "Shield", "D.Sentence", "Manipulate",
+                                     "Berserk", "Peerless", "Paralyzed", "Darkness", "Dual-Drain", "DeathForce",
+                                     "Resist", "Lucky Girl", "Imprisoned" };
+// statuses worth naming as immunities (what a player would try to inflict)
+constexpr uint32_t k_inflictable = (1u << 0) | (1u << 2) | (1u << 3) | (1u << 4) | (1u << 5) | (1u << 6) | (1u << 7) |
+                                   (1u << 9) | (1u << 10) | (1u << 11) | (1u << 12) | (1u << 14) | (1u << 21) |
+                                   (1u << 22) | (1u << 23) | (1u << 25) | (1u << 26);
+// shown as an enemy's current status (not the internal ones)
+constexpr uint32_t k_visible_status = 0x3FFFFFFEu & ~(1u << 19) & ~(1u << 27) & ~(1u << 28) & ~(1u << 30) & ~(1u << 31);
+
+// The scene's enemy record (scene.bin layout, 0xB8 bytes) as Sense would tell it.
+void enemy_details(std::string &j, const uint8_t *r, uint32_t status_now) {
+    std::string weak[8], absorb[8], voids[8], half[8];
+    int nw = 0, na = 0, nv = 0, nh = 0;
+    for (int k = 0; k < 8; k++) {
+        const unsigned el = r[0x28 + k], rate = r[0x30 + k];
+        if (el > 15 || rate == 0xFF) continue;
+        const std::string e = k_elements[el];
+        switch (rate) {
+        case 0x00: weak[nw++] = e + " (KO)"; break;
+        case 0x02: weak[nw++] = e; break;
+        case 0x04: half[nh++] = e; break;
+        case 0x05: voids[nv++] = e; break;
+        case 0x06: case 0x07: absorb[na++] = e; break;
+        default: break;
+        }
+    }
+    json_list(j, "weak", weak, nw);
+    json_list(j, "absorb", absorb, na);
+    json_list(j, "void", voids, nv);
+    json_list(j, "half", half, nh);
+    std::string steal[4], drop[4];
+    int ns = 0, nd = 0;
+    for (int k = 0; k < 4; k++) {
+        const unsigned rate = r[0x88 + k], id = *(const uint16_t *)(r + 0x8C + 2 * k);
+        if (id == 0xFFFF) continue;
+        std::string n = item_name(id);
+        if (n.empty()) continue;
+        if (rate >= 0x80) steal[ns++] = n; else drop[nd++] = n;
+    }
+    json_list(j, "steal", steal, ns);
+    json_list(j, "drop", drop, nd);
+    const unsigned morph = *(const uint16_t *)(r + 0xA0);
+    j += "\"morph\":\"" + (morph == 0xFFFF ? std::string() : item_name(morph)) + "\",";
+    // the mask holds the statuses that can be inflicted: a clear bit is an immunity (bosses
+    // clear Death, Sleep, Confu, Stop...; ordinary enemies have FFFFFFFF)
+    const uint32_t can = *(const uint32_t *)(r + 0xB0);
+    std::string imm[32], now[32];
+    int ni = 0, nn = 0;
+    for (int b = 0; b < 32; b++) {
+        if ((k_inflictable >> b & 1) && !(can >> b & 1)) imm[ni++] = k_statuses[b];
+        if ((k_visible_status >> b & 1) && (status_now >> b & 1)) now[nn++] = k_statuses[b];
+    }
+    json_list(j, "immune", imm, ni);
+    json_list(j, "status", now, nn);
+}
+
+// Equipped materia: name, AP, AP for the next level (kernel.bin section 9: four u16 level
+// thresholds in hundreds of AP, FFFF past the last level). nx -1: mastered; -2: no levels.
+void materia_json(std::string &j, const savemap_char &c) {
+    const uint8_t *mdata = (const uint8_t *)(char *)ff7_externals.kernel_1to9_sections[8];
+    j += ",\"mat\":[";
+    bool first = true;
+    for (int s = 0; s < 16; s++) {
+        const uint32_t m = c.equipped_materia[s];
+        const unsigned id = m & 0xFF, ap = m >> 8;
+        if (id == 0xFF || m == 0xFFFFFFFFu) continue;
+        std::string name = ktext(k_txt_materia, id);
+        if (name.empty()) continue;
+        long nx = -2;
+        int lv = 1, levels = 1;
+        if (mdata && id < 96) {
+            const uint16_t *th = (const uint16_t *)(mdata + 0x14 * id);
+            for (int k = 0; k < 4 && th[k] != 0xFFFF; k++) {
+                levels++;
+                if (ap >= th[k] * 100u) lv++;
+                else if (nx < 0) nx = th[k] * 100L;
+            }
+            if (levels > 1 && (nx < 0 || ap == 0xFFFFFF)) nx = -1;
+        }
+        char b[160];
+        snprintf(b, sizeof b, "%s{\"n\":\"%s\",\"ap\":%u,\"nx\":%ld,\"lv\":%d,\"lvs\":%d,\"arm\":%d}", first ? "" : ",",
+                 name.c_str(), ap == 0xFFFFFF ? 0 : ap, nx, lv, levels, s >= 8 ? 1 : 0);
+        j += b;
+        first = false;
+    }
+    j += "]";
+}
+
+// Items, key items, counters, vehicles: the savemap (offsets checked against a mid-game save).
+void savemap_json(std::string &j, const savemap *sm) {
+    const uint8_t *s = (const uint8_t *)sm;
+    j += "\"inv\":[";
+    bool first = true;
+    for (int i = 0; i < 320; i++) {
+        const uint16_t w = sm->items[i];
+        if (w == 0xFFFF) continue;
+        const unsigned id = w & 0x1FF, qty = w >> 9;
+        std::string n = item_name(id);
+        if (n.empty() || !qty) continue;
+        char b[96];
+        snprintf(b, sizeof b, "%s[\"%s\",%u,%d]", first ? "" : ",", n.c_str(), qty, id < 128 ? 0 : 1);
+        j += b;
+        first = false;
+    }
+    j += "],\"keys\":[";
+    first = true;
+    for (int i = 0; i < 64; i++) {                      // 0x0BE4: one bit per key item
+        if (!(s[0x0BE4 + i / 8] >> (i % 8) & 1)) continue;
+        std::string n = ktext(k_txt_keys, i);
+        if (n.empty()) continue;
+        j += first ? "\"" : ",\""; j += n; j += "\"";
+        first = false;
+    }
+    j += "],";
+    unsigned kills = 0;
+    for (int c = 0; c < 9; c++) kills += sm->chars[c].num_kills;
+    unsigned races = 0;
+    for (int c = 0; c < 4; c++) races += (unsigned char)sm->chocobo_slots_first[c].n_races_won;
+    for (int c = 0; c < 2; c++) races += (unsigned char)sm->chocobo_slots_last[c].n_races_won;
+    char b[256];
+    snprintf(b, sizeof b, "\"stats\":{\"battles\":%u,\"escapes\":%u,\"kills\":%u,\"races\":%u,\"countdown\":%u},",
+             *(const uint16_t *)(s + 0x0BBC), *(const uint16_t *)(s + 0x0BBE), kills, races, sm->countdown_timer);
+    j += b;
+    // world map: x in the low 19 bits of the first word, z in the low 18 of the second
+    // (leader 0x0F5C, Tiny Bronco / chocobo 0x0F6C, buggy / Highwind 0x0F74, submarine
+    // 0x0F7C); which vehicles exist: 0x0C23 (1 buggy, 4 Tiny Bronco, 0x10 Highwind)
+    auto pos = [&](unsigned off, const char *kind, bool first_one) {
+        const uint32_t a = *(const uint32_t *)(s + off), z = *(const uint32_t *)(s + off + 4);
+        if (!a && !z) return false;
+        snprintf(b, sizeof b, "%s[\"%s\",%u,%u]", first_one ? "" : ",", kind, a & 0x7FFFF, z & 0x3FFFF);
+        j += b;
+        return true;
+    };
+    const unsigned veh = s[0x0C23];
+    j += "\"veh\":[";
+    bool f = true;
+    if (veh & 0x10) { if (pos(0x0F74, "highwind", f)) f = false; }
+    else if (veh & 0x01) { if (pos(0x0F74, "buggy", f)) f = false; }
+    if (veh & 0x04) { if (pos(0x0F6C, "bronco", f)) f = false; }
+    if (s[0x0C22] & 0x01) { if (pos(0x0F64, "chocobo", f)) f = false; }
+    j += "],";
+    const uint32_t lx = *(const uint32_t *)(s + 0x0F5C), lz = *(const uint32_t *)(s + 0x0F60);
+    if (lx || lz) { snprintf(b, sizeof b, "\"wlead\":[%u,%u],", lx & 0x7FFFF, lz & 0x3FFFF); j += b; }
+}
+
+}  // namespace
+
 extern "C" void ff7_companion_command(int cmd) { g_command = cmd; }
 extern "C" void ff7_companion_battle_tick();                    // companion_render.cpp
 extern "C" void ff7_boosters_frame();                           // boosters.cpp
@@ -155,13 +342,21 @@ std::string build_snapshot() {
             if (a.maxHP > 0) { hp = (unsigned)a.currentHP; mhp = (unsigned)a.maxHP; mp = a.currentMP; mmp = a.maxMP; }
             atb = *(const uint16_t *)(uintptr_t)(k_atb + k_atb_stride * slot);
         }
-        snprintf(b, sizeof b, "%s{\"name\":\"%s\",\"lv\":%d,\"hp\":%u,\"mhp\":%u,\"mp\":%u,\"mmp\":%u,\"limit\":%u,\"limlv\":%d,\"atb\":%d}",
-                 first ? "" : ",", ff7_name(c.name, sizeof c.name).c_str(), (int)(unsigned char)c.level,
+        snprintf(b, sizeof b, "%s{\"name\":\"%s\",\"id\":%u,\"lv\":%d,\"hp\":%u,\"mhp\":%u,\"mp\":%u,\"mmp\":%u,\"limit\":%u,\"limlv\":%d,\"atb\":%d",
+                 first ? "" : ",", ff7_name(c.name, sizeof c.name).c_str(), id, (int)(unsigned char)c.level,
                  hp, mhp, mp, mmp, (unsigned)c.current_limit_bar, (int)c.current_limit_level, atb);
         j += b;
+        const unsigned acc = (unsigned char)c.field_1E;
+        j += ",\"wpn\":\"" + ktext(k_txt_weapons, (unsigned char)c.equipped_weapon) + "\",\"arm\":\"" +
+             ktext(k_txt_armor, (unsigned char)c.equipped_armor) + "\",\"acc\":\"" +
+             (acc < 32 ? ktext(k_txt_acc, acc) : std::string()) + "\"";
+        materia_json(j, c);
+        j += "}";
         first = false;
     }
-    j += "],\"enemies\":[";
+    j += "],";
+    savemap_json(j, sm);
+    j += "\"enemies\":[";
     if (battle) {
         const battle_ai_context *ctx = ff7_externals.battle_context;
         first = true;
@@ -172,9 +367,11 @@ std::string build_snapshot() {
             // the scene's enemy types (up to 3, 0xB8 bytes each, name first); the actor's
             // index is its type (1.02 US)
             std::string name = a.index < 3 ? ff7_name((const char *)(uintptr_t)(k_scene_enemies + 0xB8u * a.index), 32) : "";
-            snprintf(b, sizeof b, "%s{\"slot\":%d,\"name\":\"%s\",\"hp\":%d,\"mhp\":%d,\"lv\":%d}", first ? "" : ",", i - 3,
+            snprintf(b, sizeof b, "%s{\"slot\":%d,\"name\":\"%s\",\"hp\":%d,\"mhp\":%d,\"lv\":%d,", first ? "" : ",", i - 3,
                      name.c_str(), a.currentHP, a.maxHP, (int)a.level);
             j += b;
+            if (a.index < 3) enemy_details(j, (const uint8_t *)(uintptr_t)(k_scene_enemies + 0xB8u * a.index), a.statusMask);
+            j.back() = '}';
             first = false;
         }
     }
