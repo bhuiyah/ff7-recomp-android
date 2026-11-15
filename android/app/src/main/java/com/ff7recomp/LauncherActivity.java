@@ -353,6 +353,9 @@ public class LauncherActivity extends Activity {
         catalog.prune(library.dir);
         updateStatus();
         playButton.setEnabled(ready() && !busy);
+        // the same page rebuilt (a mod switched on or off, moved, a setting changed): the focused
+        // view goes away with it, and Android put the controller cursor back on Play (GitHub #47)
+        final String keepFocus = page.equals(shownPage) ? focusKey() : null;
         content.removeAllViews();
         actionSlots.clear();
         progressViews.clear();
@@ -374,6 +377,7 @@ public class LauncherActivity extends Activity {
         }
         for (java.util.Map.Entry<String, Button> e : nav.entrySet()) e.getValue().setSelected(e.getKey().equals(page));
         theme(content);
+        final View refocused = keepFocus == null ? null : restoreFocus(keepFocus);
         scrollY = keepY;
         if (content.getChildCount() > 0 && content.getChildAt(0) instanceof ScrollView) {
             ScrollView sv = (ScrollView) content.getChildAt(0);
@@ -384,6 +388,8 @@ public class LauncherActivity extends Activity {
                 @Override public boolean onPreDraw() {
                     sv.getViewTreeObserver().removeOnPreDrawListener(this);
                     sv.scrollTo(0, keepY);
+                    if (refocused != null && refocused.getWidth() > 0)   // a moved mod stays in view
+                        refocused.requestRectangleOnScreen(new android.graphics.Rect(0, 0, refocused.getWidth(), refocused.getHeight()), true);
                     return true;
                 }
             });
@@ -392,6 +398,40 @@ public class LauncherActivity extends Activity {
 
     private String shownPage;
     private int scrollY;
+
+    /** Where the focus is inside the page: a view's "focus:" tag, else its child-index path. */
+    private String focusKey() {
+        View f = getCurrentFocus();
+        if (f == null) return null;
+        StringBuilder path = new StringBuilder();
+        for (View v = f; v != content; ) {
+            if (v.getTag() instanceof String && ((String) v.getTag()).startsWith("focus:") && path.length() == 0)
+                return (String) v.getTag();
+            if (!(v.getParent() instanceof ViewGroup)) return null;   // not in the page
+            ViewGroup g = (ViewGroup) v.getParent();
+            path.insert(0, "/" + g.indexOfChild(v));
+            v = g;
+        }
+        return path.toString();
+    }
+
+    /** Focus the rebuilt page's view for a focusKey(); else its first focusable, not Play. */
+    private View restoreFocus(String key) {
+        View t = null;
+        if (key.startsWith("focus:")) t = content.findViewWithTag(key);
+        else {
+            t = content;
+            for (String part : key.substring(1).split("/")) {
+                int i;
+                try { i = Integer.parseInt(part); } catch (NumberFormatException e) { t = null; break; }
+                if (!(t instanceof ViewGroup) || i >= ((ViewGroup) t).getChildCount()) { t = null; break; }
+                t = ((ViewGroup) t).getChildAt(i);
+            }
+        }
+        if (t != null && t.isFocusable() && t.isEnabled() && t.requestFocus()) return t;
+        content.requestFocus();
+        return null;
+    }
 
     private View modsPage() {
         LinearLayout col = column();
@@ -456,6 +496,7 @@ public class LauncherActivity extends Activity {
         cb.setChecked(m.enabled && m.error == null);
         cb.setEnabled(m.error == null);
         cb.setOnCheckedChangeListener((b, on) -> { m.enabled = on; saveProfile(); ensureConflicts(); });
+        cb.setTag("focus:mod:" + m.file);   // the cursor stays on it when the page is rebuilt (#47)
         LinearLayout info = column();
         info.addView(cb);
         StringBuilder sub = new StringBuilder();
@@ -481,8 +522,12 @@ public class LauncherActivity extends Activity {
         whole.addView(info);
         LinearLayout buttons = row();
         buttons.setPadding(dp(32), 0, 0, 0);
-        buttons.addView(small("▲", v -> { library.move(index, -1); saveProfile(); refresh(); }));
-        buttons.addView(small("▼", v -> { library.move(index, +1); saveProfile(); refresh(); }));
+        Button up = small("▲", v -> { library.move(index, -1); saveProfile(); refresh(); });
+        up.setTag("focus:up:" + m.file);     // follows the mod to its new place (#47)
+        buttons.addView(up);
+        Button down = small("▼", v -> { library.move(index, +1); saveProfile(); refresh(); });
+        down.setTag("focus:down:" + m.file);
+        buttons.addView(down);
         if (!m.options.isEmpty()) buttons.addView(small("Options", v -> options(m)));
         if (catMod != null && catalog.updateAvailable(catMod)) buttons.addView(small("Update", v -> installMods(java.util.Collections.singletonList(catMod), true)));
         if (catMod != null) buttons.addView(small("Info", v -> modPage(catMod)));
