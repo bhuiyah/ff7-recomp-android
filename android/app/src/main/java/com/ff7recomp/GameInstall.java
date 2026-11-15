@@ -37,8 +37,11 @@ final class GameInstall {
     }
 
     boolean hasGame() {
-        return new File(game, "ff7_en.exe").isFile() && new File(game, "data/field").isDirectory();
+        return new File(game, "ff7_en.exe").isFile() && new File(game, "data/field").isDirectory() && !steamDownloading().exists();
     }
+
+    /** Present while a download from Steam is unfinished (SteamFiles): the game is not complete. */
+    File steamDownloading() { return new File(game, ".steam-download"); }
 
     /** Files under data/ the game opens at start-up and cannot run without: one missing (a copy
      *  cut short, another release's layout) stopped it on a black screen (GitHub #18, #22). */
@@ -198,6 +201,29 @@ final class GameInstall {
         if (!missing.isEmpty())
             return "the game's data folder here is incomplete, these files are missing: " + String.join(", ", missing)
                     + ". Check that the game is fully installed (in Steam or GameNative: verify the game files), then import again";
+        return null;
+    }
+
+    /**
+     * Downloads the game from Steam (SteamFiles) into the game folder, as importGame would copy it.
+     * Returns null on success, else what is wrong. exeChanged[0]: ff7_en.exe is new (build again).
+     */
+    String downloadFromSteam(SteamLink link, Progress p, java.util.concurrent.atomic.AtomicBoolean cancel, boolean[] exeChanged) throws Exception {
+        game.mkdirs();
+        File exe = new File(game, "ff7_en.exe");
+        String before = exe.isFile() ? GameBuild.sha1(exe) : null;
+        File mark = steamDownloading();
+        if (!mark.isFile()) new FileOutputStream(mark).close();
+        String err = new SteamFiles(link).downloadGame(game, p::update, cancel);
+        if (err != null) return err;
+        String sha = GameBuild.sha1(exe);
+        if (!GameBuild.EXE_SHA1.equals(sha))
+            return "Steam's copy of ff7_en (SHA-1 " + sha.substring(0, 12) + "…) is not the one the game is built from. Please report this";
+        exeChanged[0] = !sha.equals(before);
+        fixFontWidths();
+        List<String> missing = missingFiles();
+        if (!missing.isEmpty()) return "these files did not come with the download: " + String.join(", ", missing) + ". Please report this";
+        mark.delete();
         return null;
     }
 

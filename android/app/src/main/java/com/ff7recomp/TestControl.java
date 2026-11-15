@@ -23,6 +23,10 @@ import java.util.Map;
  *   adb shell am broadcast -a com.ff7recomp.test.STOP -n com.ff7recomp/.TestControl
  *   adb shell am broadcast -a com.ff7recomp.test.REPORT -n com.ff7recomp/.TestControl [--ez saves true] [--ez state true]
  *     (Report a problem's zip, into files/report-test.zip; the answer names its entries)
+ *   adb shell am broadcast -a com.ff7recomp.test.STEAM_DOWNLOAD -n com.ff7recomp/.TestControl --es dir ABS
+ *     (the game's files from Steam into that folder, in the background; logcat FF7SteamFiles)
+ *   adb shell am broadcast -a com.ff7recomp.test.STEAM_CLOUD -n com.ff7recomp/.TestControl --es op list|sync|delete
+ *     [--es dir SAVES --es state FILE] --es folder TESTFOLDER   (sync and delete refuse the real FF7Recomp folder)
  *
  * SET takes typed extras (--ei / --ez / --es); a string is converted to the setting's type
  * (fps 0 Original, 1 Original fixed, 2 30 FPS battles, 3 60 FPS, 4 120 FPS; renderer 0 Vulkan,
@@ -98,6 +102,41 @@ public class TestControl extends BroadcastReceiver {
                 }
                 out.put("report", to.getAbsolutePath());
                 out.put("entries", names);
+                break;
+            }
+            case "STEAM_DOWNLOAD": {
+                // --es dir ABS: the game's files from Steam into that folder (not the game's own), in the background
+                String dir = intent.getStringExtra("dir");
+                if (dir == null || dir.isEmpty()) throw new IllegalArgumentException("dir is required");
+                SteamLink link = new SteamLink(ctx);
+                new Thread(() -> {
+                    long t0 = System.currentTimeMillis();
+                    try {
+                        String r = new SteamFiles(link).downloadGame(new java.io.File(dir),
+                                w -> android.util.Log.i("FF7SteamFiles", "progress: " + w), new java.util.concurrent.atomic.AtomicBoolean());
+                        android.util.Log.i("FF7SteamFiles", "test download done in " + (System.currentTimeMillis() - t0) / 1000 + " s: " + (r == null ? "ok" : r));
+                    } catch (Throwable e) { android.util.Log.e("FF7SteamFiles", "test download failed", e); }
+                }, "steam-test-download").start();
+                out.put("download", dir);
+                break;
+            }
+            case "STEAM_CLOUD": {
+                // --es op list | sync | delete; sync: --es dir SAVES --es folder CLOUDFOLDER --es state FILE; delete: --es folder
+                String op = intent.getStringExtra("op"), dir = intent.getStringExtra("dir"), folder = intent.getStringExtra("folder"),
+                        st = intent.getStringExtra("state");
+                if ("sync".equals(op) && (dir == null || folder == null || st == null || folder.equals(SteamFiles.CLOUD_FOLDER)))
+                    throw new IllegalArgumentException("sync takes dir, state and a test folder");
+                SteamLink link = new SteamLink(ctx);
+                new Thread(() -> {
+                    try {
+                        SteamFiles sf = new SteamFiles(link);
+                        String r = "sync".equals(op) ? sf.syncSaves(new java.io.File(dir), new java.io.File(st), folder).toString()
+                                : "delete".equals(op) ? "deleted " + sf.deleteCloudFolder(folder) : sf.cloudListing();
+                        for (String line : r.split("\n")) android.util.Log.i("FF7SteamFiles", "cloud " + op + ": " + line);
+                        android.util.Log.i("FF7SteamFiles", "cloud " + op + " done");
+                    } catch (Throwable e) { android.util.Log.e("FF7SteamFiles", "cloud " + op + " failed", e); }
+                }, "steam-test-cloud").start();
+                out.put("cloud", op);
                 break;
             }
             default:

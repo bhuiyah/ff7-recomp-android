@@ -89,16 +89,23 @@ On the AYN Thor, with mods from the 7th Heaven catalogs (Tsunamods' Finishing To
 
 1. Download the APK from [Releases](../../releases/latest) and install it (allow installing
    from your browser or file manager when Android asks).
-2. Install FINAL FANTASY VII from Steam (the version sold today) and put its install folder,
-   `FINAL FANTASY VII Steam Edition` (the one with `ff7` inside), on the device: internal storage,
-   an SD card or a USB drive.
-3. Open FF7Recomp → **Game files** → **Find my FF7 folder…** and pick that folder.
-4. The launcher copies the game files, then builds the game for your device: it translates your
+2. Open FF7Recomp → **Game files** → **Download from Steam…**. Sign in once by scanning a QR code
+   with the Steam app on your phone (you never type your Steam password into FF7Recomp); the
+   launcher downloads the game files your Steam account owns (about 3.3 GB) straight from Steam
+   and checks each one. If the download stops, press the button again: it goes on where it was.
+
+   Or, if you already have the game's install folder on the device (`FINAL FANTASY VII Steam
+   Edition`, the one with `ff7` inside: internal storage, an SD card or a USB drive), use
+   **Find my FF7 folder…** and pick it.
+3. The launcher builds the game for your device: it translates your
    `ff7_en.exe` to C, compiles it with the clang it carries and links it with the engine (FFNx,
    the renderer, the runtime). This happens once; on an AYN Thor it takes about 8 minutes and
    carries on in the background (a notification shows the progress). **Quiet build** halves the
    speed to keep the fan low.
-5. Press **Play**.
+4. Press **Play**.
+
+**Repair from Steam** (Game files) checks every game file against Steam's copy and downloads only
+the missing or damaged ones.
 
 No patch or older version is needed: FINAL FANTASY VII as Steam installs it today has everything
 FF7Recomp uses. Pick its main folder (not `ff7/workingdir`); the launcher checks the game files
@@ -188,7 +195,7 @@ Enhanced Stock UI). Those rules, and the option values one mod sets for another 
 also apply in game whatever the list order, as 7th Heaven applies them at launch. Large mods download and unpack on the device; you
 can keep using the launcher meanwhile. You can also add your own `.iro` files or mod folders.
 
-## Steam achievements
+## Steam achievements and cloud saves
 
 **Achievements** → **Sign in with the Steam app…** shows a QR code: scan it in the Steam mobile
 app (Steam Guard → Scan a QR code) and approve. You never type your Steam password into
@@ -199,6 +206,14 @@ sends it to your Steam account (the FINAL FANTASY VII you own on Steam: the curr
 the 2013 one, each with its own list). Unlocks show in game and as a notification, and are sent
 at once when online, or the next time you are. While it talks to Steam, your Steam profile may
 briefly show you playing FINAL FANTASY VII.
+
+**Sync my saves with Steam Cloud** (Achievements → Steam Cloud saves, off until you turn it on)
+puts your save files (`save00.ff7`…`save09.ff7`) in FINAL FANTASY VII's Steam Cloud before and
+after you play, so another Android device signed in to the same Steam account picks up where you
+left off. A save changed on one device only goes to the other; changed on both, the newer one is
+kept. Any save about to be replaced is first copied to `Android/data/com.ff7recomp/files/steam/cloud-backup`.
+They are kept in their own `FF7Recomp` folder in the game's Steam Cloud. The PC game's own saves
+are a different format: they are not synced with FF7Recomp's yet, and are never changed.
 
 ## Reporting problems
 
@@ -215,8 +230,8 @@ build) and `game/FFNx.log`.
 - The 120 FPS mode is experimental. It runs fields at 120; the world map and battles stay at 60.
 - RetroAchievements: offline only, until the port is approved by RetroAchievements.
 - Steam achievements: tested with "First Blood" on the current release; the others use FFNx's
-  triggers unchanged but have not each been played through here. Steam playtime and cloud saves
-  are not synced.
+  triggers unchanged but have not each been played through here. Steam playtime is not synced.
+- Steam Cloud saves go between Android devices only: the PC game's saves are a different format.
 
 ## Credits and licenses
 
@@ -232,6 +247,9 @@ the [LZMA SDK](https://www.7-zip.org/sdk.html) (public domain),
 The APK also carries, for the on-device build: [LLVM/clang and lld](https://llvm.org/) (Apache-2.0
 with LLVM exceptions), [Python for Android](https://www.python.org/downloads/android/) (PSF),
 [Capstone](https://www.capstone-engine.org/) (BSD-3) and [pefile](https://github.com/erocarrera/pefile) (MIT).
-For Steam achievements: [JavaSteam](https://github.com/Longi94/JavaSteam) (MIT) with its libraries
-(protobuf, BSD-3; OkHttp, Ktor and Kotlin, Apache-2.0; Commons Lang, Apache-2.0) and
+For Steam achievements, downloads and cloud saves: [JavaSteam](https://github.com/Longi94/JavaSteam) (MIT)
+with its libraries (protobuf, BSD-3; OkHttp, Ktor, Kotlin and kotlinx.coroutines, Apache-2.0;
+Commons Lang, Apache-2.0; [Bouncy Castle](https://www.bouncycastle.org/), MIT;
+[XZ for Java](https://tukaani.org/xz/java.html), public domain;
+[zstd-jni](https://github.com/luben/zstd-jni), BSD-2) and
 [ZXing](https://github.com/zxing/zxing) (Apache-2.0) for the QR code.

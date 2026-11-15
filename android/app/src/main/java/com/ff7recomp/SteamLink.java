@@ -87,6 +87,8 @@ final class SteamLink {
         sending = new File(dir, "pending.sending");
     }
 
+    SharedPreferences prefs() { return prefs; }
+
     boolean signedIn() { return !prefs.getString("token", "").isEmpty(); }
     String account() { return prefs.getString("account", ""); }
 
@@ -122,7 +124,7 @@ final class SteamLink {
         TokenRejected(EResult r) { super("Steam asks you to sign in again (" + r + ")"); }
     }
 
-    private static final class Session implements AutoCloseable {
+    static final class Session implements AutoCloseable {
         // WebSocket only: JavaSteam's TCP connection encrypts with BouncyCastle, which the APK
         // does not carry; when Steam's server list offered TCP, the app closed with
         // ClassNotFoundException BouncyCastleProvider (a report on GitHub #49).
@@ -135,6 +137,7 @@ final class SteamLink {
         volatile boolean running = true;
         boolean playingSent;
         int app;                                         // the FF7 this account owns
+        int cell;                                        // Steam's content region for this connection
 
         Session() {
             mgr.subscribe(ConnectedCallback.class, cb -> connected.complete(true));
@@ -167,6 +170,7 @@ final class SteamLink {
                 throw new TokenRejected(cb.getResult());
             if (cb.getResult() != EResult.OK)
                 throw new IOException("Steam did not sign in (" + cb.getResult() + ")");
+            cell = cb.getCellID();
         }
 
         @Override public void close() {
@@ -205,7 +209,7 @@ final class SteamLink {
                 } catch (Throwable e) {
                     Log.e(TAG, "first sync failed", e);
                     err = "signed in, but your FF7 achievements could not be read yet: " + message(e)
-                            + ". Press Sync now to try again.";
+                            + ". Press Sync achievements to try again.";
                 }
             }
         } catch (java.util.concurrent.CancellationException e) {
@@ -240,11 +244,32 @@ final class SteamLink {
         }
     }
 
+    /** A signed-in connection for SteamFiles (game download, cloud saves); the caller closes it.
+     *  Throws TokenRejected (and forgets the sign-in) when Steam wants a new sign-in. */
+    Session open() throws Exception {
+        if (!signedIn()) throw new IOException("not signed in to Steam");
+        Session s = new Session();
+        try {
+            s.awaitConnected();
+            try {
+                s.logOn(account(), prefs.getString("token", ""));
+            } catch (TokenRejected e) {
+                prefs.edit().remove("token").apply();
+                throw e;
+            }
+            s.app = ownedApp(s);
+            return s;
+        } catch (Exception e) {
+            s.close();
+            throw e;
+        }
+    }
+
     private static final class Ach { int stat, bit; String name, display; }
 
     /** Tells Steam this account is (or no longer is) playing FF7, as the Steam client does while
      *  the game runs: Steam keeps a game's stats ready only for a running game. */
-    private static boolean owns(Session s, int app) {
+    static boolean owns(Session s, int app) {
         try {
             EResult r = s.client.getHandler(in.dragonbra.javasteam.steam.handlers.steamapps.SteamApps.class)
                     .getAppOwnershipTicket(app).toFuture().get(30, TimeUnit.SECONDS).getResult();

@@ -310,6 +310,13 @@ public class LauncherActivity extends Activity {
         ticker.removeCallbacks(buildTick);
         ticker.post(buildTick);
         testPlay(getIntent(), 0);
+        if (cloudAfterGame && !busy && cloudSaves() && TestControl.gamePid(this) <= 0) {
+            cloudAfterGame = false;
+            new Thread(() -> {
+                String m = syncCloudSaves();
+                runOnUiThread(() -> { refresh(); if (m != null) toastDialog(m); });
+            }, "cloud-saves").start();
+        }
         Intent ti = getIntent();
         if (ti != null && ti.getBooleanExtra(TestControl.EXTRA_STEAM_QR, false)) {
             ti.removeExtra(TestControl.EXTRA_STEAM_QR);
@@ -1554,13 +1561,20 @@ public class LauncherActivity extends Activity {
         buildLine = null;
         col.addView(heading("Your FINAL FANTASY VII"));
         if (!install.hasGame()) {
-            col.addView(text("Pick the FINAL FANTASY VII folder from your Steam copy (the folder that holds "
-                    + "\"ff7\"). FF7Recomp copies the game files, then turns the game into a native Android "
-                    + "app on this device. Nothing from the game is downloaded or shared.", 15, TEXT));
-            col.addView(space(8));
-            col.addView(text(GAMENATIVE_HINT, 13, DIM));
+            col.addView(text("FF7Recomp needs your copy of FINAL FANTASY VII from Steam. Download it here with your "
+                    + "Steam account (about 3.3 GB), or pick the game's folder if you already have it on this device "
+                    + "(the folder that holds \"ff7\"). FF7Recomp then turns the game into a native Android app "
+                    + "on this device.", 15, TEXT));
+            col.addView(space(14));
+            col.addView(button(install.steamDownloading().exists() ? "Go on downloading from Steam" : "Download from Steam…",
+                    v -> steamDownload()));
+            col.addView(text("Sign in once with the Steam app on your phone (a QR code; no password is typed here). "
+                    + "Keep the launcher open while it downloads; if it stops, press the button again and it goes on "
+                    + "where it was.", 13, DIM));
             col.addView(space(14));
             col.addView(button("Find my FF7 folder…", v -> pick(PICK_GAME)));
+            col.addView(space(8));
+            col.addView(text(GAMENATIVE_HINT, 13, DIM));
         } else if (GameBuild.running) {
             col.addView(text("Building the game for this device. This happens once: about 8 minutes on an AYN "
                     + "Thor. You can leave the launcher; it keeps going in the background.", 15, TEXT));
@@ -1592,6 +1606,11 @@ public class LauncherActivity extends Activity {
                     v -> startBuild()));
             col.addView(space(8));
             col.addView(button("Import again from another folder…", v -> pick(PICK_GAME)));
+        }
+        if (install.hasGame() && !GameBuild.running) {
+            col.addView(space(8));
+            col.addView(button("Repair from Steam", v -> steamDownload()));
+            col.addView(text("Checks every game file against Steam's copy and downloads only the missing or damaged ones.", 13, DIM));
         }
         if (install.hasGame() && !GameBuild.running) {
             col.addView(space(14));
@@ -1680,6 +1699,8 @@ public class LauncherActivity extends Activity {
 
     // ------------------------------------------------------------------- Steam achievements
     private SteamLink steam;
+    /** Play synced the saves with Steam Cloud: sync again when the launcher is back and the game has closed. */
+    private boolean cloudAfterGame;
 
     private SteamLink steam() {
         if (steam == null) steam = new SteamLink(this);
@@ -1701,23 +1722,86 @@ public class LauncherActivity extends Activity {
         col.addView(text("Signed in as " + s.account() + (c != null ? "  ·  " + c[0] + " of " + c[1] + " unlocked on Steam" : ""), 16, ACCENT));
         int w = s.waiting();
         if (w > 0) col.addView(text(w + " unlock(s) waiting to be sent to Steam", 13, DIM));
-        if (c == null) col.addView(text("Your achievements have not been read from Steam yet: press Sync now while online.", 13, DIM));
+        if (c == null) col.addView(text("Your achievements have not been read from Steam yet: press Sync achievements while online.", 13, DIM));
         col.addView(space(8));
         LinearLayout r = row();
-        r.addView(small("Sync now", v -> background(() -> {
+        r.addView(small("Sync achievements", v -> background(() -> {
             progress("Talking to Steam");
             java.util.List<String> got = steam().sync();
             return got.isEmpty() ? "Steam achievements are up to date." : "Sent to Steam: " + String.join(", ", got);
         })));
         r.addView(small("Sign out", v -> ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setMessage("Sign out of Steam? Steam achievements stop until you sign in again.")
+                .setMessage("Sign out of Steam? Steam achievements and cloud saves stop until you sign in again.")
                 .setPositiveButton("Sign out", (d, x) -> { steam().signOut(); refresh(); })
                 .setNegativeButton("Cancel", null)
                 .show())));
         col.addView(r);
+
+        col.addView(space(16));
+        col.addView(heading("Steam Cloud saves"));
+        CheckBox cs = new CheckBox(this);
+        cs.setText("Sync my saves with Steam Cloud" + "\n" + "Your save files go to FINAL FANTASY VII's Steam Cloud before "
+                + "and after you play, so another Android device signed in to this Steam account picks up where you "
+                + "left off. A save about to be replaced is backed up first.");
+        cs.setChecked(prefs.getBoolean("cloud_saves", false));
+        cs.setOnCheckedChangeListener((b, on) -> {
+            prefs.edit().putBoolean("cloud_saves", on).apply();
+            if (on) background(() -> {
+                progress("Syncing saves with Steam Cloud");
+                String m = syncCloudSaves();
+                return m != null ? m : "Last sync " + prefs.getString("cloud_last", "");
+            });
+            else refresh();
+        });
+        col.addView(cs);
+        col.addView(text("They stay in their own FF7Recomp folder there. The PC game's saves are another format: they are "
+                + "not synced with these yet, and are never changed.", 13, DIM));
+        if (prefs.getBoolean("cloud_saves", false)) {
+            String last = prefs.getString("cloud_last", null);
+            if (last != null) col.addView(text("Last sync " + last, 13, DIM));
+            col.addView(space(6));
+            col.addView(small("Sync saves now", v -> background(() -> {
+                progress("Syncing saves with Steam Cloud");
+                String m = syncCloudSaves();
+                return m != null ? m : "Last sync " + prefs.getString("cloud_last", "");
+            })));
+        }
     }
 
-    private void steamSignIn() {
+    /** Download (or repair) the game from Steam: GameInstall.downloadFromSteam. */
+    private void steamDownload() {
+        if (busy) return;
+        if (!steam().signedIn()) { steamSignIn(this::steamDownload); return; }
+        background(() -> {
+            boolean[] exeChanged = { false };
+            String err = install.downloadFromSteam(steam(), this::progress, new java.util.concurrent.atomic.AtomicBoolean(), exeChanged);
+            if (err != null) return "Not downloaded: " + err + ".";
+            if (exeChanged[0] || !build.built()) { runOnUiThread(this::startBuild); return null; }
+            return "Every game file was checked against Steam's copy; any missing or damaged ones were downloaded again.";
+        });
+    }
+
+    /** Cloud saves (the Steam page): before Play and after the game. */
+    private boolean cloudSaves() { return steam().signedIn() && prefs.getBoolean("cloud_saves", false); }
+
+    /** Syncs the saves with Steam Cloud; returns what changed (for a message) or null when nothing did. */
+    private String syncCloudSaves() {
+        try {
+            SteamFiles.SyncResult r = new SteamFiles(steam()).syncSaves(new File(install.game, "save"));
+            prefs.edit().putString("cloud_last", new java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.getDefault())
+                    .format(new java.util.Date()) + ": " + r).apply();
+            return r.up.isEmpty() && r.down.isEmpty() ? null : r.toString();
+        } catch (Exception e) {
+            android.util.Log.w("FF7SteamFiles", "cloud saves: " + SteamLink.message(e));
+            prefs.edit().putString("cloud_last", "not synced: " + SteamLink.message(e)).apply();
+            return null;
+        }
+    }
+
+    private void steamSignIn() { steamSignIn(null); }
+
+    /** then: runs after a successful sign-in (instead of the "signed in" message). */
+    private void steamSignIn(Runnable then) {
         LinearLayout box = column();
         box.setPadding(dp(16), dp(12), dp(16), dp(4));
         box.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -1756,10 +1840,14 @@ public class LauncherActivity extends Activity {
                 runOnUiThread(() -> {
                     if (open[0]) dlg.dismiss();
                     refresh();
-                    if (error == null) {
+                    if (error == null && then != null) {
+                        then.run();
+                    } else if (error == null) {
                         int[] c = steam().counts();
                         toastDialog("Signed in to Steam as " + steam().account() + "."
                                 + (c != null ? " " + c[0] + " of " + c[1] + " FINAL FANTASY VII achievements unlocked." : ""));
+                    } else if (then != null && error.startsWith("signed in") && steam().signedIn()) {
+                        then.run();   // signed in; only the achievements could not be read yet
                     } else if (!error.equals("cancelled")) {
                         toastDialog(error.startsWith("signed in") ? "S" + error.substring(1) : "Not signed in: " + error);
                     }
@@ -1819,7 +1907,7 @@ public class LauncherActivity extends Activity {
     private View achievementsPage() {
         Achievements ach = new Achievements(install.files);
         LinearLayout col = column();
-        col.addView(heading("Steam achievements"));
+        col.addView(heading("Steam"));
         steamSection(col);
         col.addView(space(18));
         col.addView(heading("Achievements"));
@@ -2014,6 +2102,11 @@ public class LauncherActivity extends Activity {
                 steamOn = steam().active();
             }
             install.steamAchievements = steamOn;
+            if (cloudSaves()) {
+                progress("Syncing saves with Steam Cloud");
+                syncCloudSaves();
+                cloudAfterGame = true;
+            }
             install.crtFilter = prefs.getBoolean("crt_filter", false);
             install.analogControls = prefs.getBoolean("analog_controls", false);
             install.resolutionScale = prefs.getInt("resolution", 0);

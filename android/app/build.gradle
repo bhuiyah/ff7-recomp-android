@@ -8,8 +8,8 @@ android {
         applicationId 'com.ff7recomp'
         minSdk 29
         targetSdk 35
-        versionCode 75
-        versionName '1.1.6'
+        versionCode 76
+        versionName '1.1.7'
         ndk { abiFilters 'arm64-v8a' }
         externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static', "-DFF7_BUNDLE_GAME=${project.findProperty('bundleGame') ?: 'OFF'}" } }
     }
@@ -57,5 +57,12 @@ dependencies {
     implementation 'in.dragonbra:javasteam:1.8.0'
     implementation 'com.google.protobuf:protobuf-java:4.31.1'   // JavaSteam's, for its message classes
     implementation 'com.google.zxing:core:3.5.3'
+    // The game's files and saves from Steam (SteamFiles.java): JavaSteam's depot download decrypts
+    // with BouncyCastle (MIT) and unpacks chunks with XZ (public domain) or zstd-jni (BSD);
+    // kotlinx-coroutines (Apache-2.0) is the type of JavaSteam's content-server calls.
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.77'
+    implementation 'org.tukaani:xz:1.9'
+    implementation 'com.github.luben:zstd-jni:1.5.7-4@aar'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2'
     // Catalog mods ship as .7z (and .zip): Commons Compress reads them, XZ provides LZMA/LZMA2.
 }
