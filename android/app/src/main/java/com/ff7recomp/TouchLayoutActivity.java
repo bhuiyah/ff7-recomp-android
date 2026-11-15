@@ -79,7 +79,7 @@ public class TouchLayoutActivity extends Activity {
         });
 
         setContentView(root);
-        getWindow().getInsetsController().hide(WindowInsets.Type.systemBars());
+        Compat.hideSystemBars(getWindow());
     }
 
     interface IntListener { void set(int v); }

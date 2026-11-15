@@ -57,7 +57,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
                 // onNewIntent) makes that screen the focused one while the guide stays in view.
                 try {
                     android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
-                    if (a.getDisplay() != null) o.setLaunchDisplayId(a.getDisplay().getDisplayId());
+                    if (Compat.display(a) != null) o.setLaunchDisplayId(Compat.display(a).getDisplayId());
                     a.startActivity(new Intent(a, GameActivity.class).putExtra("refocus", true)
                             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NO_ANIMATION), o.toBundle());
                 } catch (RuntimeException e) { Log.w(TAG, "game not brought back in front: " + e); }
@@ -100,7 +100,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private void showPanels() {
         if (companion == null || companion.isShowing()) return;
         companion.show();
-        hideSystemBars(companion.getWindow().getInsetsController());
+        Compat.hideSystemBars(companion.getWindow());
     }
 
     private void showGuideTab(boolean on) {
@@ -361,7 +361,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private final Runnable displaySample = this::sampleDisplayRate;
 
     private void startDisplayWatch() {
-        Display d = getDisplay();
+        Display d = Compat.display(this);
         StringBuilder s = new StringBuilder();
         s.append("display ").append(d == null ? "?" : d.getDisplayId());
         if (d != null) {
@@ -399,7 +399,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private void displayMeasured(int rate) {
-        Display d = getDisplay();
+        Display d = Compat.display(this);
         int modeHz = d == null ? 0 : Math.round(d.getMode().getRefreshRate());
         if (Math.abs(rate - displayHzSeen) > 5) {
             displayHzSeen = rate;
@@ -589,9 +589,9 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         }
         if (portrait) panel = new CompanionView(this);
         arrange(portrait && isTall());
-        preferHighestRefreshRate(getWindow(), getDisplay());
+        preferHighestRefreshRate(getWindow(), Compat.display(this));
         startDisplayWatch();
-        hideSystemBars(getWindow().getInsetsController());
+        Compat.hideSystemBars(getWindow());
         if (!portrait) showCompanion();   // in portrait the panels are on this screen
         updateTouch();
         ((android.hardware.input.InputManager) getSystemService(Context.INPUT_SERVICE)).registerInputDeviceListener(deviceListener, null);
@@ -655,13 +655,6 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
-    private static void hideSystemBars(WindowInsetsController c) {
-        if (c != null) {
-            c.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
-            c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-        }
-    }
-
     /** The second (bottom) screen, if the device has a presentation display. */
     private void showCompanion() {
         if (!getIntent().getBooleanExtra("bottom_screen", true)) {
@@ -676,7 +669,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             return;
         }
         Display d = displays[0];
-        Display mine = getDisplay();
+        Display mine = Compat.display(this);
         if (mine != null && mine.getDisplayId() != Display.DEFAULT_DISPLAY) {
             // swapped (Settings > Screen): the game is on the presentation display, the panels
             // go to the main one, in an activity (CompanionHostActivity calls attachCompanionHost)
@@ -700,7 +693,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         companion.setContentView(companionLayers(companion.getContext(), d));
         preferHighestRefreshRate(companion.getWindow(), d);
         companion.show();
-        hideSystemBars(companion.getWindow().getInsetsController());
+        Compat.hideSystemBars(companion.getWindow());
     }
 
     /** The panels on the main display when the screens are swapped (CompanionHostActivity.onCreate). */
@@ -708,10 +701,10 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         GameActivity a = current;
         if (a == null) { host.finish(); return; }
         a.companionHost = host;
-        Display d = host.getDisplay();
+        Display d = Compat.display(host);
         host.setContentView(a.companionLayers(host, d));
         if (d != null) preferHighestRefreshRate(host.getWindow(), d);
-        hideSystemBars(host.getWindow().getInsetsController());
+        Compat.hideSystemBars(host.getWindow());
         a.updateTouch();
         // The new activity made the main display the focused one: the game is put back in front
         // on its own screen so the controller keeps playing it (as in guideOpened).
@@ -719,7 +712,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             if (current != a || a.isFinishing()) return;
             try {
                 android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
-                if (a.getDisplay() != null) o.setLaunchDisplayId(a.getDisplay().getDisplayId());
+                if (Compat.display(a) != null) o.setLaunchDisplayId(Compat.display(a).getDisplayId());
                 a.startActivity(new Intent(a, GameActivity.class).putExtra("refocus", true)
                         .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NO_ANIMATION), o.toBundle());
             } catch (RuntimeException e) { Log.w(TAG, "game not brought back in front: " + e); }
@@ -762,7 +755,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
         Log.i(TAG, "surface " + width + "x" + height);
-        requestFrameRate(holder.getSurface(), getDisplay());
+        requestFrameRate(holder.getSurface(), Compat.display(this));
         nativeSetSurface(holder.getSurface(), width, height);
         surfaceReady = true;
         // Portrait chosen: start once the window is tall (the renderer is made at the first size).

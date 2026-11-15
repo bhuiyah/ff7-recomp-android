@@ -378,7 +378,15 @@ public class LauncherActivity extends Activity {
         if (content.getChildCount() > 0 && content.getChildAt(0) instanceof ScrollView) {
             ScrollView sv = (ScrollView) content.getChildAt(0);
             sv.setOnScrollChangeListener((v, x, y, ox, oy) -> scrollY = y);
-            if (keepY > 0) sv.post(() -> sv.scrollTo(0, keepY));
+            // before the rebuilt page's first frame: a post() ran after it, so the list showed a
+            // frame at the top and jumped back (a mod switched on or off, #32)
+            if (keepY > 0) sv.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+                @Override public boolean onPreDraw() {
+                    sv.getViewTreeObserver().removeOnPreDrawListener(this);
+                    sv.scrollTo(0, keepY);
+                    return true;
+                }
+            });
         }
     }
 
@@ -2120,11 +2128,7 @@ public class LauncherActivity extends Activity {
     }
 
     private void hideSystemBars() {
-        WindowInsetsController c = getWindow().getInsetsController();
-        if (c != null) {
-            c.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
-            c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-        }
+        Compat.hideSystemBars(getWindow());
     }
 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }

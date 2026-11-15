@@ -216,6 +216,7 @@ final class Reports {
         }
     }
 
+    @android.annotation.TargetApi(30)   // only for exits(), empty below Android 11
     private static String reason(ApplicationExitInfo e) {
         switch (e.getReason()) {
             case ApplicationExitInfo.REASON_CRASH_NATIVE: return "crashed (native)";
@@ -237,6 +238,7 @@ final class Reports {
 
     /** The newest record of a native crash (its tombstone, Android 12+) or of "not responding"
      *  (Android 11+) that Android keeps for this app, or null. */
+    @android.annotation.TargetApi(30)   // returns at once below the API level it needs
     private static byte[] lastTrace(Context c, int reason) {
         if (Build.VERSION.SDK_INT < (reason == ApplicationExitInfo.REASON_ANR ? 30 : 31)) return null;
         for (ApplicationExitInfo e : exits(c)) {
