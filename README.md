@@ -102,8 +102,15 @@ On the AYN Thor, with mods from the 7th Heaven catalogs (Tsunamods' Finishing To
 
 No patch or older version is needed: FINAL FANTASY VII as Steam installs it today has everything
 FF7Recomp uses. Pick its main folder (not `ff7/workingdir`); the launcher checks the game files
-when you import and tells you if the folder is not the right one. Patched game files and the 2013
-release are not supported yet.
+when you import and tells you if the folder is not the right one. Patched game files are not
+supported.
+
+**Own the 2013 version?** FF7Recomp is built from the new version, and Steam gives it free to
+everyone who owns the 2013 one. In your Steam library you'll find both **FINAL FANTASY VII** (the
+new one) and **FINAL FANTASY VII – 2013 Edition**: install the first one and pick its folder. The
+2013 Edition's folder (the one with `FF7_Launcher.exe`) won't import. The same goes for Android
+Steam apps such as DroidDeck or GameNative: download **FINAL FANTASY VII**, not the 2013 Edition.
+Your 2013 save files can still come along (see below).
 
 **FF7 from GOG?** Pick the game's main folder: the launcher searches it for the game files and
 checks them, so the same release from another store should work if its files are the same. This

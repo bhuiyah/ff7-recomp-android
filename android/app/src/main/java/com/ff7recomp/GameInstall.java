@@ -121,7 +121,18 @@ final class GameInstall {
 
     static final String WHICH_FOLDER = "FF7Recomp needs FINAL FANTASY VII as sold today (Steam), unpatched: pick "
             + "the game's main folder, \"FINAL FANTASY VII Steam Edition\" on Steam (the one that holds \"ff7\"). No "
-            + "patch or older version is needed; patched game files and the 2013 release are not supported yet";
+            + "patch or older version is needed; patched game files are not supported. Own the 2013 version? Steam "
+            + "gives you the new one free: it is \"FINAL FANTASY VII\" in your library, next to \"FINAL FANTASY VII "
+            + "- 2013 Edition\"";
+
+    /** ff7_en.exe of the 2013 Steam release (FINAL FANTASY VII - 2013 Edition), as reported. */
+    static final String SHA1_2013_PREFIX = "1c9a6f4b6f55";
+
+    static final String FROM_2013 = "this is FINAL FANTASY VII - 2013 Edition, the older Steam version. FF7Recomp is "
+            + "built from the new version, which Steam gives free to everyone who owns the 2013 one: in your Steam "
+            + "library (on a PC, or in an Android Steam app such as GameNative or DroidDeck) install \"FINAL FANTASY "
+            + "VII\" (the one without \"2013 Edition\"), then pick its folder here: \"FINAL FANTASY VII Steam Edition\", "
+            + "the one that holds \"ff7\". Your 2013 saves stay where they are";
 
     /**
      * Import from the folder the player picked: the Steam "FINAL FANTASY VII" folder, its ff7
@@ -156,7 +167,7 @@ final class GameInstall {
         p.update("Checking ff7_en");
         File tmp = new File(game, "ff7_en.exe.new");
         StringBuilder seen = new StringBuilder();
-        boolean ok = false, textMode = false;
+        boolean ok = false, textMode = false, is2013 = path(tree, root, new String[] { "FF7_Launcher.exe" }) != null;
         java.util.Set<String> tried = new java.util.HashSet<>();
         for (int i = 0; i < exes.size() && !ok; i++) {
             if (!tried.add(exes.get(i).id)) continue;
@@ -164,6 +175,7 @@ final class GameInstall {
             String sha = GameBuild.sha1(tmp);
             ok = GameBuild.EXE_SHA1.equals(sha);
             if (TEXT_MODE_SHA1.equals(sha)) textMode = true;
+            if (sha.startsWith(SHA1_2013_PREFIX)) is2013 = true;
             if (!ok) seen.append(seen.length() > 0 ? ", " : "").append(exeWhere.get(i)).append(" (SHA-1 ").append(sha, 0, 12).append("…)");
         }
         if (!ok) {
@@ -173,6 +185,7 @@ final class GameInstall {
                         + "which changes its line endings (FTP programs such as FileZilla do this to files without an "
                         + "extension). Copy the game folder again in binary mode (FileZilla: Transfer > Transfer type > "
                         + "Binary), or over USB, then import again";
+            if (is2013) return FROM_2013;
             return "none of the game files found here is the one the game is built from: " + seen + ". " + WHICH_FOLDER
                     + " (If you have the game from another store, please report these names and numbers.)";
         }
