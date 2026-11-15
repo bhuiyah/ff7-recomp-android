@@ -764,3 +764,9 @@
   red, yufi, ketc, bins, cido .tex; the face is the top-left 84 x 96 of 128 x 128). Mod HD faces
   (DDS/BC7 in SYW menus) are not used yet.
 - The snapshot buffer is now 64 KB, thread-local (UI thread and the booster icons both read it).
+- Checked on the Thor with a public save pack (Nexus Mods, FF7 mod 152; kept out of the repo): the
+  Highwind marker sits with the party (Junon Area after getting the Highwind), and the countdown
+  banner runs in Mako Reactor 1 (timer at 0x0B84 in seconds). A parked chocobo seems to use the
+  Tiny Bronco block (0x0F6C) once the Bronco is gone, and 0x0C22 bit 0x01 was never set in ~150
+  slots, so chocobo markers do not show; the Bronco's stale position stays after it is lost and is
+  correctly hidden by 0x0C23.
