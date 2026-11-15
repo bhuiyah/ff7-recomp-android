@@ -678,20 +678,25 @@ public class CompanionView extends View {
             label(c, "The world map appears after the game files are found", in.centerX(), in.top + 70 * u, 28 * u, DIM, Paint.Align.CENTER);
             return in.top + 100 * u;
         }
-        // the whole panel, no legend: the red dot is the party, the icons are the vehicles
-        float aw = in.width(), ah = in.height();
+        // the map with its legend right under it, the two centred together in the panel (the
+        // map is usually width-bound, so the spare height goes above and below, not under the legend)
+        float legendH = 46 * u;
+        float aw = in.width(), ah = in.height() - legendH;
         float mw = aw, mh = mw * WorldMap.WORLD_H / WorldMap.WORLD_W;
         if (mh > ah) { mh = ah; mw = mh * WorldMap.WORLD_W / WorldMap.WORLD_H; }
-        RectF dst = new RectF(in.centerX() - mw / 2, in.centerY() - mh / 2, in.centerX() + mw / 2, in.centerY() + mh / 2);
+        float top = in.top + (in.height() - mh - legendH) / 2;
+        RectF dst = new RectF(in.centerX() - mw / 2, top, in.centerX() + mw / 2, top + mh);
         c.drawBitmap(map, null, dst, mapPaint);
         stroke.setColor(0x80FFFFFF);
         stroke.setStrokeWidth(2 * u);
         c.drawRect(dst, stroke);
+        List<String> legend = new ArrayList<>();
         JSONArray veh = state.optJSONArray("veh");
         for (int i = 0; veh != null && i < veh.length(); i++) {
             JSONArray v = veh.optJSONArray(i);
             if (v == null) continue;
-            String e = vehicleEmoji(v.optString(0));
+            String kind = v.optString(0);
+            String e = vehicleEmoji(kind);
             float px = dst.left + dst.width() * v.optInt(1) / WorldMap.WORLD_W;
             float py = dst.top + dst.height() * v.optInt(2) / WorldMap.WORLD_H;
             fill.setShader(null);
@@ -699,6 +704,8 @@ public class CompanionView extends View {
             c.drawCircle(px, py, 22 * u, fill);
             emoji.setTextSize(28 * u);
             c.drawText(e, px, py + 10 * u, emoji);
+            String n = vehicleName(kind);
+            if (!legend.contains(e + " " + n)) legend.add(e + " " + n);
         }
         int wx = -1, wz = -1;
         if (state.has("wx")) { wx = state.optInt("wx"); wz = state.optInt("wz"); }
@@ -718,6 +725,23 @@ public class CompanionView extends View {
             fill.setColor(0xFFE02828);
             c.drawCircle(px, py, 6.5f * u, fill);
             if (state.has("wx")) postInvalidateDelayed(50);   // keep the marker pulsing
+            legend.add(0, "● You" + (state.has("wx") ? "" : " (last visit)"));
+        }
+        float lx = dst.left, ly = dst.bottom + 36 * u;
+        for (String s : legend) {
+            boolean you = s.startsWith("●");
+            if (you) {
+                fill.setColor(0xFFE02828);
+                c.drawCircle(lx + 9 * u, ly - 10 * u, 9 * u, fill);
+                label(c, s.substring(2), lx + 26 * u, ly, 26 * u, LIGHT, Paint.Align.LEFT);
+                lx += 26 * u + measure(s.substring(2), 26 * u) + 30 * u;
+            } else {
+                int sp = s.indexOf(' ');
+                emoji.setTextSize(26 * u);
+                c.drawText(s.substring(0, sp), lx + 14 * u, ly, emoji);
+                label(c, s.substring(sp + 1), lx + 34 * u, ly, 26 * u, LIGHT, Paint.Align.LEFT);
+                lx += 34 * u + measure(s.substring(sp + 1), 26 * u) + 30 * u;
+            }
         }
         return in.bottom;
     }
@@ -729,6 +753,16 @@ public class CompanionView extends View {
         case "bronco": return "🛩️";
         case "chocobo": return "🐤";
         default: return "•";
+        }
+    }
+
+    private static String vehicleName(String k) {
+        switch (k) {
+        case "highwind": return "Highwind";
+        case "buggy": return "Buggy";
+        case "bronco": return "Tiny Bronco";
+        case "chocobo": return "Chocobo";
+        default: return k;
         }
     }
 
