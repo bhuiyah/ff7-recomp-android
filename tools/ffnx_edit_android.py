@@ -365,6 +365,51 @@ EDITS = [
      'extern "C" const char* ff7_bgfx_vk_trace();   // FF7Recomp: patches/bgfx/0004\n'
      '#endif\n\n'
      'void Renderer::init()\n{\n'),
+    # GitHub #47: the game's frame buffer is RGBA16 (16-bit unorm) with a D32F depth buffer.
+    # OpenGL ES has RGBA16 only with EXT_texture_norm16 (Adreno has it; the MagicX Mini's
+    # PowerVR GE8300 does not): bgfx refused the texture, handed back an invalid handle, and
+    # createFrameBuffer read past its texture table (a crash in Renderer::init). Each render
+    # target now takes the first format the GPU can draw into. Blit copies need the frame
+    # buffer's format, so every RGBA16 use goes through the same choice.
+    # Test: FF7_TEST_NO_NORM16=1 in files/env.txt skips RGBA16 on a GPU that has it.
+    ('renderer.cpp', 'void Renderer::prepareFramebuffer()\n{\n',
+     '// FF7Recomp (#47): render target formats the GPU can draw into\n'
+     'static bgfx::TextureFormat::Enum ff7r_pick_rt_format(const bgfx::TextureFormat::Enum* list, int n, const char* what)\n'
+     '{\n'
+     '    const bgfx::Caps* caps = bgfx::getCaps();\n'
+     '    static const bool noNorm16 = getenv("FF7_TEST_NO_NORM16") && getenv("FF7_TEST_NO_NORM16")[0] == \'1\';\n'
+     '    for (int i = 0; i < n; i++)\n'
+     '    {\n'
+     '        if (noNorm16 && list[i] == bgfx::TextureFormat::RGBA16) continue;\n'
+     '        if (caps->formats[list[i]] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER)\n'
+     '        {\n'
+     '            static int logged;\n'
+     '            if (i > 0 && !(logged & (1 << (what[0] == \'d\'))))\n'
+     '            {\n'
+     '                logged |= 1 << (what[0] == \'d\');\n'
+     '                ffnx_info("%s buffer: %s is not supported by this GPU, using %s\\n", what,\n'
+     '                    bimg::getName(bimg::TextureFormat::Enum(list[0])), bimg::getName(bimg::TextureFormat::Enum(list[i])));\n'
+     '            }\n'
+     '            return list[i];\n'
+     '        }\n'
+     '    }\n'
+     '    return list[n - 1];\n'
+     '}\n\n'
+     'static bgfx::TextureFormat::Enum ff7r_color_format(bool hdr)\n'
+     '{\n'
+     '    static const bgfx::TextureFormat::Enum sdr[] = { bgfx::TextureFormat::RGBA16, bgfx::TextureFormat::RGBA16F, bgfx::TextureFormat::RGB10A2, bgfx::TextureFormat::RGBA8 };\n'
+     '    static const bgfx::TextureFormat::Enum wide[] = { bgfx::TextureFormat::RGB10A2, bgfx::TextureFormat::RGBA16F, bgfx::TextureFormat::RGBA8 };\n'
+     '    return hdr ? ff7r_pick_rt_format(wide, 3, "color") : ff7r_pick_rt_format(sdr, 4, "color");\n'
+     '}\n\n'
+     'static bgfx::TextureFormat::Enum ff7r_depth_format()\n'
+     '{\n'
+     '    static const bgfx::TextureFormat::Enum depth[] = { bgfx::TextureFormat::D32F, bgfx::TextureFormat::D24S8, bgfx::TextureFormat::D24, bgfx::TextureFormat::D16 };\n'
+     '    return ff7r_pick_rt_format(depth, 4, "depth");\n'
+     '}\n\n'
+     'void Renderer::prepareFramebuffer()\n{\n'),
+    ('renderer.cpp', 'internalState.bIsHDR ? bgfx::TextureFormat::RGB10A2 : bgfx::TextureFormat::RGBA16',
+     'ff7r_color_format(internalState.bIsHDR)', 'all'),
+    ('renderer.cpp', 'bgfx::TextureFormat::D32F,\n', 'ff7r_depth_format(),\n', 'all'),
     # CRT filter (Settings > Display; requested in the comments): crt_filter in FFNx.toml,
     # passed to the post shaders in FSHDRFlags.z (unused there): scanlines over the game's 240
     # lines, a light aperture-grille mask on the screen's pixels and a soft vignette.
