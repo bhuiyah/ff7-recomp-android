@@ -1,0 +1,15 @@
+diff --git a/src/openpsf.cpp b/src/openpsf.cpp
+index 3da0be3..c7f631b 100644
+--- a/src/openpsf.cpp
++++ b/src/openpsf.cpp
+@@ -152,7 +152,9 @@ static int psf_info_meta(void* context, const char* name, const char* value) noe
+ 	return 0;
+ }
+ 
+-#if defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM)
++// FF7Recomp: the byte order from the compiler, not MSVC CPU names: arm64 Android (clang) is
++// little-endian, and taking it for big-endian rejected every PSF track (GitHub #48).
++#if defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM) || defined(_M_ARM64) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+ constexpr auto byte_order_is_big_endian = false;
+ #else
+ constexpr auto byte_order_is_big_endian = true;
