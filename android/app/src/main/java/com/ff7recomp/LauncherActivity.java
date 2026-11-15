@@ -388,9 +388,10 @@ public class LauncherActivity extends Activity {
     private View modsPage() {
         LinearLayout col = column();
         col.addView(heading("Mods"));
-        col.addView(text("Higher in the list wins when two mods change the same file. Mods are 7th Heaven archives (.iro) or mod folders.", 14, DIM));
+        col.addView(text("Higher in the list wins when two mods change the same file. Mods are 7th Heaven archives (.iro) or mod folders. "
+                + "Mods from Nexus Mods or other sites: download the file (.iro, .zip or .7z), then Add a mod file.", 14, DIM));
         LinearLayout actions = row();
-        actions.addView(button("Add .iro", v -> pick(PICK_IRO)));
+        actions.addView(button("Add a mod file", v -> pick(PICK_IRO)));
         actions.addView(button("Add folder", v -> pick(PICK_FOLDER)));
         actions.addView(button("Get mods…", v -> show("catalog")));
         java.util.List<ModCatalog.Mod> ups = catalog.updates();
@@ -1591,19 +1592,33 @@ public class LauncherActivity extends Activity {
             }
             if (req == PICK_PSX) return importPsx(data);
             if (req == PICK_IRO) {
-                int n = 0;
-                if (data.getClipData() != null) {
-                    for (int k = 0; k < data.getClipData().getItemCount(); k++) {
-                        progress("Copying mod " + (k + 1));
-                        install.importFile(data.getClipData().getItemAt(k).getUri(), library.dir);
-                        n++;
+                // .iro, .zip or .7z: Nexus Mods and other sites' downloads (unpacked like Get mods')
+                java.util.List<Uri> picked = new java.util.ArrayList<>();
+                if (data.getClipData() != null)
+                    for (int k = 0; k < data.getClipData().getItemCount(); k++) picked.add(data.getClipData().getItemAt(k).getUri());
+                else if (data.getData() != null) picked.add(data.getData());
+                File inbox = new File(install.files, "downloads");
+                inbox.mkdirs();
+                java.util.List<String> added = new java.util.ArrayList<>(), failed = new java.util.ArrayList<>();
+                for (int k = 0; k < picked.size(); k++) {
+                    String tag = picked.size() > 1 ? " " + (k + 1) + " of " + picked.size() : "";
+                    progress("Copying mod" + tag);
+                    File copy = null;
+                    try {
+                        copy = install.importFile(picked.get(k), inbox);
+                        final String name = copy.getName();
+                        progress("Adding " + name);
+                        added.add(downloader.installLocal(copy, (what, done, total) ->
+                                progress("Unpacking " + name + (total > 0 ? " " + (done * 100 / total) + "%" : ""))));
+                    } catch (java.io.IOException e) {
+                        if (copy != null) copy.delete();
+                        failed.add((copy != null ? copy.getName() : "a file") + ": " + e.getMessage());
                     }
-                } else if (data.getData() != null) {
-                    progress("Copying mod");
-                    install.importFile(data.getData(), library.dir);
-                    n = 1;
                 }
-                return n + " mod archive(s) added. Enable them in the list.";
+                StringBuilder msg = new StringBuilder();
+                if (!added.isEmpty()) msg.append("Added: ").append(String.join(", ", added)).append(". Enable them in the list.");
+                if (!failed.isEmpty()) msg.append(msg.length() > 0 ? "\n\n" : "").append("Not added:\n").append(String.join("\n", failed));
+                return msg.length() > 0 ? msg.toString() : "No file was picked.";
             }
             File f = install.importFolder(data.getData(), library.dir, this::progress);
             return "Mod folder " + f.getName() + " added. Enable it in the list.";
@@ -1966,7 +1981,8 @@ public class LauncherActivity extends Activity {
                     .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
                     .putExtra("bottom_buttons", prefs.getBoolean("bottom_buttons", true))
                     .putExtra("crt_filter", prefs.getBoolean("crt_filter", false))
-                    .putExtra("aspect", prefs.getInt("aspect", 2)), gameDisplayOptions()));
+                    .putExtra("aspect", prefs.getInt("aspect", 2))
+                    .putExtra("fps", prefs.getInt("fps", 3)), gameDisplayOptions()));
             return null;
         });
     }

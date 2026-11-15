@@ -333,6 +333,22 @@ final class ModDownloader {
         return result;
     }
 
+    /** A mod file the player picked (Mods > Add a mod file): a download from Nexus Mods, a forum
+     *  or anywhere else. An .iro is the mod; a .zip or .7z is unpacked as a catalog download is
+     *  (the .iro inside, else the folder with mod.xml, else the archive's own folder). The file
+     *  (a copy in files/downloads) is gone afterwards. Returns the mod's name in files/mods. */
+    String installLocal(File f, Progress p) throws IOException {
+        String base = f.getName().replaceFirst("(?i)\\.(iro|zip|7z|rar)$", "");
+        // Nexus Mods names files "<name>-<mod id>-<version>-<upload time>": keep the name
+        String plain = base.replaceFirst("(-\\d+){3,}$", "");
+        if (!plain.isEmpty()) base = plain;
+        try {
+            return place(f, f.getName(), base, p);
+        } finally {
+            if (f.exists()) f.delete();
+        }
+    }
+
     private String placeIro(File src, String base) throws IOException {
         File dst = new File(modsDir, base + ".iro");
         File old = new File(modsDir, base + ".iro.old");

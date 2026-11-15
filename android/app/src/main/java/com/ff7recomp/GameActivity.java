@@ -349,6 +349,97 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
+    // ---- the screen's real refresh rate (GitHub #46) --------------------------------------------
+    // The game draws one frame per vsync. When the system keeps the screen at 60 Hz (power saving,
+    // a phone's refresh-rate setting, a game booster), 120 FPS can't go above 60 however the app
+    // asks. Every 10 s the rate is counted over one second of vsyncs (Choreographer); changes go to
+    // files/display.txt, which Report a problem includes. With 120 FPS chosen and the screen held
+    // at 60 Hz, the player is told once.
+    private static final long DISPLAY_EVERY_MS = 10_000;
+    private int displayHzSeen = -1, displayLowSamples;
+    private boolean displayToldLow, displayWatching, displayFileStarted;
+    private final Runnable displaySample = this::sampleDisplayRate;
+
+    private void startDisplayWatch() {
+        Display d = getDisplay();
+        StringBuilder s = new StringBuilder();
+        s.append("display ").append(d == null ? "?" : d.getDisplayId());
+        if (d != null) {
+            s.append(": mode ").append(d.getMode().getModeId()).append(" @ ").append(hz(d.getMode().getRefreshRate())).append(" Hz; modes");
+            for (Display.Mode m : d.getSupportedModes())
+                s.append(' ').append(m.getModeId()).append('=').append(m.getPhysicalWidth()).append('x')
+                 .append(m.getPhysicalHeight()).append('@').append(hz(m.getRefreshRate()));
+        }
+        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (pm != null) {
+            s.append("; power saving ").append(pm.isPowerSaveMode() ? "on" : "off");
+            if (android.os.Build.VERSION.SDK_INT >= 29) s.append(", thermal status ").append(pm.getCurrentThermalStatus());
+        }
+        s.append("; frame rate setting ").append(getIntent().getIntExtra("fps", -1));
+        displayLog(s.toString());
+        displayWatching = true;
+        ui.postDelayed(displaySample, 3000);
+    }
+
+    private void sampleDisplayRate() {
+        if (!displayWatching) return;
+        final android.view.Choreographer ch = android.view.Choreographer.getInstance();
+        ch.postFrameCallback(new android.view.Choreographer.FrameCallback() {
+            long first; int frames;
+            @Override public void doFrame(long t) {
+                if (!displayWatching) return;
+                if (first == 0) first = t;
+                else frames++;
+                if (t - first < 1_000_000_000L) { ch.postFrameCallback(this); return; }
+                int rate = Math.round(frames * 1e9f / (t - first));
+                displayMeasured(rate);
+                ui.postDelayed(displaySample, DISPLAY_EVERY_MS);
+            }
+        });
+    }
+
+    private void displayMeasured(int rate) {
+        Display d = getDisplay();
+        int modeHz = d == null ? 0 : Math.round(d.getMode().getRefreshRate());
+        if (Math.abs(rate - displayHzSeen) > 5) {
+            displayHzSeen = rate;
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+            displayLog("screen at " + rate + " Hz (mode " + modeHz + " Hz"
+                    + (pm != null && pm.isPowerSaveMode() ? ", power saving on" : "") + ")");
+        }
+        // 120 FPS chosen (Settings: 4), the screen can go above 60 Hz, but it is held at 60
+        boolean low = getIntent().getIntExtra("fps", -1) == 4 && rate <= 70 && maxModeHz(d) >= 90;
+        displayLowSamples = low ? displayLowSamples + 1 : 0;
+        if (displayLowSamples >= 2 && !displayToldLow && hasWindowFocus()) {
+            displayToldLow = true;
+            displayLog("told the player: 120 FPS chosen, the screen is held at " + rate + " Hz");
+            android.widget.Toast.makeText(this, "Your screen is running at 60 Hz, so 120 FPS can't go above 60. "
+                    + "Turn off power saving and set the screen's refresh rate to its highest "
+                    + "(Samsung: Settings > Display > Motion smoothness > Adaptive), or choose 60 FPS.",
+                    android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private static int maxModeHz(Display d) {
+        float best = 0;
+        if (d != null) for (Display.Mode m : d.getSupportedModes()) best = Math.max(best, m.getRefreshRate());
+        return Math.round(best);
+    }
+
+    private static String hz(float f) { return String.valueOf(Math.round(f)); }
+
+    private void displayLog(String line) {
+        Log.i(TAG, line);
+        File f = new File(Storage.root(this), "display.txt");
+        boolean append = displayFileStarted;   // a new file each run
+        displayFileStarted = true;
+        try (java.io.FileWriter w = new java.io.FileWriter(f, append)) {
+            w.write(new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(new java.util.Date()) + " " + line + "\n");
+        } catch (java.io.IOException e) {
+            Log.w(TAG, "display.txt: " + e);
+        }
+    }
+
     // ---- leaving the game: Select+Start held, then Leave. The game closes as it does on
     // Windows (WM_CLOSE, ff7_android_main.cpp), its process ends and the launcher is back.
     private static native void nativeQuit();
@@ -499,6 +590,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         if (portrait) panel = new CompanionView(this);
         arrange(portrait && isTall());
         preferHighestRefreshRate(getWindow(), getDisplay());
+        startDisplayWatch();
         hideSystemBars(getWindow().getInsetsController());
         if (!portrait) showCompanion();   // in portrait the panels are on this screen
         updateTouch();
@@ -764,6 +856,8 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         if (companionHost != null) { companionHost.finish(); companionHost = null; }
         if (current == this) current = null;
         steamSyncRunning = false;
+        displayWatching = false;
+        ui.removeCallbacks(displaySample);
         ((android.hardware.input.InputManager) getSystemService(Context.INPUT_SERVICE)).unregisterInputDeviceListener(deviceListener);
         try { unregisterReceiver(testPad); } catch (IllegalArgumentException ignored) { }
         super.onDestroy();

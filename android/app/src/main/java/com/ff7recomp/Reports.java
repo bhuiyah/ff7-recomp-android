@@ -32,7 +32,8 @@ import java.util.zip.ZipOutputStream;
  *   report.txt   the app version, the device (model, chip, Android, RAM), where the files are,
  *                the launcher's settings, how the game last closed (Android's exit records)
  *   logs/        ff7.log (this run and the one before), build.log, game/FFNx.log, game/APP.LOG,
- *                boosters.txt, env.txt, quickboot.txt, companion.txt, game/FFNx.toml, the mod
+ *                boosters.txt, env.txt, quickboot.txt, companion.txt, display.txt (the screen's
+ *                refresh rate while playing), game/FFNx.toml, the mod
  *                profile (mods/profile.xml)
  *   java-crash.txt  the last Java crash's backtrace, written by the app as it crashes
  *   tombstone.pb the last native crash's record from Android, when there is one (Android 12+)
@@ -89,7 +90,7 @@ final class Reports {
         try (ZipOutputStream z = new ZipOutputStream(new java.io.FileOutputStream(zip))) {
             put(z, "report.txt", summary(c).getBytes(StandardCharsets.UTF_8));
             for (String p : new String[] { "ff7.log", "ff7.prev.log", "build.log", "boosters.txt", "env.txt", "quickboot.txt",
-                                           "companion.txt", "mods/profile.xml", "game/FFNx.log", "game/APP.LOG", "game/FFNx.toml" }) {
+                                           "companion.txt", "display.txt", "mods/profile.xml", "game/FFNx.log", "game/APP.LOG", "game/FFNx.toml" }) {
                 File f = new File(root, p);
                 if (f.isFile()) putFile(z, "logs/" + p.replace('/', '_'), f, MAX_LOG);
             }
@@ -149,7 +150,19 @@ final class Reports {
         s.append("RAM: ").append(mi.totalMem >> 20).append(" MB, ").append(mi.availMem >> 20).append(" MB free; Java heap ")
          .append(am.getMemoryClass()).append("/").append(am.getLargeMemoryClass()).append(" MB\n");
         android.util.DisplayMetrics dm = c.getResources().getDisplayMetrics();
-        s.append("Screen: ").append(dm.widthPixels).append("x").append(dm.heightPixels).append(", ").append(dm.densityDpi).append(" dpi\n");
+        s.append("Screen: ").append(dm.widthPixels).append("x").append(dm.heightPixels).append(", ").append(dm.densityDpi).append(" dpi");
+        android.view.Display disp = ((android.hardware.display.DisplayManager) c.getSystemService(Context.DISPLAY_SERVICE))
+                .getDisplay(android.view.Display.DEFAULT_DISPLAY);
+        if (disp != null) {   // refresh rates: now and what the screen offers (#46)
+            s.append(", ").append(Math.round(disp.getMode().getRefreshRate())).append(" Hz now (offers");
+            java.util.TreeSet<Integer> rates = new java.util.TreeSet<>();
+            for (android.view.Display.Mode m : disp.getSupportedModes()) rates.add(Math.round(m.getRefreshRate()));
+            for (int r : rates) s.append(' ').append(r);
+            s.append(")");
+        }
+        android.os.PowerManager pm = (android.os.PowerManager) c.getSystemService(Context.POWER_SERVICE);
+        if (pm != null) s.append("\nPower saving: ").append(pm.isPowerSaveMode() ? "on" : "off");
+        s.append("\n");
         File root = Storage.root(c);
         s.append("Files: ").append(root.getAbsolutePath()).append(Storage.onSd(c) ? " (SD card)" : "").append(", ")
          .append(root.getUsableSpace() >> 20).append(" MB free\n");
