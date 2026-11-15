@@ -266,8 +266,12 @@ final class SteamFiles {
 
     // ================================================================== cloud saves
 
-    /** FF7Recomp's own folder in the game's Steam Cloud. */
+    /** FF7Recomp's own folder in the game's Steam Cloud (Android devices only). */
     static final String CLOUD_FOLDER = "FF7Recomp";
+    /** The PC game's own saves: the account's folder itself. The current PC release writes the
+     *  same save files as the 1.02 game (save00.ff7 ... save09.ff7: 15 slots of 4340 bytes, the
+     *  same checksum, no metadata.xml), so they are shared as they are. */
+    static final String PC_FOLDER = "";
     private static final Pattern SAVE = Pattern.compile("save\\d\\d\\.ff7");
 
     /** What a sync did, for the launcher. */
@@ -289,9 +293,22 @@ final class SteamFiles {
         }
     }
 
-    /** The real save folder with the real Steam Cloud folder. */
-    SyncResult syncSaves(File saveDir) throws Exception {
-        return syncSaves(saveDir, new File(link.dir, "cloud-sync.txt"), CLOUD_FOLDER);
+    /** The real save folder with the PC game's saves (withPc) or FF7Recomp's own cloud folder. */
+    SyncResult syncSaves(File saveDir, boolean withPc) throws Exception {
+        return withPc ? syncSaves(saveDir, new File(link.dir, "cloud-sync-pc.txt"), PC_FOLDER)
+                      : syncSaves(saveDir, new File(link.dir, "cloud-sync.txt"), CLOUD_FOLDER);
+    }
+
+    /** saveNN.ff7 when full (a Steam Cloud name) is a save directly in folder ("" the account's
+     *  own folder) of the account sid, else null. */
+    static String cloudSave(String full, String sid, String folder) {
+        String low = full.replace('\\', '/').toLowerCase(Locale.ROOT);
+        int slash = low.lastIndexOf('/');
+        if (slash < 0) return null;
+        String name = low.substring(slash + 1), dir = low.substring(0, slash);
+        if (!SAVE.matcher(name).matches()) return null;
+        String want = "/" + sid + (folder.isEmpty() ? "" : "/" + folder.toLowerCase(Locale.ROOT));
+        return dir.endsWith(want) ? name : null;
     }
 
     /**
@@ -303,21 +320,18 @@ final class SteamFiles {
         try (SteamLink.Session s = link.open()) {
             if (!SteamLink.owns(s, SteamLink.APP_RERELEASE)) throw new IOException(NEED_RERELEASE);
             int app = SteamLink.APP_RERELEASE;
-            String base = "%WinAppDataLocal%FINAL FANTASY VII Steam Edition/" + s.client.getSteamID().convertToUInt64() + "/" + cloudFolder + "/";
+            String sid = Long.toUnsignedString(s.client.getSteamID().convertToUInt64());
+            String base = "%WinAppDataLocal%FINAL FANTASY VII Steam Edition/" + sid + "/" + (cloudFolder.isEmpty() ? "" : cloudFolder + "/");
 
             // the cloud's copies: name -> (full name, sha, time)
             AppFileChangeList l = cloud(s).getAppFileListChange(app).get(60, TimeUnit.SECONDS);
             Map<String, AppFileInfo> remote = new HashMap<>();
             Map<String, String> remoteName = new HashMap<>();
-            String marker = ("/" + cloudFolder + "/").toLowerCase(Locale.ROOT);
             for (AppFileInfo f : l.getFiles()) {
                 String prefix = f.getPathPrefixIndex() < l.getPathPrefixes().size() ? l.getPathPrefixes().get(f.getPathPrefixIndex()) : "";
                 String full = prefix + f.getFilename();
-                String low = full.replace('\\', '/').toLowerCase(Locale.ROOT);
-                int at = low.lastIndexOf(marker);
-                if (at < 0) continue;
-                String name = low.substring(at + marker.length());
-                if (!SAVE.matcher(name).matches()) continue;
+                String name = cloudSave(full, sid, cloudFolder);
+                if (name == null) continue;
                 if (f.getPersistState() == in.dragonbra.javasteam.protobufs.steamclient.Enums.ECloudStoragePersistState.k_ECloudStoragePersistStateDeleted) continue;
                 remote.put(name, f);
                 remoteName.put(name, full);
@@ -399,7 +413,7 @@ final class SteamFiles {
 
     /** Removes files of cloudFolder from the game's Steam Cloud (the test folder). */
     int deleteCloudFolder(String cloudFolder) throws Exception {
-        if (cloudFolder.equals(CLOUD_FOLDER)) throw new IllegalArgumentException("the real save folder is never deleted");
+        if (cloudFolder.equals(CLOUD_FOLDER) || cloudFolder.isEmpty()) throw new IllegalArgumentException("real saves are never deleted");
         int n = 0;
         try (SteamLink.Session s = link.open()) {
             int app = SteamLink.APP_RERELEASE;

@@ -26,7 +26,7 @@ import java.util.Map;
  *   adb shell am broadcast -a com.ff7recomp.test.STEAM_DOWNLOAD -n com.ff7recomp/.TestControl --es dir ABS
  *     (the game's files from Steam into that folder, in the background; logcat FF7SteamFiles)
  *   adb shell am broadcast -a com.ff7recomp.test.STEAM_CLOUD -n com.ff7recomp/.TestControl --es op list|sync|delete
- *     [--es dir SAVES --es state FILE] --es folder TESTFOLDER   (sync and delete refuse the real FF7Recomp folder)
+ *     [--es dir SAVES --es state FILE] --es folder TESTFOLDER   (sync refuses the real FF7Recomp folder; folder PC: the PC game's saves, for a test save folder; delete refuses both)
  *
  * SET takes typed extras (--ei / --ez / --es); a string is converted to the setting's type
  * (fps 0 Original, 1 Original fixed, 2 30 FPS battles, 3 60 FPS, 4 120 FPS; renderer 0 Vulkan,
@@ -124,13 +124,13 @@ public class TestControl extends BroadcastReceiver {
                 // --es op list | sync | delete; sync: --es dir SAVES --es folder CLOUDFOLDER --es state FILE; delete: --es folder
                 String op = intent.getStringExtra("op"), dir = intent.getStringExtra("dir"), folder = intent.getStringExtra("folder"),
                         st = intent.getStringExtra("state");
-                if ("sync".equals(op) && (dir == null || folder == null || st == null || folder.equals(SteamFiles.CLOUD_FOLDER)))
+                if ("sync".equals(op) && (dir == null || folder == null || st == null || folder.equals(SteamFiles.CLOUD_FOLDER) || folder.isEmpty()))
                     throw new IllegalArgumentException("sync takes dir, state and a test folder");
                 SteamLink link = new SteamLink(ctx);
                 new Thread(() -> {
                     try {
                         SteamFiles sf = new SteamFiles(link);
-                        String r = "sync".equals(op) ? sf.syncSaves(new java.io.File(dir), new java.io.File(st), folder).toString()
+                        String r = "sync".equals(op) ? sf.syncSaves(new java.io.File(dir), new java.io.File(st), "PC".equals(folder) ? SteamFiles.PC_FOLDER : folder).toString()
                                 : "delete".equals(op) ? "deleted " + sf.deleteCloudFolder(folder) : sf.cloudListing();
                         for (String line : r.split("\n")) android.util.Log.i("FF7SteamFiles", "cloud " + op + ": " + line);
                         android.util.Log.i("FF7SteamFiles", "cloud " + op + " done");

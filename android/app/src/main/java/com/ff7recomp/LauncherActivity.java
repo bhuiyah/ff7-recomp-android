@@ -1741,8 +1741,8 @@ public class LauncherActivity extends Activity {
         col.addView(heading("Steam Cloud saves"));
         CheckBox cs = new CheckBox(this);
         cs.setText("Sync my saves with Steam Cloud" + "\n" + "Your save files go to FINAL FANTASY VII's Steam Cloud before "
-                + "and after you play, so another Android device signed in to this Steam account picks up where you "
-                + "left off. A save about to be replaced is backed up first.");
+                + "and after you play, so you pick up where you left off on another device signed in to this Steam "
+                + "account. A save about to be replaced is backed up first.");
         cs.setChecked(prefs.getBoolean("cloud_saves", false));
         cs.setOnCheckedChangeListener((b, on) -> {
             prefs.edit().putBoolean("cloud_saves", on).apply();
@@ -1754,8 +1754,41 @@ public class LauncherActivity extends Activity {
             else refresh();
         });
         col.addView(cs);
-        col.addView(text("They stay in their own FF7Recomp folder there. The PC game's saves are another format: they are "
-                + "not synced with these yet, and are never changed.", 13, DIM));
+        // where: the PC game's own saves (the same files: SteamFiles.PC_FOLDER) or FF7Recomp's folder
+        RadioGroup where = new RadioGroup(this);
+        String[][] whereOpts = {
+            { "With the PC game too", "Save 1 to Save 10 are the same files as the PC version's (FINAL FANTASY VII on Steam)" },
+            { "Android devices only", "Kept in their own FF7Recomp folder in Steam Cloud; the PC game's saves are left alone" } };
+        boolean withPc = prefs.getBoolean("cloud_with_pc", true);
+        for (int k = 0; k < 2; k++) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            android.text.SpannableString label = new android.text.SpannableString(whereOpts[k][0] + "   " + whereOpts[k][1]);
+            int at = whereOpts[k][0].length();
+            label.setSpan(new android.text.style.ForegroundColorSpan(DIM), at, label.length(), 0);
+            label.setSpan(new android.text.style.RelativeSizeSpan(0.85f), at, label.length(), 0);
+            rb.setText(label);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            final boolean pc = k == 0;
+            rb.setOnClickListener(v -> {
+                if (pc == prefs.getBoolean("cloud_with_pc", true)) return;
+                prefs.edit().putBoolean("cloud_with_pc", pc).remove("cloud_last").apply();
+                if (prefs.getBoolean("cloud_saves", false)) background(() -> {
+                    progress("Syncing saves with Steam Cloud");
+                    String m = syncCloudSaves();
+                    return m != null ? m : "Last sync " + prefs.getString("cloud_last", "");
+                });
+                else refresh();
+            });
+            where.addView(rb);
+            if (pc == withPc) rb.setChecked(true);
+        }
+        col.addView(where);
+        col.addView(text("With the PC game: a save changed on only one side goes to the other. The first time, a save file "
+                + "that differs on both sides keeps the newer one, and the other copy is backed up in "
+                + "Android/data/com.ff7recomp/files/steam/cloud-backup. The PC picks the saves up the next time FINAL "
+                + "FANTASY VII starts there (with Steam Cloud on).", 13, DIM));
         if (prefs.getBoolean("cloud_saves", false)) {
             String last = prefs.getString("cloud_last", null);
             if (last != null) col.addView(text("Last sync " + last, 13, DIM));
@@ -1787,7 +1820,7 @@ public class LauncherActivity extends Activity {
     /** Syncs the saves with Steam Cloud; returns what changed (for a message) or null when nothing did. */
     private String syncCloudSaves() {
         try {
-            SteamFiles.SyncResult r = new SteamFiles(steam()).syncSaves(new File(install.game, "save"));
+            SteamFiles.SyncResult r = new SteamFiles(steam()).syncSaves(new File(install.game, "save"), prefs.getBoolean("cloud_with_pc", true));
             prefs.edit().putString("cloud_last", new java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.getDefault())
                     .format(new java.util.Date()) + ": " + r).apply();
             return r.up.isEmpty() && r.down.isEmpty() ? null : r.toString();
@@ -2037,14 +2070,14 @@ public class LauncherActivity extends Activity {
                 + "picks another slot. \"Play from here\" starts the game at that moment.", 14, DIM));
         col.addView(space(10));
         col.addView(button("Import saves (PC or PlayStation)…", v -> pick(PICK_PSX)));
-        col.addView(text("PC: a save file (save00.ff7…save09.ff7) from the 2013 Steam release, the original PC "
-                + "release or a 7th Heaven install; on a PC the Steam release keeps them in Documents\\Square Enix\\"
-                + "FINAL FANTASY VII Steam\\user_…. PlayStation: a memory card from DuckStation (.mcd), ePSXe (.mcr), "
+        col.addView(text("PC: a save file (save00.ff7…save09.ff7) from the current Steam release (in "
+                + "%LOCALAPPDATA%\\FINAL FANTASY VII Steam Edition on the PC; Steam Cloud saves on the Achievements page "
+                + "can also share them), the 2013 Steam release (Documents\\Square Enix\\FINAL FANTASY VII Steam\\user_…), "
+                + "the original PC release or a 7th Heaven install. PlayStation: a memory card from DuckStation (.mcd), ePSXe (.mcr), "
                 + "RetroArch (.srm), DexDrive (.gme) or PSP (.vmp); DuckStation keeps its cards in "
                 + "Android/data/com.github.stenzek.duckstation/files/memcards. Copy the file somewhere you can pick it "
                 + "(Download, for example) first. The saves go into a new save file (Save 2, Save 3… in the game), so "
-                + "none of yours are overwritten. Saves from the current Steam release's own launcher are a different "
-                + "format and are not supported yet.", 13, DIM));
+                + "none of yours are overwritten.", 13, DIM));
         col.addView(space(10));
         int cur = states.current();
         for (int n = 1; n <= SaveStates.SLOTS; n++) {

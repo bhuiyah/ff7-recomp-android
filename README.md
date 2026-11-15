@@ -136,16 +136,16 @@ pick `GameNative/Steam/steamapps/common/FINAL FANTASY VII` on the card, or copy 
 
 **Save states** → **Import saves (PC or PlayStation)…** takes:
 
-- **PC save files** (`save00.ff7`…`save09.ff7`) from the 2013 Steam release, the original PC release or a
-  7th Heaven install. On a PC the Steam release keeps them in
-  `Documents\Square Enix\FINAL FANTASY VII Steam\user_…`.
+- **PC save files** (`save00.ff7`…`save09.ff7`) from the current Steam release (it keeps them in
+  `%LOCALAPPDATA%\FINAL FANTASY VII Steam Edition\<SteamID>`; Steam Cloud saves can also bring them
+  across, see below), the 2013 Steam release (`Documents\Square Enix\FINAL FANTASY VII Steam\user_…`),
+  the original PC release or a 7th Heaven install.
 - **PlayStation memory cards**: DuckStation (`.mcd`), ePSXe (`.mcr`), RetroArch (`.srm`), DexDrive
   (`.gme`) or PSP (`.vmp`). DuckStation keeps its cards in
   `Android/data/com.github.stenzek.duckstation/files/memcards`.
 
 Copy the file somewhere you can pick it, such as Download, first. The saves go into a new save file
-(Save 2, Save 3… under **Continue**), so none of yours are overwritten. Saves made by the current
-Steam release's own launcher use a different format and are not supported yet.
+(Save 2, Save 3… under **Continue**), so none of yours are overwritten.
 
 ## Building the APK
 
@@ -209,11 +209,20 @@ briefly show you playing FINAL FANTASY VII.
 
 **Sync my saves with Steam Cloud** (Achievements → Steam Cloud saves, off until you turn it on)
 puts your save files (`save00.ff7`…`save09.ff7`) in FINAL FANTASY VII's Steam Cloud before and
-after you play, so another Android device signed in to the same Steam account picks up where you
-left off. A save changed on one device only goes to the other; changed on both, the newer one is
-kept. Any save about to be replaced is first copied to `Android/data/com.ff7recomp/files/steam/cloud-backup`.
-They are kept in their own `FF7Recomp` folder in the game's Steam Cloud. The PC game's own saves
-are a different format: they are not synced with FF7Recomp's yet, and are never changed.
+after you play, so you pick up where you left off on another device signed in to the same Steam
+account:
+
+- **With the PC game too** (the default): Save 1 to Save 10 are the same files as the PC version's
+  (FINAL FANTASY VII on Steam, which keeps them in `%LOCALAPPDATA%\FINAL FANTASY VII Steam Edition\<SteamID>`).
+  The current PC release writes the same save files as the game FF7Recomp is built from, so they
+  go across unchanged. The PC picks them up the next time FINAL FANTASY VII starts there, and its
+  own saves reach Steam Cloud when the game (and its launcher) is closed.
+- **Android devices only**: the saves go to their own `FF7Recomp` folder in Steam Cloud, and the
+  PC game's saves are left alone.
+
+A save changed on one side only goes to the other; changed on both (or different on both sides the
+first time), the newer one is kept. Any save about to be replaced is first copied to
+`Android/data/com.ff7recomp/files/steam/cloud-backup`.
 
 ## Reporting problems
 
@@ -231,7 +240,8 @@ build) and `game/FFNx.log`.
 - RetroAchievements: offline only, until the port is approved by RetroAchievements.
 - Steam achievements: tested with "First Blood" on the current release; the others use FFNx's
   triggers unchanged but have not each been played through here. Steam playtime is not synced.
-- Steam Cloud saves go between Android devices only: the PC game's saves are a different format.
+- Steam Cloud saves with the PC game were tested with the current PC release (a save made on each
+  side loaded on the other). Saves from the 2013 Edition can be brought in with Import saves.
 
 ## Credits and licenses
 
