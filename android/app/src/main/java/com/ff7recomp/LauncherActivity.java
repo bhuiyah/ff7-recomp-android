@@ -70,6 +70,38 @@ public class LauncherActivity extends Activity {
     private boolean busy;
     private GameBuild build;
 
+    /** A small screen (under 600dp wide, such as a 640x480 handheld): the launcher is drawn a
+     *  little smaller and its button rows wrap, so nothing is cut off on the right (GitHub #47). */
+    private boolean smallScreen;
+    private static final int SMALL_WIDTH_DP = 600, COMPACT_WIDTH_DP = 560;
+    /** TestControl SCREEN: the launcher laid out as on another screen, in a corner of this one. */
+    private int testW, testH;
+
+    @Override
+    protected void attachBaseContext(android.content.Context base) {
+        super.attachBaseContext(base);
+        android.util.DisplayMetrics dm = base.getResources().getDisplayMetrics();
+        int wPx = Math.max(dm.widthPixels, dm.heightPixels), dpi = dm.densityDpi;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)x(\\d+)@(\\d+)")
+                .matcher(base.getSharedPreferences("launcher", MODE_PRIVATE).getString(TestControl.TEST_SCREEN, ""));
+        if (m.matches()) {
+            testW = Integer.parseInt(m.group(1));
+            testH = Integer.parseInt(m.group(2));
+            wPx = Math.max(testW, testH);
+            dpi = Integer.parseInt(m.group(3));
+        }
+        if (wPx * 160f / dpi >= SMALL_WIDTH_DP) {
+            if (testW == 0) return;
+        } else smallScreen = true;
+        // a little more room: the screen as about 560dp wide (text 13sp is then still 15 pixels or more)
+        int want = smallScreen ? Math.max(120, Math.round(wPx * 160f / COMPACT_WIDTH_DP)) : dpi;
+        if (want < dpi || testW > 0) {
+            android.content.res.Configuration o = new android.content.res.Configuration();
+            o.densityDpi = Math.min(want, dpi);
+            applyOverrideConfiguration(o);
+        }
+    }
+
     // ---- FF7's menu sounds (Sfx.java, from the player's game files)
     private Sfx sfx;
     private long lastNavKey;
@@ -235,24 +267,25 @@ public class LauncherActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.HORIZONTAL);
         root.setBackgroundColor(BG);
-        root.setPadding(dp(24), dp(24), dp(24), dp(24));
+        int pad = smallScreen ? dp(8) : dp(24);
+        root.setPadding(pad, pad, pad, pad);
 
         LinearLayout side = new LinearLayout(this);
         side.setOrientation(LinearLayout.VERTICAL);
-        side.setPadding(0, 0, dp(14), 0);
-        TextView title = text("FINAL FANTASY VII", 17, TEXT);
+        side.setPadding(0, 0, smallScreen ? dp(8) : dp(14), 0);
+        TextView title = text("FINAL FANTASY VII", smallScreen ? 13 : 17, TEXT);
         title.setTypeface(Typeface.create("serif", Typeface.BOLD));
         title.setLetterSpacing(0.04f);
         title.setSingleLine(true);
         side.addView(title);
-        side.addView(text("native ARM64 · FFNx · Vulkan", 11, ACCENT));
-        side.addView(space(10));
+        side.addView(text("native ARM64 · FFNx · Vulkan", smallScreen ? 10 : 11, ACCENT));
+        side.addView(space(smallScreen ? 4 : 10));
         // the command window, Play first (the cursor starts there)
         LinearLayout menu = column();
         menu.setBackground(window(WIN_TOP, WIN_BOTTOM, 8));
-        menu.setPadding(dp(8), dp(6), dp(8), dp(6));
+        menu.setPadding(dp(smallScreen ? 4 : 8), dp(6), dp(smallScreen ? 4 : 8), dp(6));
         playButton = menuItem("Play", null);
-        playButton.setTextSize(19);
+        playButton.setTextSize(smallScreen ? 16 : 19);
         playButton.setTypeface(Typeface.DEFAULT_BOLD);
         menu.addView(playButton);
         menu.addView(menuItem("Mods", "mods"));
@@ -268,28 +301,34 @@ public class LauncherActivity extends Activity {
         Button quit = menuItem("Quit", null);   // GitHub #42
         quit.setOnClickListener(v -> quitApp());
         menu.addView(quit);
-        side.addView(menu, new LinearLayout.LayoutParams(dp(200), ViewGroup.LayoutParams.WRAP_CONTENT));
+        side.addView(menu, new LinearLayout.LayoutParams(dp(smallScreen ? 152 : 200), ViewGroup.LayoutParams.WRAP_CONTENT));
         // the menu scrolls when it is taller than the screen
         ScrollView sideScroll = new ScrollView(this);
         sideScroll.setVerticalScrollBarEnabled(false);
         sideScroll.addView(side);
-        root.addView(sideScroll, new LinearLayout.LayoutParams(dp(214), ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(sideScroll, new LinearLayout.LayoutParams(dp(smallScreen ? 160 : 214), ViewGroup.LayoutParams.MATCH_PARENT));
 
         // right: the info bar (FF7's one-line help window) over the page's window
         LinearLayout right = column();
-        status = text("", 14, TEXT);
+        status = text("", smallScreen ? 12 : 14, TEXT);
         status.setBackground(window(WIN_TOP, WIN_BOTTOM, 8));
-        status.setPadding(dp(16), dp(8), dp(16), dp(8));
+        status.setPadding(dp(smallScreen ? 10 : 16), dp(smallScreen ? 4 : 8), dp(smallScreen ? 10 : 16), dp(smallScreen ? 4 : 8));
         status.setMaxLines(2);
         status.setEllipsize(android.text.TextUtils.TruncateAt.END);
         right.addView(status, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        right.addView(space(10));
+        right.addView(space(smallScreen ? 6 : 10));
         content = new FrameLayout(this);
         content.setBackground(window(WIN_TOP, WIN_BOTTOM, 10));
-        content.setPadding(dp(22), dp(18), dp(22), dp(18));
+        if (smallScreen) content.setPadding(dp(10), dp(8), dp(10), dp(8));
+        else content.setPadding(dp(22), dp(18), dp(22), dp(18));
         right.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         root.addView(right, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
-        setContentView(root);
+        if (testW > 0) {   // TestControl SCREEN: that screen's size, in the top-left corner
+            FrameLayout outer = new FrameLayout(this);
+            outer.setBackgroundColor(0xFF303030);
+            outer.addView(root, new FrameLayout.LayoutParams(Math.max(testW, testH), Math.min(testW, testH)));
+            setContentView(outer);
+        } else setContentView(root);
         theme(root);
         cursorOnFocus(getWindow().getDecorView());
         hideSystemBars();
@@ -363,6 +402,9 @@ public class LauncherActivity extends Activity {
         // the same page rebuilt (a mod switched on or off, moved, a setting changed): the focused
         // view goes away with it, and Android put the controller cursor back on Play (GitHub #47)
         final String keepFocus = page.equals(shownPage) ? focusKey() : null;
+        // and where it was on the screen: lines above it can change height (a conflict note
+        // comes or goes), which moved the list under the cursor (GitHub #47)
+        final int focusOffset = keepFocus == null ? Integer.MIN_VALUE : focusOffset();
         content.removeAllViews();
         actionSlots.clear();
         progressViews.clear();
@@ -391,10 +433,11 @@ public class LauncherActivity extends Activity {
             sv.setOnScrollChangeListener((v, x, y, ox, oy) -> scrollY = y);
             // before the rebuilt page's first frame: a post() ran after it, so the list showed a
             // frame at the top and jumped back (a mod switched on or off, #32)
-            if (keepY > 0) sv.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            if (keepY > 0 || refocused != null && focusOffset != Integer.MIN_VALUE) sv.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
                 @Override public boolean onPreDraw() {
                     sv.getViewTreeObserver().removeOnPreDrawListener(this);
-                    sv.scrollTo(0, keepY);
+                    int y = refocused != null && focusOffset != Integer.MIN_VALUE ? topIn(refocused, sv) : Integer.MIN_VALUE;
+                    sv.scrollTo(0, y != Integer.MIN_VALUE ? Math.max(0, y - focusOffset) : keepY);
                     if (refocused != null && refocused.getWidth() > 0)   // a moved mod stays in view
                         refocused.requestRectangleOnScreen(new android.graphics.Rect(0, 0, refocused.getWidth(), refocused.getHeight()), true);
                     return true;
@@ -405,6 +448,26 @@ public class LauncherActivity extends Activity {
 
     private String shownPage;
     private int scrollY;
+
+    /** The focused view's top, from the top of the page's visible part (refresh() keeps it). */
+    private int focusOffset() {
+        View f = getCurrentFocus();
+        if (f == null || content.getChildCount() == 0 || !(content.getChildAt(0) instanceof ScrollView)) return Integer.MIN_VALUE;
+        ScrollView sv = (ScrollView) content.getChildAt(0);
+        int y = topIn(f, sv);
+        return y == Integer.MIN_VALUE ? y : y - sv.getScrollY();
+    }
+
+    /** v's top inside the scroll view's content, or MIN_VALUE when v is not in it. */
+    private static int topIn(View v, ScrollView sv) {
+        int y = 0;
+        for (View c = v; c != sv; ) {
+            y += c.getTop();
+            if (!(c.getParent() instanceof View)) return Integer.MIN_VALUE;
+            c = (View) c.getParent();
+        }
+        return y;
+    }
 
     /** Where the focus is inside the page: a view's "focus:" tag, else its child-index path. */
     private String focusKey() {
@@ -445,7 +508,7 @@ public class LauncherActivity extends Activity {
         col.addView(heading("Mods"));
         col.addView(text("Higher in the list wins when two mods change the same file. Mods are 7th Heaven archives (.iro) or mod folders. "
                 + "Mods from Nexus Mods or other sites: download the file (.iro, .zip or .7z), then Add a mod file.", 14, DIM));
-        LinearLayout actions = row();
+        ViewGroup actions = buttonRow();
         actions.addView(button("Add a mod file", v -> pick(PICK_IRO)));
         actions.addView(button("Add folder", v -> pick(PICK_FOLDER)));
         actions.addView(button("Get mods…", v -> show("catalog")));
@@ -464,6 +527,9 @@ public class LauncherActivity extends Activity {
             });
             sort.setSingleLine(true);   // one line: "Auto-" / "sort" read badly
             actions.addView(sort);
+            // every mod on or off in one go (GitHub #47)
+            actions.addView(button("All on", v -> allMods(true)));
+            actions.addView(button("All off", v -> allMods(false)));
         }
         col.addView(actions);
         // what the enabled mods share (computed in the background: archives are read)
@@ -472,15 +538,18 @@ public class LauncherActivity extends Activity {
             LinearLayout box = column();
             box.setPadding(0, dp(8), 0, dp(4));
             ConflictChecker.Report r = conflictReport;
-            if (r == null || conflictBusy) box.addView(text("Checking which files the enabled mods share…", 14, DIM));
+            // while it is checked again the last answer stays, so the list below does not move
+            // up and down (GitHub #47)
+            if (r == null || r.lines.isEmpty() && conflictBusy) box.addView(text("Checking which files the enabled mods share…", 14, DIM));
             if (r != null && r.lines.isEmpty() && !conflictBusy) box.addView(text("✓ No conflicts: the enabled mods replace different game files.", 14, 0xFF80D090));
             if (r != null && !r.lines.isEmpty()) {
                 String head = (r.problems > 0 ? "⚠ " + r.problems + (r.problems == 1 ? " problem" : " problems") : "")
                         + (r.problems > 0 && r.overlaps > 0 ? ", " : "")
-                        + (r.overlaps > 0 ? r.overlaps + (r.overlaps == 1 ? " overlap" : " overlaps") + " between mods" : "");
+                        + (r.overlaps > 0 ? r.overlaps + (r.overlaps == 1 ? " overlap" : " overlaps") + " between mods" : "")
+                        + (conflictBusy ? "  (checking…)" : "");
                 box.addView(text(head, 15, r.problems > 0 ? 0xFFFFC060 : 0xFFE0C080));
                 for (int i = 0; i < Math.min(2, r.lines.size()); i++) box.addView(text(r.lines.get(i).text, 13, DIM));
-                LinearLayout b = row();
+                ViewGroup b = buttonRow();
                 b.addView(small("All details", v -> showConflicts()));
                 if (r.interfaceBelow) b.addView(small("Put interface mods first", v -> {
                     if (library.interfaceFirst()) { saveProfile(); ensureConflicts(); refresh(); }
@@ -527,8 +596,8 @@ public class LauncherActivity extends Activity {
         LinearLayout whole = column();
         whole.setPadding(0, dp(8), 0, dp(8));
         whole.addView(info);
-        LinearLayout buttons = row();
-        buttons.setPadding(dp(32), 0, 0, 0);
+        ViewGroup buttons = buttonRow();
+        buttons.setPadding(dp(smallScreen ? 16 : 32), 0, 0, 0);
         Button up = small("▲", v -> { library.move(index, -1); saveProfile(); refresh(); });
         up.setTag("focus:up:" + m.file);     // follows the mod to its new place (#47)
         buttons.addView(up);
@@ -540,6 +609,14 @@ public class LauncherActivity extends Activity {
         if (catMod != null) buttons.addView(small("Info", v -> modPage(catMod)));
         whole.addView(buttons);
         return whole;
+    }
+
+    /** All on / All off (GitHub #47): every mod that can be read. */
+    private void allMods(boolean on) {
+        boolean changed = false;
+        for (ModLibrary.Mod m : library.mods)
+            if (m.error == null && m.enabled != on) { m.enabled = on; changed = true; }
+        if (changed) { saveProfile(); ensureConflicts(); refresh(); }
     }
 
     // ---- conflicts between the enabled mods (ConflictChecker.report, src/mods) ------------------
@@ -655,7 +732,25 @@ public class LauncherActivity extends Activity {
         q.setSingleLine(true);
         q.setTextSize(16);
         q.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
-        q.setOnEditorActionListener((v, id, ev) -> { catQuery = v.getText().toString(); refresh(); return true; });
+        q.setTag("focus:search");     // a rebuilt page keeps the cursor in the box
+        q.setSelection(catQuery.length());
+        // the list follows what is typed: some keyboards have no Enter key (GitHub #47)
+        q.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence c, int a, int b, int n) { }
+            @Override public void onTextChanged(CharSequence c, int a, int b, int n) { }
+            @Override public void afterTextChanged(android.text.Editable e) {
+                catQuery = e.toString();
+                ticker.removeCallbacks(searchNow);
+                ticker.postDelayed(searchNow, 300);
+            }
+        });
+        q.setOnEditorActionListener((v, id, ev) -> {
+            catQuery = v.getText().toString();
+            ticker.removeCallbacks(searchNow);
+            searchNow.run();
+            ((android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(v.getWindowToken(), 0);
+            return true;
+        });
         page.addView(q, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         page.addView(space(6));
 
@@ -683,14 +778,33 @@ public class LauncherActivity extends Activity {
         }
         ScrollView catScroll = scroll(cats);
         catScroll.setVerticalScrollBarEnabled(false);
-        split.addView(catScroll, new LinearLayout.LayoutParams(dp(132), ViewGroup.LayoutParams.MATCH_PARENT));
+        split.addView(catScroll, new LinearLayout.LayoutParams(dp(smallScreen ? 104 : 132), ViewGroup.LayoutParams.MATCH_PARENT));
         View vline = new View(this);
         vline.setBackgroundColor(0x40FFFFFF);
         LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(Math.max(1, dp(1)), ViewGroup.LayoutParams.MATCH_PARENT);
-        vlp.setMargins(dp(8), 0, dp(12), 0);
+        vlp.setMargins(dp(smallScreen ? 4 : 8), 0, dp(smallScreen ? 6 : 12), 0);
         split.addView(vline, vlp);
 
-        LinearLayout list = column();
+        catList = column();
+        fillCatalogList();
+        split.addView(scroll(catList), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
+        page.addView(split, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        return page;
+    }
+
+    /** Get mods: the list the search and the category pick out (filled again as you type). */
+    private LinearLayout catList;
+    private final Runnable searchNow = () -> {
+        if (!"catalog".equals(page) || catList == null) return;
+        fillCatalogList();
+        theme(catList);
+    };
+
+    private void fillCatalogList() {
+        LinearLayout list = catList;
+        list.removeAllViews();
+        actionSlots.clear();
+        int total = catalog.mods.size();
         if (total == 0) {
             list.addView(text("No catalog loaded yet. Check the internet connection and press Refresh.", 16, DIM));
             for (ModCatalog.Subscription sc : catalog.subs) if (sc.error != null) list.addView(text(sc.name + ": " + sc.error, 13, 0xFFFF8080));
@@ -705,9 +819,7 @@ public class LauncherActivity extends Activity {
             }
             list.addView(catalogRow(found.get(i), catCategory == null));
         }
-        split.addView(scroll(list), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1));
-        page.addView(split, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-        return page;
+        if (list.getParent() instanceof ScrollView) ((ScrollView) list.getParent()).scrollTo(0, 0);
     }
 
     /** A category in the Get mods list: its name and count; the one shown is lit. */
@@ -741,8 +853,6 @@ public class LauncherActivity extends Activity {
     }
 
     private View catalogRow(ModCatalog.Mod m, boolean showCategory) {
-        LinearLayout r = row();
-        r.setPadding(0, dp(6), 0, dp(6));
         // the name and details: tap (or A) for the mod's page
         LinearLayout info = column();
         info.setPadding(dp(8), dp(6), dp(8), dp(6));
@@ -769,12 +879,13 @@ public class LauncherActivity extends Activity {
         sl.addState(new int[] { android.R.attr.state_focused }, hot);
         sl.addState(new int[] { android.R.attr.state_pressed }, hot);
         info.setBackground(sl);
-        r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         LinearLayout slot = row();
-        slot.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        slot.setGravity(Gravity.CENTER_VERTICAL | (smallScreen ? Gravity.START : Gravity.END));
+        if (smallScreen) slot.setPadding(dp(8), 0, 0, 0);
         fillAction(slot, m);
         actionSlots.put(m.id, slot);
-        r.addView(slot, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout r = details(info, slot);
+        r.setPadding(0, dp(smallScreen ? 4 : 6), 0, dp(smallScreen ? 4 : 6));
         return r;
     }
 
@@ -822,7 +933,7 @@ public class LauncherActivity extends Activity {
         col.addView(text("Mods download one at a time, top first. The launcher stays usable meanwhile, and Play works too: "
                 + "a mod that finishes while the game runs is used from the next Play. If the launcher is closed, "
                 + "the queue carries on (and the download resumes) when it opens again.", 14, DIM));
-        LinearLayout bar = row();
+        ViewGroup bar = buttonRow();
         bar.addView(small("Get mods…", v -> show("catalog")));
         bar.addView(small("Clear finished", v -> { queue.clearFinished(); refresh(); }));
         col.addView(bar);
@@ -835,32 +946,31 @@ public class LauncherActivity extends Activity {
     private View downloadRow(DownloadQueue.Item q) {
         LinearLayout whole = column();
         whole.setPadding(0, dp(10), 0, dp(10));
-        LinearLayout r = row();
+        ViewGroup bs = buttonRow();
         LinearLayout info = column();
-        TextView name = text(q.mod.name + (q.update ? "  (update to " + q.mod.versionText + ")" : ""), 18, TEXT);
+        TextView name = text(q.mod.name + (q.update ? "  (update to " + q.mod.versionText + ")" : ""), smallScreen ? 16 : 18, TEXT);
         name.setTypeface(Typeface.DEFAULT_BOLD);
         info.addView(name);
         boolean bad = q.state == DownloadQueue.State.FAILED;
         TextView line = text(queueLabel(q, true) + (q.state == DownloadQueue.State.QUEUED && !q.mod.sizeText().isEmpty() ? "  ·  " + q.mod.sizeText() : ""),
                 14, bad ? 0xFFFF8080 : q.state == DownloadQueue.State.DONE ? ACCENT : DIM);
         info.addView(line);
-        r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         switch (q.state) {
             case QUEUED:
-                r.addView(small("▲", v -> queue.move(q, -1)));
-                r.addView(small("▼", v -> queue.move(q, +1)));
-                r.addView(small("Cancel", v -> queue.cancel(q)));
+                bs.addView(small("▲", v -> queue.move(q, -1)));
+                bs.addView(small("▼", v -> queue.move(q, +1)));
+                bs.addView(small("Cancel", v -> queue.cancel(q)));
                 break;
             case RUNNING:
-                r.addView(small("Cancel", v -> queue.cancel(q)));
+                bs.addView(small("Cancel", v -> queue.cancel(q)));
                 break;
             case FAILED: case CANCELLED:
-                r.addView(small("Retry", v -> queue.retry(q)));
+                bs.addView(small("Retry", v -> queue.retry(q)));
                 break;
             default:
                 break;
         }
-        whole.addView(r);
+        whole.addView(details(info, bs));
         android.widget.ProgressBar bar = null;
         if (q.state == DownloadQueue.State.RUNNING) {
             bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -1121,14 +1231,13 @@ public class LauncherActivity extends Activity {
         col.addView(text("Catalogs list mods to install and update, as in 7th Heaven. Checked once a day when the launcher opens.", 14, DIM));
         java.text.DateFormat df = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT);
         for (ModCatalog.Subscription sc : catalog.subs) {
-            LinearLayout r = row();
+            ViewGroup bs = buttonRow();
             LinearLayout info = column();
             info.addView(text(sc.name, 16, TEXT));
             String st = sc.count + " mods" + (sc.lastCheck > 0 ? ", checked " + df.format(new java.util.Date(sc.lastCheck)) : ", not checked yet");
             info.addView(text(st + (sc.error != null ? "\n⚠ " + sc.error : ""), 13, sc.error != null ? 0xFFFFC060 : DIM));
-            r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            if (!catalog.isDefault(sc)) r.addView(small("Remove", v -> { catalog.removeSubscription(sc); catalog.rebuild(); refresh(); }));
-            col.addView(r);
+            if (!catalog.isDefault(sc)) bs.addView(small("Remove", v -> { catalog.removeSubscription(sc); catalog.rebuild(); refresh(); }));
+            col.addView(details(info, bs));
         }
         col.addView(button("Add a catalog…", v -> {
             LinearLayout f = column();
@@ -1278,7 +1387,7 @@ public class LauncherActivity extends Activity {
         col.addView(text("How the game starts. In game: the bottom screen's Speed, Battles and Battle+ buttons, or L3 then "
                 + "R1/L1 (speed), A (random battles), B (battle enhancement). Icons in the top-right corner show what is on.", 14, DIM));
         RadioGroup sg = new RadioGroup(this);
-        sg.setOrientation(LinearLayout.HORIZONTAL);
+        sg.setOrientation(smallScreen ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         int curSpeed = boosterSpeed();
         for (int sp = 1; sp <= 3; sp++) {
             RadioButton rb = new RadioButton(this);
@@ -1724,7 +1833,7 @@ public class LauncherActivity extends Activity {
         if (w > 0) col.addView(text(w + " unlock(s) waiting to be sent to Steam", 13, DIM));
         if (c == null) col.addView(text("Your achievements have not been read from Steam yet: press Sync achievements while online.", 13, DIM));
         col.addView(space(8));
-        LinearLayout r = row();
+        ViewGroup r = buttonRow();
         r.addView(small("Sync achievements", v -> background(() -> {
             progress("Talking to Steam");
             java.util.List<String> got = steam().sync();
@@ -1997,8 +2106,7 @@ public class LauncherActivity extends Activity {
         col.addView(text("Saves let the problem be replayed where it happens. A zip attached on GitHub is public: "
                 + "untick them, or share the zip privately, if you'd rather.", 13, DIM));
         col.addView(space(6));
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
+        ViewGroup row = buttonRow();
         Button save = button(reportBusy ? "Packing…" : "Save to Downloads", v -> makeReport(false));
         Button share = button("Share…", v -> makeReport(true));
         save.setEnabled(!reportBusy);
@@ -2082,27 +2190,27 @@ public class LauncherActivity extends Activity {
         int cur = states.current();
         for (int n = 1; n <= SaveStates.SLOTS; n++) {
             SaveStates.Slot sl = states.read(n);
-            LinearLayout r = row();
-            r.setPadding(0, dp(6), 0, dp(6));
+            ViewGroup bs = buttonRow();
             LinearLayout info = column();
-            info.addView(text("Slot " + n + (n == cur ? "  (current)" : ""), 18, TEXT));
+            info.addView(text("Slot " + n + (n == cur ? "  (current)" : ""), smallScreen ? 16 : 18, TEXT));
             String sub;
             if (!sl.exists) sub = "Empty";
             else if (!sl.readable) sub = "From an older version of the app (cannot be loaded)";
             else sub = (sl.location.isEmpty() ? "?" : sl.location) + "  ·  " + sl.playTime() + "  ·  saved " + sl.when;
             info.addView(text(sub, 13, DIM));
-            r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
             final int k = n;
-            if (sl.readable && install.hasGame()) r.addView(small("Play from here", v -> playFrom(k)));
-            if (n != cur) r.addView(small("Make current", v -> {
+            if (sl.readable && install.hasGame()) bs.addView(small("Play from here", v -> playFrom(k)));
+            if (n != cur) bs.addView(small("Make current", v -> {
                 try { states.setCurrent(k); } catch (Exception e) { toastDialog("Could not set the slot: " + e); }
                 refresh();
             }));
-            if (sl.exists) r.addView(small("Delete", v -> ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            if (sl.exists) bs.addView(small("Delete", v -> ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                     .setMessage("Delete save state slot " + k + "? This cannot be undone.")
                     .setPositiveButton("Delete", (d, w) -> { states.delete(k); refresh(); })
                     .setNegativeButton("Cancel", null)
                     .show())));
+            LinearLayout r = details(info, bs);
+            r.setPadding(0, dp(6), 0, dp(6));
             col.addView(r);
         }
         return scroll(col);
@@ -2340,7 +2448,8 @@ public class LauncherActivity extends Activity {
         Button b = new Button(this);
         b.setText(label);
         b.setAllCaps(false);
-        b.setTextSize(16);
+        b.setTextSize(smallScreen ? 13 : 16);
+        b.setSingleLine(true);
         b.setTextColor(new android.content.res.ColorStateList(
                 new int[][] { { -android.R.attr.state_enabled }, {} }, new int[] { 0xFF7F88AE, TEXT }));
         shadow(b);
@@ -2354,7 +2463,8 @@ public class LauncherActivity extends Activity {
         b.setMinHeight(0);
         b.setMinimumHeight(0);
         b.setOnClickListener(v -> { if (which == null) play(); else show(which); });
-        b.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(which == null ? 42 : 34)));
+        b.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(which == null ? (smallScreen ? 34 : 42) : (smallScreen ? 28 : 34))));
         if (which != null) nav.put(which, b);
         return b;
     }
@@ -2376,6 +2486,17 @@ public class LauncherActivity extends Activity {
                     new int[][] { { android.R.attr.state_checked }, {} }, new int[] { ACCENT, 0xFFE2E6F0 }));
             c.setTextColor(TEXT);
             shadow(c);
+            // a clear mark on the one the controller is on (a faint ripple was all there was:
+            // mod options could not be told apart with a D-pad, GitHub #47)
+            GradientDrawable hot = new GradientDrawable();
+            hot.setColor(0x40FFFFFF);
+            hot.setStroke(Math.max(1, dp(1)), 0xFFE2E6F0);
+            hot.setCornerRadius(dp(6));
+            android.graphics.drawable.StateListDrawable sl = new android.graphics.drawable.StateListDrawable();
+            sl.addState(new int[] { android.R.attr.state_focused }, hot);
+            sl.addState(new int[] {}, new android.graphics.drawable.ColorDrawable(0));
+            c.setBackground(sl);
+            if (c.getPaddingRight() < dp(8)) c.setPadding(c.getPaddingLeft(), c.getPaddingTop(), dp(8), c.getPaddingBottom());
         } else if (v instanceof EditText) {
             EditText e = (EditText) v;
             e.setTextColor(TEXT);
@@ -2394,6 +2515,10 @@ public class LauncherActivity extends Activity {
             d.getWindow().setBackgroundDrawable(bg);
             theme(d.getWindow().getDecorView());
             cursorOnFocus(d.getWindow().getDecorView());
+            if (testW > 0) {   // TestControl SCREEN: the dialog within that screen too
+                d.getWindow().setGravity(Gravity.TOP | Gravity.START);
+                d.getWindow().setLayout(Math.max(testW, testH), Math.min(testW, testH));
+            }
         }
         d.setOnKeyListener((di, code, e) -> {
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
@@ -2410,7 +2535,7 @@ public class LauncherActivity extends Activity {
     }
 
     private TextView heading(String s) {
-        TextView t = text(s, 22, TEXT);
+        TextView t = text(s, smallScreen ? 18 : 22, TEXT);
         t.setTypeface(Typeface.DEFAULT_BOLD);
         t.setPadding(0, 0, 0, dp(8));
         return t;
@@ -2420,7 +2545,7 @@ public class LauncherActivity extends Activity {
         Button b = new Button(this);
         b.setText(label);
         b.setAllCaps(false);
-        b.setTextSize(17);
+        b.setTextSize(smallScreen ? 15 : 17);
         b.setTextColor(new android.content.res.ColorStateList(
                 new int[][] { { -android.R.attr.state_enabled }, {} }, new int[] { 0xFF8088A8, Color.WHITE }));
         shadow(b);
@@ -2451,8 +2576,33 @@ public class LauncherActivity extends Activity {
 
     private Button small(String label, View.OnClickListener l) {
         Button b = button(label, l);
-        b.setTextSize(15);
+        b.setTextSize(smallScreen ? 14 : 15);
+        if (smallScreen) {
+            b.setMinWidth(0);
+            b.setMinimumWidth(0);
+            b.setPadding(dp(12), b.getPaddingTop(), dp(12), b.getPaddingBottom());
+        }
         return b;
+    }
+
+    /** Buttons side by side, going on to the next line when they don't fit rather than being
+     *  squeezed or cut off (GitHub #47). */
+    private ViewGroup buttonRow() {
+        return new FlowRow(this);
+    }
+
+    /** A line's details and its buttons: side by side, or on a small screen the buttons under the
+     *  details, which then keep the whole width. */
+    private LinearLayout details(View info, View buttons) {
+        LinearLayout r = smallScreen ? column() : row();
+        if (smallScreen) {
+            r.addView(info, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            r.addView(buttons, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        } else {
+            r.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            r.addView(buttons, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        return r;
     }
 
     private LinearLayout column() {

@@ -27,6 +27,8 @@ import java.util.Map;
  *     (the game's files from Steam into that folder, in the background; logcat FF7SteamFiles)
  *   adb shell am broadcast -a com.ff7recomp.test.STEAM_CLOUD -n com.ff7recomp/.TestControl --es op list|sync|delete
  *     [--es dir SAVES --es state FILE] --es folder TESTFOLDER   (sync refuses the real FF7Recomp folder; folder PC: the PC game's saves, for a test save folder; delete refuses both)
+ *   adb shell am broadcast -a com.ff7recomp.test.SCREEN -n com.ff7recomp/.TestControl --es size 640x480@240
+ *     (the launcher as on that screen from its next start; --es size "" turns it off)
  *
  * SET takes typed extras (--ei / --ez / --es); a string is converted to the setting's type
  * (fps 0 Original, 1 Original fixed, 2 30 FPS battles, 3 60 FPS, 4 120 FPS; renderer 0 Vulkan,
@@ -40,6 +42,9 @@ public class TestControl extends BroadcastReceiver {
     static final String EXTRA_PLAY = "test_play", EXTRA_START = "test_start";
     /** am start ... --ez test_steam_qr true: open the Steam sign-in (QR) dialog, to check its layout. */
     static final String EXTRA_STEAM_QR = "test_steam_qr";
+    /** SCREEN --es size 640x480@240 (empty: off): the launcher laid out as on that screen, in a
+     *  corner of this one, from its next start (a small-screen layout check, GitHub #47). */
+    static final String TEST_SCREEN = "test_screen";
 
     // The launcher's settings and their types (LauncherActivity)
     private static final Map<String, Class<?>> TYPES = new HashMap<>();
@@ -102,6 +107,13 @@ public class TestControl extends BroadcastReceiver {
                 }
                 out.put("report", to.getAbsolutePath());
                 out.put("entries", names);
+                break;
+            }
+            case "SCREEN": {
+                String size = intent.getStringExtra("size");
+                if (size == null || !(size.isEmpty() || size.matches("[0-9]+x[0-9]+@[0-9]+"))) throw new IllegalArgumentException("size WxH@DPI or empty");
+                prefs.edit().putString(TEST_SCREEN, size).commit();
+                out.put("screen", size);
                 break;
             }
             case "STEAM_DOWNLOAD": {
