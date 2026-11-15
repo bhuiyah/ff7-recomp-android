@@ -39,6 +39,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private boolean started;
     private Presentation companion;
     private Activity companionHost;               // swapped screens: the panels' activity on the main display
+    private int panelsFor = -1;                   // the game's display when the panels were placed (#49)
     private static GameActivity current;          // for CompanionView and GuideHostActivity.Events (this process)
     static GameActivity currentGame() { return current; }
 
@@ -319,6 +320,23 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     public void onConfigurationChanged(android.content.res.Configuration c) {
         super.onConfigurationChanged(c);
         if (portrait && !started && isTall() != arrangedTall) arrange(isTall());
+        ui.post(this::followGameDisplay);
+    }
+
+    /** The game was moved to another screen after the panels were placed (GitHub #49: the
+     *  Ayaneo Pocket DS put the game started on its small screen back on the big one, where the
+     *  panels already were and covered it: a blank screen with the game's sound). The panels go
+     *  to the screen the game is not on. */
+    private void followGameDisplay() {
+        if (portrait || panelsFor < 0 || isFinishing()) return;
+        Display mine = Compat.display(this);
+        if (mine == null || mine.getDisplayId() == panelsFor) return;
+        displayLog("game moved from display " + panelsFor + " to " + mine.getDisplayId() + ": panels placed again");
+        if (companion != null) { companion.dismiss(); companion = null; }
+        if (companionHost != null) { Activity h = companionHost; companionHost = null; h.finish(); }
+        panelsFor = -1;
+        showCompanion();
+        updateTouch();
     }
 
     // ---- test API: adb holds pad buttons for a set time (`input keyevent` presses are too short
@@ -668,12 +686,15 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             Log.i(TAG, "no second display: single-screen mode");
             return;
         }
-        Display d = displays[0];
         Display mine = Compat.display(this);
+        Display d = displays[0];
+        if (mine != null)   // not the game's own screen
+            for (Display x : displays) if (x.getDisplayId() != mine.getDisplayId()) { d = x; break; }
+        panelsFor = mine != null ? mine.getDisplayId() : -1;
         if (mine != null && mine.getDisplayId() != Display.DEFAULT_DISPLAY) {
             // swapped (Settings > Screen): the game is on the presentation display, the panels
             // go to the main one, in an activity (CompanionHostActivity calls attachCompanionHost)
-            Log.i(TAG, "screens swapped: game on display " + mine.getDisplayId() + ", panels on the main display");
+            displayLog("screens swapped: game on display " + mine.getDisplayId() + ", panels on the main display");
             try {
                 android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
                 o.setLaunchDisplayId(Display.DEFAULT_DISPLAY);
@@ -682,7 +703,12 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             } catch (RuntimeException e) { Log.w(TAG, "panels not shown on the main display: " + e); }
             return;
         }
-        Log.i(TAG, "companion display " + d.getDisplayId() + " \"" + d.getName() + "\"");
+        if (mine != null && d.getDisplayId() == mine.getDisplayId()) {
+            displayLog("only the game's own screen offers a second screen: no panels");
+            return;
+        }
+        displayLog("panels on display " + d.getDisplayId() + " \"" + d.getName() + "\", game on display "
+                + (mine == null ? "?" : mine.getDisplayId()));
         // Touching the bottom screen must not take the pad from the game: the window never
         // takes focus, and any key or stick event that reaches it goes to the game anyway.
         companion = new Presentation(this, d) {
@@ -755,6 +781,9 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
         Log.i(TAG, "surface " + width + "x" + height);
+        Display sd = Compat.display(this);
+        displayLog("game surface " + width + "x" + height + " on display " + (sd == null ? "?" : sd.getDisplayId()));
+        ui.post(this::followGameDisplay);
         requestFrameRate(holder.getSurface(), Compat.display(this));
         nativeSetSurface(holder.getSurface(), width, height);
         surfaceReady = true;
