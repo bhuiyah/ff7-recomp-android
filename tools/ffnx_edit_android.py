@@ -410,6 +410,38 @@ EDITS = [
     ('renderer.cpp', 'internalState.bIsHDR ? bgfx::TextureFormat::RGB10A2 : bgfx::TextureFormat::RGBA16',
      'ff7r_color_format(internalState.bIsHDR)', 'all'),
     ('renderer.cpp', 'bgfx::TextureFormat::D32F,\n', 'ff7r_depth_format(),\n', 'all'),
+    # GitHub #47: the game's own textures (converted from its paletted TEX files) are BGRA8
+    # with the sRGB flag. OpenGL ES's BGRA8 (EXT_texture_format_BGRA8888) has no sRGB form, so
+    # on the OpenGL ES renderer every unmodded texture came out as red stripes (the title
+    # screen, Cloud's field model with mods on); mod PNGs are RGBA8 and were fine. When the GPU
+    # cannot sample BGRA8 the way it is asked for, the texels are swapped to RGBA8 here.
+    # Test: FF7_TEST_NO_BGRA=1 in files/env.txt takes this path on Vulkan as well.
+    ('renderer.cpp',
+     '        imgFormat = bimg::TextureFormat::RG16;\n    }\n',
+     '        imgFormat = bimg::TextureFormat::RG16;\n    }\n\n'
+     '    // FF7Recomp (#47): BGRA8 as RGBA8 where the GPU has no (sRGB) BGRA8 textures\n'
+     '    bool ff7rSwapRB = false;\n'
+     '    if (texFormat == bgfx::TextureFormat::BGRA8)\n'
+     '    {\n'
+     '        static const bool forceSwap = getenv("FF7_TEST_NO_BGRA") && getenv("FF7_TEST_NO_BGRA")[0] == \'1\';\n'
+     '        const uint16_t need = isSrgb ? BGFX_CAPS_FORMAT_TEXTURE_2D_SRGB : BGFX_CAPS_FORMAT_TEXTURE_2D;\n'
+     '        if (forceSwap || !(bgfx::getCaps()->formats[bgfx::TextureFormat::BGRA8] & need))\n'
+     '        {\n'
+     '            static bool logged;\n'
+     '            if (!logged) { logged = true; ffnx_info("textures: %sBGRA8 is not supported by this GPU, using RGBA8\\n", isSrgb ? "sRGB " : ""); }\n'
+     '            ff7rSwapRB = true;\n'
+     '            texFormat = bgfx::TextureFormat::RGBA8;\n'
+     '            imgFormat = bimg::TextureFormat::RGBA8;\n'
+     '        }\n'
+     '    }\n'),
+    ('renderer.cpp',
+     '                bx::memCopy(mem->data, data, uploadSize);\n',
+     '                bx::memCopy(mem->data, data, uploadSize);\n'
+     '                if (ff7rSwapRB) for (uint32_t i = 0; i + 3 < uploadSize; i += 4) std::swap(mem->data[i], mem->data[i + 2]);   // FF7Recomp (#47)\n'),
+    ('renderer.cpp',
+     '            mem = bgfx::makeRef(data, uploadSize, RendererReleaseData, (void *)data);\n',
+     '            if (ff7rSwapRB) for (uint32_t i = 0; i + 3 < uploadSize; i += 4) std::swap(data[i], data[i + 2]);   // FF7Recomp (#47)\n'
+     '            mem = bgfx::makeRef(data, uploadSize, RendererReleaseData, (void *)data);\n'),
     # CRT filter (Settings > Display; requested in the comments): crt_filter in FFNx.toml,
     # passed to the post shaders in FSHDRFlags.z (unused there): scanlines over the game's 240
     # lines, a light aperture-grille mask on the screen's pixels and a soft vignette.
