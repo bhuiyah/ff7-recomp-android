@@ -1182,6 +1182,54 @@ EDITS = [
      '\t\t\t\t}\n'
      '#endif\n'
      '\t\t\t\t// use a pointer to identify the AVFrame object we ultimately want to use\n'),
+    # GitHub #47: 10-bit movie frames (and every frame swscale converts, which it makes
+    # YUV420P10) are uploaded as R16 / RG16 textures. OpenGL ES has 16-bit unorm textures only
+    # with EXT_texture_norm16: Adreno has it, the MagicX Mini's PowerVR and the Retroid Pocket 4
+    # Pro's Mali do not, and Cosmos FMV (30 fps) came out grey and green with banding there.
+    # Without them the samples are shifted down to 8 bits and drawn as an 8-bit movie (the
+    # shader's own 8-bit path). Test: FF7_TEST_NO_NORM16=1 in files/env.txt.
+    ('video/movies.cpp',
+     '\tvideo_buffer[vbuffer_write].eight_bit = descriptor->comp[0].depth == 8;\n'
+     '\tvideo_buffer[vbuffer_write].interleaved = upload_pixel_format == AV_PIX_FMT_NV12 || upload_pixel_format == AV_PIX_FMT_P010LE;\n'
+     '\tvideo_buffer[vbuffer_write].p010 = upload_pixel_format == AV_PIX_FMT_P010LE;\n',
+     '\tvideo_buffer[vbuffer_write].eight_bit = descriptor->comp[0].depth == 8;\n'
+     '\tvideo_buffer[vbuffer_write].interleaved = upload_pixel_format == AV_PIX_FMT_NV12 || upload_pixel_format == AV_PIX_FMT_P010LE;\n'
+     '\tvideo_buffer[vbuffer_write].p010 = upload_pixel_format == AV_PIX_FMT_P010LE;\n'
+     '#ifdef FFNX_ANDROID\n'
+     '\t// FF7Recomp (#47): no 16-bit textures (OpenGL ES without EXT_texture_norm16): 8-bit samples\n'
+     '\tuint8_t *ff7r_planes[3];\n'
+     '\tint ff7r_strides[3];\n'
+     '\tif (!video_buffer[vbuffer_write].eight_bit && descriptor->comp[0].depth <= 16) {\n'
+     '\t\tstatic const bool noNorm16 = getenv("FF7_TEST_NO_NORM16") && getenv("FF7_TEST_NO_NORM16")[0] == \'1\';\n'
+     '\t\tconst bool interleaved = video_buffer[vbuffer_write].interleaved;\n'
+     '\t\tconst uint16_t need = BGFX_CAPS_FORMAT_TEXTURE_2D;\n'
+     '\t\tconst bgfx::Caps *caps = bgfx::getCaps();\n'
+     '\t\tif (noNorm16 || !(caps->formats[bgfx::TextureFormat::R16] & need) ||\n'
+     '\t\t\t(interleaved && !(caps->formats[bgfx::TextureFormat::RG16] & need))) {\n'
+     '\t\t\tstatic bool logged;\n'
+     '\t\t\tif (!logged) { logged = true; ffnx_info("movies: 16-bit textures are not supported by this GPU, %s is drawn as 8-bit\\n", av_get_pix_fmt_name(upload_pixel_format)); }\n'
+     '\t\t\tstatic std::vector<uint8_t> buf[3];\n'
+     '\t\t\tconst int shift = descriptor->comp[0].shift + descriptor->comp[0].depth - 8;\n'
+     '\t\t\tfor (int i = 0; i < (interleaved ? 2 : 3); i++) {\n'
+     '\t\t\t\tconst int w = (i == 0 ? int(movie_width) : AV_CEIL_RSHIFT(int(movie_width), descriptor->log2_chroma_w)) * (i > 0 && interleaved ? 2 : 1);\n'
+     '\t\t\t\tconst int h = i == 0 ? int(movie_height) : AV_CEIL_RSHIFT(int(movie_height), descriptor->log2_chroma_h);\n'
+     '\t\t\t\tbuf[i].resize(size_t(w) * h);\n'
+     '\t\t\t\tfor (int y = 0; y < h; y++) {\n'
+     '\t\t\t\t\tconst uint16_t *src = (const uint16_t *)(planes[i] + size_t(y) * strides[i]);\n'
+     '\t\t\t\t\tuint8_t *dst = buf[i].data() + size_t(y) * w;\n'
+     '\t\t\t\t\tfor (int x = 0; x < w; x++) { const int v = src[x] >> shift; dst[x] = uint8_t(v > 255 ? 255 : v); }\n'
+     '\t\t\t\t}\n'
+     '\t\t\t\tff7r_planes[i] = buf[i].data();\n'
+     '\t\t\t\tff7r_strides[i] = w;\n'
+     '\t\t\t}\n'
+     '\t\t\tif (interleaved) { ff7r_planes[2] = nullptr; ff7r_strides[2] = 0; }\n'
+     '\t\t\tplanes = ff7r_planes;\n'
+     '\t\t\tstrides = ff7r_strides;\n'
+     '\t\t\tvideo_buffer[vbuffer_write].eight_bit = true;\n'
+     '\t\t\tvideo_buffer[vbuffer_write].p010 = false;\n'
+     '\t\t}\n'
+     '\t}\n'
+     '#endif\n'),
     # The battle fade's length (battle_sub_5BCF9D + 0x3A) is the 16-bit value of a
     # `mov word [edx+0xBFC3A4], 0x15` at +0x33. Enhanced Stock UI's Transparency2 replaces that
     # instruction with a call and four NOPs (its hext runs before FFNx patches the game), so
