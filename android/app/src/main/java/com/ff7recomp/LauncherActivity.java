@@ -581,6 +581,8 @@ public class LauncherActivity extends Activity {
             if (m.author != null && !m.author.isEmpty()) sub.append("by ").append(m.author).append("  ·  ");
             sub.append(m.file);
             for (String u : m.unsupported) sub.append("\n⚠ ").append(u).append(" (Windows code, skipped)");
+            String[] inside = new File(library.dir, m.file).list();
+            if (inside != null && inside.length == 0) sub.append("\n⚠ This folder is empty, so it changes nothing. Remove it below.");
         }
         info.addView(text(sub.toString(), 13, m.error != null ? 0xFFFF8080 : DIM));
         if (m.error == null && m.hext != null)
@@ -607,8 +609,33 @@ public class LauncherActivity extends Activity {
         if (!m.options.isEmpty()) buttons.addView(small("Options", v -> options(m)));
         if (catMod != null && catalog.updateAvailable(catMod)) buttons.addView(small("Update", v -> installMods(java.util.Collections.singletonList(catMod), true)));
         if (catMod != null) buttons.addView(small("Info", v -> modPage(catMod)));
+        // any mod can be removed here, also one added from a file or folder (asked on Reddit)
+        Button rm = small("Remove", v -> removeMod(m, fromCat, catMod));
+        rm.setTag("focus:remove:" + m.file);
+        buttons.addView(rm);
         whole.addView(buttons);
         return whole;
+    }
+
+    /** Remove a mod from the Mods page: the launcher's copy (its file or folder in the mods
+     *  folder) and its cache are deleted; the file or folder it was added from is not touched. */
+    private void removeMod(ModLibrary.Mod m, ModCatalog.Installed fromCat, ModCatalog.Mod catMod) {
+        if (m.file == null || m.file.isEmpty() || m.file.contains("/") || m.file.equals(".") || m.file.equals("..")) return;
+        if (catMod != null && queue.pending(catMod) != null) { toastDialog(m.title() + " is in Downloads; cancel it there first."); return; }
+        ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setMessage("Remove " + m.title() + "?\n\nThe launcher's copy (" + m.file + ") is deleted from the device. "
+                        + "A file or folder you added it from is not touched.")
+                .setPositiveButton("Remove", (x, w) -> {
+                    ModDownloader.deleteTree(new File(library.dir, m.file));
+                    ModDownloader.deleteTree(new File(modCache(), cacheName(m.file)));
+                    if (fromCat != null) catalog.forget(fromCat.id);
+                    library.load();
+                    saveProfile();
+                    ensureConflicts();
+                    refresh();
+                })
+                .setNegativeButton("Cancel", null)
+                .show());
     }
 
     /** All on / All off (GitHub #47): every mod that can be read. */
