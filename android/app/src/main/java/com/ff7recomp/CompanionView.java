@@ -678,15 +678,16 @@ public class CompanionView extends View {
             label(c, "The world map appears after the game files are found", in.centerX(), in.top + 70 * u, 28 * u, DIM, Paint.Align.CENTER);
             return in.top + 100 * u;
         }
-        // the map with its legend right under it, the two centred together in the panel (the
-        // map is usually width-bound, so the spare height goes above and below, not under the legend)
-        float legendH = 46 * u;
-        float aw = in.width(), ah = in.height() - legendH;
-        float mw = aw, mh = mw * WorldMap.WORLD_H / WorldMap.WORLD_W;
-        if (mh > ah) { mh = ah; mw = mh * WorldMap.WORLD_W / WorldMap.WORLD_H; }
-        float top = in.top + (in.height() - mh - legendH) / 2;
-        RectF dst = new RectF(in.centerX() - mw / 2, top, in.centerX() + mw / 2, top + mh);
-        c.drawBitmap(map, null, dst, mapPaint);
+        // the map trimmed of its open-sea border (the land spans 5..95% across, 3..97% down), as
+        // big as the panel allows and centred; the legend sits inside it on the sea, bottom left
+        final float cx0 = 0.05f, cx1 = 0.955f, cz0 = 0.03f, cz1 = 0.975f;
+        float cw = (cx1 - cx0) * WorldMap.WORLD_W, ch = (cz1 - cz0) * WorldMap.WORLD_H;
+        float mw = in.width(), mh = mw * ch / cw;
+        if (mh > in.height()) { mh = in.height(); mw = mh * cw / ch; }
+        RectF dst = new RectF(in.centerX() - mw / 2, in.centerY() - mh / 2, in.centerX() + mw / 2, in.centerY() + mh / 2);
+        android.graphics.Rect src = new android.graphics.Rect(Math.round(cx0 * map.getWidth()), Math.round(cz0 * map.getHeight()),
+                Math.round(cx1 * map.getWidth()), Math.round(cz1 * map.getHeight()));
+        c.drawBitmap(map, src, dst, mapPaint);
         stroke.setColor(0x80FFFFFF);
         stroke.setStrokeWidth(2 * u);
         c.drawRect(dst, stroke);
@@ -697,8 +698,7 @@ public class CompanionView extends View {
             if (v == null) continue;
             String kind = v.optString(0);
             String e = vehicleEmoji(kind);
-            float px = dst.left + dst.width() * v.optInt(1) / WorldMap.WORLD_W;
-            float py = dst.top + dst.height() * v.optInt(2) / WorldMap.WORLD_H;
+            float px = mapX(dst, v.optInt(1), cx0, cx1), py = mapY(dst, v.optInt(2), cz0, cz1);
             fill.setShader(null);
             fill.setColor(0xB0101830);
             c.drawCircle(px, py, 22 * u, fill);
@@ -714,8 +714,7 @@ public class CompanionView extends View {
             if (wl != null) { wx = wl.optInt(0); wz = wl.optInt(1); }
         }
         if (wx >= 0) {
-            float px = dst.left + dst.width() * wx / WorldMap.WORLD_W;
-            float py = dst.top + dst.height() * wz / WorldMap.WORLD_H;
+            float px = mapX(dst, wx, cx0, cx1), py = mapY(dst, wz, cz0, cz1);
             float pulse = (float) (0.5 + 0.5 * Math.sin(System.currentTimeMillis() / 180.0));
             fill.setShader(null);
             fill.setColor(0x60FF3030);
@@ -727,23 +726,43 @@ public class CompanionView extends View {
             if (state.has("wx")) postInvalidateDelayed(50);   // keep the marker pulsing
             legend.add(0, "● You" + (state.has("wx") ? "" : " (last visit)"));
         }
-        float lx = dst.left, ly = dst.bottom + 36 * u;
-        for (String s : legend) {
-            boolean you = s.startsWith("●");
-            if (you) {
-                fill.setColor(0xFFE02828);
-                c.drawCircle(lx + 9 * u, ly - 10 * u, 9 * u, fill);
-                label(c, s.substring(2), lx + 26 * u, ly, 26 * u, LIGHT, Paint.Align.LEFT);
-                lx += 26 * u + measure(s.substring(2), 26 * u) + 30 * u;
-            } else {
+        if (!legend.isEmpty()) {
+            float lw = 16 * u;                         // the legend's width, to size its backing
+            for (String s : legend) {
                 int sp = s.indexOf(' ');
-                emoji.setTextSize(26 * u);
-                c.drawText(s.substring(0, sp), lx + 14 * u, ly, emoji);
-                label(c, s.substring(sp + 1), lx + 34 * u, ly, 26 * u, LIGHT, Paint.Align.LEFT);
-                lx += 34 * u + measure(s.substring(sp + 1), 26 * u) + 30 * u;
+                lw += (s.startsWith("●") ? 26 * u : 34 * u) + measure(s.substring(sp + 1), 26 * u) + 24 * u;
+            }
+            RectF box = new RectF(dst.left + 10 * u, dst.bottom - 54 * u, dst.left + 10 * u + lw, dst.bottom - 10 * u);
+            fill.setShader(null);
+            fill.setColor(0xB0101830);
+            c.drawRoundRect(box, 12 * u, 12 * u, fill);
+            float lx = box.left + 12 * u, ly = box.bottom - 13 * u;
+            for (String s : legend) {
+                boolean you = s.startsWith("●");
+                if (you) {
+                    fill.setColor(0xFFE02828);
+                    c.drawCircle(lx + 9 * u, ly - 10 * u, 9 * u, fill);
+                    label(c, s.substring(2), lx + 26 * u, ly, 26 * u, LIGHT, Paint.Align.LEFT);
+                    lx += 26 * u + measure(s.substring(2), 26 * u) + 24 * u;
+                } else {
+                    int sp = s.indexOf(' ');
+                    emoji.setTextSize(26 * u);
+                    c.drawText(s.substring(0, sp), lx + 14 * u, ly, emoji);
+                    label(c, s.substring(sp + 1), lx + 34 * u, ly, 26 * u, LIGHT, Paint.Align.LEFT);
+                    lx += 34 * u + measure(s.substring(sp + 1), 26 * u) + 24 * u;
+                }
             }
         }
         return in.bottom;
+    }
+
+    /** World x / z to the trimmed map drawn in dst. */
+    private static float mapX(RectF dst, int x, float c0, float c1) {
+        return dst.left + dst.width() * ((float) x / WorldMap.WORLD_W - c0) / (c1 - c0);
+    }
+
+    private static float mapY(RectF dst, int z, float c0, float c1) {
+        return dst.top + dst.height() * ((float) z / WorldMap.WORLD_H - c0) / (c1 - c0);
     }
 
     private static String vehicleEmoji(String k) {
