@@ -1215,6 +1215,7 @@ public class LauncherActivity extends Activity {
                 .setMessage("Remove " + m.name + "? Its file is deleted from the device.")
                 .setPositiveButton("Remove", (x, w) -> {
                     ModDownloader.deleteTree(new File(library.dir, in.file));
+                    ModDownloader.deleteTree(new File(modCache(), cacheName(in.file)));
                     catalog.forget(m.id);
                     library.load();
                     saveProfile();
@@ -1637,7 +1638,56 @@ public class LauncherActivity extends Activity {
                 + "Select+Left / Right change the slot. Hold Select+Start to leave the game.", 14, DIM));
         col.addView(space(16));
         col.addView(catalogSettings());
+        col.addView(space(16));
+        col.addView(modCacheSettings());
         return scroll(col);
+    }
+
+    /** files/modcache: the game extracts the files it uses from .iro mods there (src/mods/mods.cpp). */
+    private File modCache() { return new File(install.files, "modcache"); }
+
+    /** A mod's folder in the mod cache, as mods.cpp names it: its file name in ASCII lower case. */
+    static String cacheName(String file) {
+        StringBuilder b = new StringBuilder(file.length());
+        for (char c : file.toCharArray()) {
+            if (c >= 'A' && c <= 'Z') c = (char) (c + 32);
+            else if (c == '/' || c == '\\' || c == ':') c = '_';
+            b.append(c);
+        }
+        String n = b.toString();
+        return n.isEmpty() || n.equals(".") || n.equals("..") ? "_" : n;
+    }
+
+    /** Settings: the mod cache's size and a button that empties it (issue #51). */
+    private View modCacheSettings() {
+        LinearLayout col = column();
+        col.addView(heading("Mod cache"));
+        col.addView(text("The game unpacks the files it uses from .iro mods here, so they load fast the next time. "
+                + "Folders of mods you remove are deleted when the game starts. Clearing it is safe: the files are unpacked again as the game needs them.", 14, DIM));
+        TextView size = text("Size: counting…", 15, TEXT);
+        col.addView(size);
+        File dir = modCache();
+        Runnable count = () -> new Thread(() -> {
+            long n = dir.exists() ? Storage.size(dir) : 0;
+            runOnUiThread(() -> size.setText("Size: " + ModDownloader.human(n)));
+        }, "modcache-size").start();
+        count.run();
+        col.addView(space(8));
+        col.addView(button("Clear the mod cache", v -> {
+            if (TestControl.gamePid(this) > 0) { toastDialog("Close the game first: it is using the mod cache."); return; }
+            ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setMessage("Clear the mod cache? Your mods stay installed. The first time you play afterwards, places may load a little slower while their files are unpacked again.")
+                    .setPositiveButton("Clear", (x, w) -> {
+                        size.setText("Size: clearing…");
+                        new Thread(() -> {
+                            ModDownloader.deleteTree(dir);
+                            runOnUiThread(count);
+                        }, "modcache-clear").start();
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show());
+        }));
+        return col;
     }
 
     private static String fpsName(int mode) {

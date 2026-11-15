@@ -11,6 +11,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
+#include <thread>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -83,6 +85,23 @@ void list_files(const std::string &dir, const std::string &rel, std::vector<std:
     closedir(d);
 #endif
 }
+// The names in a folder (not recursive), as on disk.
+void list_names(const std::string &dir, std::vector<std::string> &out) {
+#if defined(_WIN32)
+    _finddata_t fd;
+    intptr_t h = _findfirst((dir + "/*").c_str(), &fd);
+    if (h == -1) return;
+    do if (std::strcmp(fd.name, ".") && std::strcmp(fd.name, "..")) out.push_back(fd.name);
+    while (_findnext(h, &fd) == 0);
+    _findclose(h);
+#else
+    if (DIR *d = opendir(dir.c_str())) {
+        while (dirent *e = readdir(d))
+            if (std::strcmp(e->d_name, ".") && std::strcmp(e->d_name, "..")) out.push_back(e->d_name);
+        closedir(d);
+    }
+#endif
+}
 // Case-insensitive directory lookup for folder mods (Android filesystems are case-sensitive,
 // mod.xml folder names are not).
 std::string resolve_ci(const std::string &base, const std::string &rel) {
@@ -116,6 +135,7 @@ struct Mod {
     std::string path, name;                 // .iro file or folder
     std::unique_ptr<IroArchive> iro;
     int64_t mtime = 0;
+    std::string cache_dir;                  // its folder in the cache: lower-case file name
     ModInfo info;
     // Where its hext/ files are looked for, in 7th Heaven's order (RuntimeMod.GetOverrides):
     // active Conditionals, active ModFolders, then the mod root (always, unlike files).
@@ -195,11 +215,78 @@ bool load_modinfo(Mod &m, std::string &err) {
     return parse_mod_xml(xml, m.info, err);
 }
 
+// A mod's cache folder: its lower-case file name, so it stays the same whatever the mod's place
+// in the profile. It used to start with that place ("3_name"), and every mod switched on, off or
+// moved above a mod gave it a new folder, its files extracted again (issue #51).
+std::string cache_name(const std::string &file) {
+    std::string n = lower(file);
+    for (char &c : n) if (c == '/' || c == '\\' || c == ':') c = '_';
+    return n.empty() || n == "." || n == ".." ? std::string("_") : n;
+}
+
+#if defined(_WIN32)
+void remove_tree(const std::string &p) {
+    struct stat st;
+    if (stat(p.c_str(), &st) != 0) return;
+    if (st.st_mode & S_IFDIR) {
+        std::vector<std::string> kids;
+        _finddata_t fd;
+        intptr_t h = _findfirst((p + "/*").c_str(), &fd);
+        if (h != -1) {
+            do if (std::strcmp(fd.name, ".") && std::strcmp(fd.name, "..")) kids.push_back(fd.name);
+            while (_findnext(h, &fd) == 0);
+            _findclose(h);
+        }
+        for (const std::string &k : kids) remove_tree(p + "/" + k);
+        _rmdir(p.c_str());
+    } else {
+        std::remove(p.c_str());
+    }
+}
+#else
+void remove_tree(const std::string &p) {
+    struct stat st;
+    if (lstat(p.c_str(), &st) != 0) return;
+    if (S_ISDIR(st.st_mode)) {
+        if (DIR *d = opendir(p.c_str())) {
+            std::vector<std::string> kids;
+            while (dirent *e = readdir(d))
+                if (std::strcmp(e->d_name, ".") && std::strcmp(e->d_name, "..")) kids.push_back(e->d_name);
+            closedir(d);
+            for (const std::string &k : kids) remove_tree(p + "/" + k);
+        }
+        rmdir(p.c_str());
+    } else {
+        unlink(p.c_str());
+    }
+}
+#endif
+
+// Removes the cache folders no mod in the profile (switched on or off) uses: mods deleted from
+// the device, and the old "<place>_<name>" folders. On a background thread: they can be
+// gigabytes, and no mod of this run reads them.
+// FF7_MODS_PRUNE_SYNC=1 removes them before returning (the PC tests).
+void prune_cache(const std::string &cache, const std::set<std::string> &keep) {
+    if (cache.empty() || !is_dir(cache)) return;
+    std::vector<std::string> names, gone;
+    list_names(cache, names);
+    for (const std::string &n : names)
+        if (!keep.count(lower(n))) gone.push_back(join(cache, n));
+    if (gone.empty()) return;
+    std::fprintf(stderr, "[mods] removing %zu unused cache folder(s) from %s\n", gone.size(), cache.c_str());
+    if (const char *e = std::getenv("FF7_MODS_PRUNE_SYNC"); e && *e == '1') {
+        for (const std::string &p : gone) remove_tree(p);
+        return;
+    }
+    std::thread([gone] { for (const std::string &p : gone) remove_tree(p); }).detach();
+}
+
 // The cached host copy of an archive entry (extracted if missing or older than the archive).
 std::string materialize(const Mod &m, int mi, const std::string &entry) {
     std::string rel = entry;
     for (char &c : rel) if (c == '\\') c = '/';
-    std::string out = join(join(g.cache, std::to_string(mi) + "_" + lower(m.name)), rel);
+    (void)mi;
+    std::string out = join(join(g.cache, m.cache_dir), rel);
     struct stat st;
     if (stat(out.c_str(), &st) == 0 && (int64_t)st.st_mtime >= m.mtime) return out;
     std::vector<uint8_t> data;
@@ -351,10 +438,12 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
 
     struct Pending { std::unique_ptr<Mod> mod; OptionValues chosen; };
     std::vector<Pending> pending;
+    std::set<std::string> keep;              // cache folders of the profile's mods, on or off
     for (pugi::xml_node mn : prof.children("Mod")) {
         std::string p = mn.attribute("Path").value();
         for (char &c : p) if (c == '\\') c = '/';
         if (p.empty()) continue;
+        keep.insert(cache_name(p.substr(p.rfind('/') + 1)));
         // The launcher keeps disabled mods in the profile (their order and options survive).
         if (pugi::xml_attribute en = mn.attribute("Enabled"); en && !en.as_bool(true)) continue;
         if (p[0] != '/' && !(p.size() > 1 && p[1] == ':')) p = join(base, p);
@@ -497,6 +586,9 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         int mi = (int)g.mods.size();
         g.mods.push_back(std::move(pm.mod));
         Mod &mod = *g.mods[mi];
+        mod.cache_dir = cache_name(mod.name);
+        for (int k = 0; k < mi; k++)                 // two mods of the same name (other folders)
+            if (g.mods[k]->cache_dir == mod.cache_dir) { mod.cache_dir += "_" + std::to_string(mi); keep.insert(mod.cache_dir); break; }
         for (const auto &v : mod.info.variables) g.vars.add_alias(v.first, v.second);
         // AppCore Profile.GetRuntime: active Conditionals and ModFolders; the mod root only
         // when it has neither (Wrap.cs). Conditionals come first, as there.
@@ -523,6 +615,7 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
     // The mod.xml at a mod's root is metadata, never a game file.
     g.map.erase("mod.xml");
     std::fprintf(stderr, "[mods] %zu mod(s), %zu game paths replaced\n", g.mods.size(), g.map.size());
+    prune_cache(g.cache, keep);
     return 0;
 }
 

@@ -23,6 +23,17 @@ static std::string slurp(const std::string &p) {
     return std::string(std::istreambuf_iterator<char>(f), {});
 }
 static std::string as_str(const std::vector<uint8_t> &v) { return std::string(v.begin(), v.end()); }
+#include <sys/stat.h>
+#if defined(_WIN32)
+#include <direct.h>
+static void mkdir_one(const std::string &d) { _mkdir(d.c_str()); }
+#else
+static void mkdir_one(const std::string &d) { mkdir(d.c_str(), 0775); }
+#endif
+static void mkdir_p(const std::string &p) {
+    for (size_t i = 1; i <= p.size(); i++) if (i == p.size() || p[i] == '/') mkdir_one(p.substr(0, i));
+}
+static bool exists(const std::string &p) { struct stat st; return stat(p.c_str(), &st) == 0; }
 
 static std::string redirect(const char *rel) {
     char buf[1024];
@@ -42,6 +53,11 @@ int main(int argc, char **argv) {
     ff7mods::set_memory_reader(fake_read);
     if (argc < 2) { std::printf("usage: test_mods <dir>\n"); return 2; }
     const std::string dir = argv[1];
+#if defined(_WIN32)
+    _putenv("FF7_MODS_PRUNE_SYNC=1");                  // unused mod cache folders go at once
+#else
+    setenv("FF7_MODS_PRUNE_SYNC", "1", 1);
+#endif
 
     // ---- IRO archive
     ff7mods::IroArchive a;
@@ -193,6 +209,28 @@ int main(int argc, char **argv) {
         CHECK(compat.mem[0x2003] == 0x66 && !compat.mem.count(0x2004)); // FFNx.toml aspect_ratio = 2
         CHECK(compat.mem[0x2000] == 0x33 && compat.mem[0x2001] == 0x22);
         CHECK(compat.mem[0x2002] == 0x55);                     // theme_mod's Setting: base_ui view = 5
+    }
+
+    // ---- the mod cache (issue #51): one folder per mod file, whatever its place in the profile;
+    // folders of mods no longer in the profile, and the old "<place>_<name>" ones, are removed
+    {
+        CHECK(ff7_mods_load((dir + "/profile_default.xml").c_str(), cache.c_str()) == 0);
+        char buf[1024];
+        const char *r = ff7_mods_redirect("data/field/raw.bin", buf, sizeof buf);
+        std::string host = r ? r : "";
+        for (char &c : host) if (c == '\\') c = '/';
+        CHECK(host.find(cache + "/test.iro/") == 0);
+        std::string old_dir = cache + "/1_test.iro", gone_dir = cache + "/Deleted Mod.iro";
+        std::string fdir = cache + "/folder_mod";                      // kept: a folder mod's name
+        for (const std::string &d : { old_dir, gone_dir, fdir }) {
+            mkdir_p(d + "/sub");
+            std::FILE *f = std::fopen((d + "/sub/x.bin").c_str(), "wb");
+            if (f) { std::fputs("x", f); std::fclose(f); }
+        }
+        CHECK(ff7_mods_load((dir + "/profile_alt.xml").c_str(), cache.c_str()) == 0);
+        CHECK(!exists(old_dir) && !exists(gone_dir));
+        CHECK(exists(fdir) && exists(cache + "/test.iro"));
+        CHECK(redirect("data/field/raw.bin") == "alt contents");
     }
 
     // ---- no profile: nothing redirected
