@@ -82,19 +82,24 @@ final class GameInstall {
 
     // ---------------------------------------------------------------- import from a folder
     /** A document in the picked tree. */
-    private static final class Doc { String id, name; boolean dir; }
+    private static final class Doc { String id, name; boolean dir; long size = -1; }
+
+    /** An import continued after a pause or a stop (JobService): files already copied whole
+     *  (same size) are kept. A new import copies everything, so it also repairs damaged files. */
+    boolean skipCopied;
 
     private List<Doc> children(Uri tree, String parentId) {
         List<Doc> out = new ArrayList<>();
         Uri u = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
         String[] cols = { DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                          DocumentsContract.Document.COLUMN_MIME_TYPE };
+                          DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_SIZE };
         try (Cursor c = ctx.getContentResolver().query(u, cols, null, null, null)) {
             while (c != null && c.moveToNext()) {
                 Doc d = new Doc();
                 d.id = c.getString(0);
                 d.name = c.getString(1);
                 d.dir = DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(2));
+                if (!c.isNull(3)) d.size = c.getLong(3);
                 out.add(d);
             }
         }
@@ -267,6 +272,9 @@ final class GameInstall {
             File out = new File(dst, d.name);
             if (d.dir) copyTree(tree, d.id, out, p, rel + "/" + d.name);
             else {
+                JobService.checkPause();       // Pause (#53): what is copied stays
+                // copied whole before a pause or a stop (copy() writes .part, then renames)
+                if (skipCopied && d.size > 0 && out.isFile() && out.length() == d.size) continue;
                 p.update("Copying " + rel + "/" + d.name);
                 copyDoc(tree, d.id, out);
             }

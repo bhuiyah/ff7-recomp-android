@@ -40,7 +40,8 @@ final class ModDownloader {
     private final File modsDir, downloads;
     /** Set (from any thread) to stop the running install; it returns error CANCELLED. */
     volatile boolean cancel;
-    static final String CANCELLED = "cancelled";
+    static final String CANCELLED = "cancelled", PAUSED = "paused";
+    private volatile boolean pausing;
 
     ModDownloader(File filesDir, File modsDir) {
         this.modsDir = modsDir;
@@ -99,6 +100,7 @@ final class ModDownloader {
     Result install(String id, String baseName, String[] links, long expectedSize, Progress p) {
         Result r = new Result();
         cancel = false;
+        pausing = false;
         long free = modsDir.getUsableSpace();
         if (expectedSize > 0 && free < expectedSize * 2 + (64L << 20)) {
             r.error = "Not enough free space: needs about " + human(expectedSize * 2) + ", " + human(free) + " free";
@@ -119,7 +121,8 @@ final class ModDownloader {
                 part.delete();
                 return r;
             } catch (Exception e) {
-                if (cancel) { part.delete(); r.error = CANCELLED; return r; }
+                // Pause keeps the partial download (it resumes with a Range request); Cancel deletes it
+                if (cancel) { if (!pausing) part.delete(); r.error = pausing ? PAUSED : CANCELLED; return r; }
                 android.util.Log.w("FF7Mods", "install " + baseName, e);
                 lastError = e.getMessage() != null ? e.getMessage() : e.toString();
             } finally {
@@ -128,6 +131,13 @@ final class ModDownloader {
         }
         r.error = lastError;
         return r;
+    }
+
+    /** Pause the running download (from any thread): it stops, keeps its .part file and returns
+     *  error PAUSED. Not during an unpack (DownloadQueue lets that finish). */
+    void requestPause() {
+        pausing = true;
+        cancel = true;
     }
 
     /** Stop the running download or unpack (from any thread). */

@@ -105,5 +105,9 @@
             android:name=".BuildService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- The Steam download and the import (JobService) and mod downloads (QueueService) go
+             on in the background too, with Pause / Continue in their notifications. -->
+        <service android:name=".JobService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".QueueService" android:exported="false" android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

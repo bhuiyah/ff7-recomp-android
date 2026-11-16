@@ -168,7 +168,7 @@ public class LauncherActivity extends Activity {
     private void installUpdate() {
         Updater.Release r = Updater.available;
         if (r == null || Updater.busy) return;
-        if (GameBuild.running) { toastDialog("Not now: the game is being built. Update when it is done."); return; }
+        if (GameBuild.running || JobService.running != null) { toastDialog("Not now: the game is being built or downloaded. Update when it is done."); return; }
         Updater.busy = true;
         new Thread(() -> {
             try {
@@ -205,11 +205,26 @@ public class LauncherActivity extends Activity {
     }
     private android.widget.ProgressBar buildBar;   // Game files page, while building
     private TextView buildLine;
+    private TextView jobLine;                      // Game files page, while JobService works
     private final android.os.Handler ticker = new android.os.Handler(android.os.Looper.getMainLooper());
-    private boolean wasBuilding;
+    private boolean wasBuilding, wasJob;
     private final Runnable buildTick = new Runnable() {
         @Override public void run() {
             if (updateLine != null && !updateLine.getText().toString().equals(updateText())) updateLine.setText(updateText());
+            if (JobService.running != null) {
+                if (jobLine != null && JobService.status != null && !jobLine.getText().toString().equals(JobService.status)
+                        && !jobLine.getText().toString().equals("Pausing…")) jobLine.setText(JobService.status);
+                if (!wasJob) { wasJob = true; refresh(); }
+            } else if (wasJob) {
+                wasJob = false;
+                refresh();
+                // how it ended, when it did not go on to the build and is not waiting for Continue
+                String m = JobService.status;
+                if (!GameBuild.running && JobService.pending(LauncherActivity.this) == null && m != null && !m.isEmpty()) {
+                    toastDialog(m + ((m.contains("no ff7_en") || m.contains("was not found")) ? "\n\n" + GAMENATIVE_HINT : ""));
+                    JobService.status = "";
+                }
+            }
             if (GameBuild.running) {
                 if (buildBar != null) { buildBar.setIndeterminate(GameBuild.percent <= 0); buildBar.setProgress(GameBuild.percent); }
                 if (buildLine != null) buildLine.setText(GameBuild.stage + " · " + GameBuild.percent + "%");
@@ -229,22 +244,18 @@ public class LauncherActivity extends Activity {
 
     /** The game can start: files imported and libff7.so built for this device. */
     private boolean ready() {
-        return install.hasGame() && build.built() && !GameBuild.running;
+        return install.hasGame() && build.built() && !GameBuild.running && JobService.running == null;
     }
 
-    @Override
-    protected void onCreate(Bundle state) {
-        super.onCreate(state);
-        Reports.keepJavaCrashes(this);
-        install = new GameInstall(this);
-        build = new GameBuild(this);
-        library = new ModLibrary(install.files);
+    /** The process's catalog, downloader and download queue (made once; also by QueueService
+     *  when its notification's Continue runs without the launcher). */
+    static synchronized DownloadQueue queueFor(android.content.Context c) {
         if (sQueue == null) {
-            final File files = install.files;
+            final File files = new GameInstall(c).files;
             sCatalog = new ModCatalog(files);
             sCatalog.rebuild();
-            sDownloader = new ModDownloader(files, library.dir);
-            sQueue = new DownloadQueue(sCatalog, sDownloader, new File(files, "downloads"), (m, file, wasUpdate) -> {
+            sDownloader = new ModDownloader(files, new ModLibrary(files).dir);
+            sQueue = new DownloadQueue(c, sCatalog, sDownloader, new File(files, "downloads"), (m, file, wasUpdate) -> {
                 // a new mod is switched on (the library lists new files last, off); an update
                 // keeps its place, state and options
                 if (wasUpdate) return;
@@ -255,6 +266,17 @@ public class LauncherActivity extends Activity {
             });
             sQueue.restore();
         }
+        return sQueue;
+    }
+
+    @Override
+    protected void onCreate(Bundle state) {
+        super.onCreate(state);
+        Reports.keepJavaCrashes(this);
+        install = new GameInstall(this);
+        build = new GameBuild(this);
+        library = new ModLibrary(install.files);
+        queueFor(this);
         catalog = sCatalog;
         downloader = sDownloader;
         queue = sQueue;
@@ -958,10 +980,15 @@ public class LauncherActivity extends Activity {
         LinearLayout col = column();
         col.addView(heading("Downloads"));
         col.addView(text("Mods download one at a time, top first. The launcher stays usable meanwhile, and Play works too: "
-                + "a mod that finishes while the game runs is used from the next Play. If the launcher is closed, "
-                + "the queue carries on (and the download resumes) when it opens again.", 14, DIM));
+                + "a mod that finishes while the game runs is used from the next Play. Downloads go on with the "
+                + "launcher in the background; Pause stops them and keeps what is downloaded.", 14, DIM));
+        if (queue.paused() && queue.pendingCount() > 0)
+            col.addView(text("Paused. Continue goes on where the downloads stopped.", 15, ACCENT));
         ViewGroup bar = buttonRow();
         bar.addView(small("Get mods…", v -> show("catalog")));
+        // GitHub #53 (and FF9Recomp): stop for now, keeping the partial download
+        if (queue.paused() && queue.pendingCount() > 0) bar.addView(small("Continue", v -> { askNotifications(); queue.resume(); refresh(); }));
+        else if (queue.pendingCount() > 0) bar.addView(small("Pause", v -> { queue.pause(); refresh(); }));
         bar.addView(small("Clear finished", v -> { queue.clearFinished(); refresh(); }));
         col.addView(bar);
         java.util.List<DownloadQueue.Item> items = queue.snapshot();
@@ -1745,7 +1772,34 @@ public class LauncherActivity extends Activity {
         LinearLayout col = column();
         buildBar = null;
         buildLine = null;
+        jobLine = null;
         col.addView(heading("Your FINAL FANTASY VII"));
+        // the Steam download or the import (JobService, GitHub #53): running, or stopped part way
+        String pendingJob = JobService.pending(this);
+        if (JobService.running != null) {
+            col.addView(text(JobService.title(JobService.running) + ". It goes on with the launcher in the background; "
+                    + "if the game needs building for this device, that starts right after.", 15, TEXT));
+            col.addView(space(10));
+            jobLine = text(JobService.status, 15, ACCENT);
+            col.addView(jobLine);
+            col.addView(space(14));
+            col.addView(button("Pause", v -> { JobService.pause(); if (jobLine != null) jobLine.setText("Pausing…"); }));
+            col.addView(space(14));
+            col.addView(text("Game files: " + install.game.getAbsolutePath(), 12, DIM));
+            return scroll(col);
+        }
+        if (pendingJob != null && !GameBuild.running) {
+            String why = JobService.paused ? "Paused." : JobService.status != null && JobService.status.startsWith("Stopped")
+                    ? JobService.status : "It was interrupted before it finished.";
+            col.addView(text(JobService.title(pendingJob) + ": " + why
+                    + (why.contains("Continue") ? "" : " Continue goes on where it stopped; nothing done so far is lost."), 15, TEXT));
+            col.addView(space(14));
+            ViewGroup b = buttonRow();
+            b.addView(button("Continue", v -> { askNotifications(); if (JobService.resume(this)) refresh(); }));
+            b.addView(button("Cancel", v -> { JobService.forget(this); refresh(); }));
+            col.addView(b);
+            col.addView(space(14));
+        }
         if (!install.hasGame()) {
             col.addView(text("FF7Recomp needs your copy of FINAL FANTASY VII from Steam. Download it here with your "
                     + "Steam account (about 3.3 GB), or pick the game's folder if you already have it on this device "
@@ -1755,7 +1809,7 @@ public class LauncherActivity extends Activity {
             col.addView(button(install.steamDownloading().exists() ? "Go on downloading from Steam" : "Download from Steam…",
                     v -> steamDownload()));
             col.addView(text("Sign in once with the Steam app on your phone (a QR code; no password is typed here). "
-                    + "Keep the launcher open while it downloads; if it stops, press the button again and it goes on "
+                    + "It goes on with the launcher in the background, with Pause; if it stops, it goes on "
                     + "where it was.", 13, DIM));
             col.addView(space(14));
             col.addView(button("Find my FF7 folder…", v -> pick(PICK_GAME)));
@@ -1835,10 +1889,23 @@ public class LauncherActivity extends Activity {
     private void startBuild() {
         if (GameBuild.running || !install.hasGame()) return;
         GameBuild.quiet = prefs.getBoolean("quiet_build", false);
+        askNotifications();
+        BuildService.start(this);
+        show("game");
+    }
+
+    /** Background work shows its progress, Pause and Continue in a notification (API 33+ asks). */
+    private void askNotifications() {
         if (android.os.Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[] { android.Manifest.permission.POST_NOTIFICATIONS }, 9);
-        BuildService.start(this);
+    }
+
+    /** The Steam download or the import, in JobService (GitHub #53: goes on in the background). */
+    private void startJob(String kind, String arg) {
+        if (busy || JobService.running != null || GameBuild.running) return;
+        askNotifications();
+        if (!JobService.start(this, kind, arg)) return;
         show("game");
     }
 
@@ -1861,13 +1928,15 @@ public class LauncherActivity extends Activity {
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
         if (res != RESULT_OK || data == null) return;
+        if (req == PICK_GAME) {
+            // JobService (#53): the import goes on in the background, and Continue after a stop
+            // needs the folder again, so the permission is kept until the import ends
+            try { getContentResolver().takePersistableUriPermission(data.getData(), Intent.FLAG_GRANT_READ_URI_PERMISSION); }
+            catch (Exception e) { android.util.Log.w("FF7Jobs", "folder permission not kept: " + e); }
+            startJob(JobService.IMPORT, data.getData().toString());
+            return;
+        }
         background(() -> {
-            if (req == PICK_GAME) {
-                String err = install.importGame(data.getData(), this::progress);
-                if (err != null) return "Not imported: " + err + "." + ((err.startsWith("no ff7_en") || err.contains("was not found")) ? "\n\n" + GAMENATIVE_HINT : "");
-                runOnUiThread(this::startBuild);
-                return null;
-            }
             if (req == PICK_PSX) return importPsx(data);
             if (req == PICK_IRO) {
                 // .iro, .zip or .7z: Nexus Mods and other sites' downloads (unpacked like Get mods')
@@ -2011,13 +2080,7 @@ public class LauncherActivity extends Activity {
     private void steamDownload() {
         if (busy) return;
         if (!steam().signedIn()) { steamSignIn(this::steamDownload); return; }
-        background(() -> {
-            boolean[] exeChanged = { false };
-            String err = install.downloadFromSteam(steam(), this::progress, new java.util.concurrent.atomic.AtomicBoolean(), exeChanged);
-            if (err != null) return "Not downloaded: " + err + ".";
-            if (exeChanged[0] || !build.built()) { runOnUiThread(this::startBuild); return null; }
-            return "Every game file was checked against Steam's copy; any missing or damaged ones were downloaded again.";
-        });
+        startJob(JobService.STEAM, null);
     }
 
     /** Cloud saves (the Steam page): before Play and after the game. */
@@ -2417,6 +2480,7 @@ public class LauncherActivity extends Activity {
     private void moveStorage(boolean toSd) {
         if (busy) return;
         if (GameBuild.running) { toastDialog("Not moved: the game is being built. Wait for the build to finish."); return; }
+        if (JobService.running != null || JobService.pending(this) != null) { toastDialog("Not moved: finish or cancel the download or import on the Game files page first."); return; }
         if (sQueue != null && sQueue.pendingCount() > 0) { toastDialog("Not moved: mods are downloading. Wait for them, or cancel them, first."); return; }
         android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
         if (am != null && am.getRunningAppProcesses() != null)
