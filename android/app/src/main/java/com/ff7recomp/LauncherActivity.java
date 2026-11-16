@@ -1763,7 +1763,9 @@ public class LauncherActivity extends Activity {
             col.addView(text(GAMENATIVE_HINT, 13, DIM));
         } else if (GameBuild.running) {
             col.addView(text("Building the game for this device. This happens once: about 8 minutes on an AYN "
-                    + "Thor. You can leave the launcher; it keeps going in the background.", 15, TEXT));
+                    + "Thor, longer on slower phones (the bar can stay at 4% for several minutes while the "
+                    + "game's code is read). You can leave the launcher; it keeps going in the background. "
+                    + "If it is paused or stopped, Continue building goes on where it was.", 15, TEXT));
             col.addView(space(14));
             buildLine = text(GameBuild.stage + " · " + GameBuild.percent + "%", 15, ACCENT);
             col.addView(buildLine);
@@ -1774,6 +1776,23 @@ public class LauncherActivity extends Activity {
             buildBar.setProgress(GameBuild.percent);
             buildBar.setProgressTintList(android.content.res.ColorStateList.valueOf(ACCENT));
             col.addView(buildBar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(10)));
+            col.addView(space(14));
+            // GitHub #53: stop for now, keeping what is done
+            col.addView(button("Pause", v -> {
+                BuildService.pause();
+                if (buildLine != null) buildLine.setText("Pausing…");
+            }));
+        } else if (GameBuild.error == null && build.resumable()) {
+            // paused, or stopped by the system or a restart (#53): the work done so far is kept
+            col.addView(text((GameBuild.paused
+                    ? "Building is paused at " + GameBuild.percent + "%. Continue building goes on where it stopped."
+                    : "The last build was interrupted before it finished. Continue building goes on where it "
+                      + "stopped; nothing done so far is lost.")
+                    + (build.built() ? " Until then, Play starts the game built before." : ""), 15, TEXT));
+            col.addView(space(14));
+            col.addView(button("Continue building", v -> startBuild()));
+            col.addView(space(8));
+            col.addView(button("Import again from another folder…", v -> pick(PICK_GAME)));
         } else if (build.built()) {
             col.addView(text("Ready. The game is built for this device: press Play.", 15, TEXT));
             col.addView(space(14));
@@ -1783,6 +1802,7 @@ public class LauncherActivity extends Activity {
         } else {
             col.addView(text(GameBuild.error != null
                     ? "The last build stopped: " + GameBuild.error
+                    + (build.resumable() ? "\nTry again goes on where it stopped." : "")
                     : build.relinkOnly()
                     ? "The app was updated: link the game with the new engine (a few seconds)."
                     : "Your game files are here. One more step: build the game for this device (once: about 8 "

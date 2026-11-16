@@ -24,6 +24,11 @@ Adapted from codepdbh/nfsu2-recompiled scripts/run_lift.py (MIT License).
                        on-device build): files recomp_I###.c, written whole (temp + rename) so
                        a compile can start on each as it appears; shard 0 writes the tables
                        (recomp_funcs.h first); recomp_extents.c is left to gen_extents.py
+      --resume         with --shard: go on after the last file this shard wrote (its
+                       recomp_I.progress), so an interrupted on-device build (the app paused or
+                       stopped by the system, GitHub #53) does not lift from the start again.
+                       The files are the same as an uninterrupted lift's; only lift_stats.json
+                       then counts just the functions lifted in this run.
       --prefix P names a second module's output (P + every file and table
       above, e.g. server_recomp_dispatch_table for server.dll) so it links
       next to SPEED2.EXE's.
@@ -213,7 +218,7 @@ def manifest_patches(manifest_paths, img, base, md, fds):
 
 
 def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manifests=None,
-             chunk_bytes=0, shard=None):
+             chunk_bytes=0, shard=None, resume=False):
     import pefile
     from lift32 import Lifter
     info = analyze_pe(exe)
@@ -255,15 +260,31 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
             if fn.startswith(prefix + "recomp_") and fn.endswith(".c"):
                 os.remove(os.path.join(outdir, fn))
 
+    # --resume (#53): after each file a shard writes "files last_function chunk_bytes shards"
+    # to its progress file; a resumed lift skips the functions those files hold. Only when the
+    # same chunk size and shard count wrote it (the files would end elsewhere otherwise).
+    progress = os.path.join(outdir, f"{prefix}recomp_{si}.progress") if shard else None
+    skip_to, start_idx = -1, 0
+    if progress and resume and os.path.isfile(progress):
+        try:
+            f_idx, f_last, f_cb, f_sn = (int(x) for x in open(progress).read().split())
+            last_file = os.path.join(outdir, f"{prefix}recomp_{si}{f_idx - 1:03d}.c")
+            if f_cb == chunk_bytes and f_sn == sn and f_idx > 0 and os.path.isfile(last_file):
+                skip_to, start_idx = f_last, f_idx
+        except (OSError, ValueError):
+            pass
+    if progress and skip_to < 0 and os.path.isfile(progress):
+        os.remove(progress)
+
     stats = collections.Counter()
     unimpl = collections.Counter()
     unimpl_sites = collections.defaultdict(list)
     failed = []
     entries = []
     t0 = time.time()
-    chunk, idx, lines_total, chunk_len = [], 0, 0, 0
+    chunk, idx, lines_total, chunk_len = [], start_idx, 0, 0
 
-    def flush():
+    def flush(last=None):
         nonlocal chunk, idx, lines_total, chunk_len
         if not chunk:
             return
@@ -275,11 +296,17 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
         lines_total += body.count("\n")
         idx += 1
         chunk, chunk_len = [], 0
+        if progress and last is not None:
+            write(os.path.basename(progress), f"{idx} {last} {chunk_bytes} {sn}\n")
 
     for n, fd in enumerate(fds):
         a = fd["address"]
         entries.append(a)
         if n % sn != si:
+            continue
+        if n <= skip_to:
+            if n + sn > skip_to:
+                print(f"[*] {n + 1}/{len(fds)} lifted (resumed after {idx} files)", flush=True)
             continue
         try:
             if a in overrides:
@@ -311,10 +338,10 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
         chunk.append(code)
         chunk_len += len(code)
         if (chunk_len >= chunk_bytes) if chunk_bytes else (len(chunk) >= split):
-            flush()
+            flush(n)
             el = time.time() - t0
             print(f"[*] {n + 1}/{len(fds)} lifted ({el:.0f}s)", flush=True)
-    flush()
+    flush(len(fds))
     if si != 0:
         print(f"[*] shard {si}/{sn}: {idx} files", flush=True)
         return
@@ -390,6 +417,6 @@ if __name__ == "__main__":
         manifests = a[a.index("--manifests") + 1].split(",") if "--manifests" in a else None
         chunk_bytes = int(a[a.index("--chunk-bytes") + 1]) if "--chunk-bytes" in a else 0
         shard = tuple(int(x) for x in a[a.index("--shard") + 1].split("/")) if "--shard" in a else None
-        cmd_lift(a[1], a[2], a[3], split, names, prefix, manifests, chunk_bytes, shard)
+        cmd_lift(a[1], a[2], a[3], split, names, prefix, manifests, chunk_bytes, shard, "--resume" in a)
     else:
         sys.exit(__doc__)

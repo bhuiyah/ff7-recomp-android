@@ -38,7 +38,9 @@ import java.util.zip.ZipInputStream;
  *   5. link the objects with the runtime's archives into files/game/libff7.so, the way the
  *      PC build links it (kit link.args), which GameActivity loads
  * Each step's results stay until the kit or the exe changes, so an interrupted build carries
- * on where it stopped. State is static: BuildService runs it, the launcher shows it.
+ * on where it stopped: also the lift, file by file (run_lift.py --resume, GitHub #53), whether
+ * the build was paused or the system stopped the app. State is static: BuildService runs it,
+ * the launcher shows it.
  */
 final class GameBuild {
     private static final String TAG = "FF7Build";
@@ -50,6 +52,18 @@ final class GameBuild {
     static volatile String stage = "";      // what is happening, for people
     static volatile int percent;            // of the whole build
     static volatile String error;           // the last build's failure, or null
+    /** Pause (#53): the build stops at the next check, keeping what it has done; Continue
+     *  building goes on from there. */
+    static volatile boolean pauseRequested, paused;
+
+    private static final class Paused extends Exception {
+        Paused() { super("paused"); }
+    }
+    private void checkPause() throws Paused {
+        if (!pauseRequested) return;
+        if (lw != null) lw.println("paused at " + percent + "%");
+        throw new Paused();
+    }
 
     final Context ctx;
     final File kit, work, gen, obj, lib, log;
@@ -89,7 +103,8 @@ final class GameBuild {
     /** Builds from APKs before the lift version (their work stamp holds the whole kit's
      *  version): kit version -> its lift version. */
     private static final java.util.Map<String, String> LEGACY_LIFT = java.util.Map.of(
-            "78bd54ab776e925f", "4fccebb48f648461");    // 0.1.0, 0.1.1
+            "78bd54ab776e925f", "4fccebb48f648461",     // 0.1.0, 0.1.1
+            "649a801537249bde", "3527d294d7b85123");           // 1.1.12: run_lift.py --resume, the same C
 
     /** The game is built for this APK's kit (or a dev APK bundles libff7.so itself). */
     boolean built() {
@@ -115,7 +130,10 @@ final class GameBuild {
     String run(File exe) {
         running = true;
         error = null;
+        paused = false;
         long t0 = System.currentTimeMillis();
+        // the last run's log stays as build.prev.log (an interrupted build's log is the useful one)
+        if (log.isFile()) { File prev = new File(log.getParentFile(), "build.prev.log"); prev.delete(); log.renameTo(prev); }
         try (PrintWriter lw = new PrintWriter(new FileOutputStream(log), true)) {
             this.lw = lw;
             String ver = kitVersion();
@@ -144,19 +162,38 @@ final class GameBuild {
             }
             if (!stamp.equals(old)) writeText(new File(work, "stamp"), stamp);
             if (!new File(work, "lifted").isFile() || gen.isDirectory()) liftAndCompile(exe);
+            checkPause();
             link(ver);
             deleteTree(gen);                 // the C (~500 MB); the objects stay for relinks
             set("Ready", 100);
             lw.println("done in " + (System.currentTimeMillis() - t0) / 1000 + " s");
+            return null;
+        } catch (Paused p) {
+            paused = true;
+            set("Paused", percent);
             return null;
         } catch (Throwable e) {
             Log.e(TAG, "build failed", e);
             error = e.getMessage() != null ? e.getMessage() : e.toString();
             return error;
         } finally {
+            pauseRequested = false;
             running = false;
             lw = null;
         }
+    }
+
+    /** An interrupted build to go on with (paused, or stopped by the system): the lift's
+     *  progress files are there for this chunk size and shard count. */
+    boolean resumable() {
+        // (also with a game built before: Build again keeps it until the new one is linked)
+        if (relinkOnly() || !new File(work, "stamp").isFile() || !gen.isDirectory()) return false;
+        if (new File(work, "lifted").isFile()) return gen.isDirectory();
+        for (int i = 0; i < SHARDS; i++) {
+            String[] f = readText(new File(gen, "recomp_" + i + ".progress")).trim().split(" ");
+            if (f.length != 4 || !f[2].equals(String.valueOf(CHUNK)) || !f[3].equals(String.valueOf(SHARDS))) return false;
+        }
+        return true;
     }
 
     private PrintWriter lw;
@@ -353,7 +390,10 @@ final class GameBuild {
     private void liftAndCompile(File exe) throws Exception {
         setupCooling();
         boolean lifted = new File(work, "lifted").isFile();
-        if (!lifted) { deleteTree(gen); deleteTree(obj); }
+        // an interrupted lift goes on where it was (#53); anything else starts the lift afresh
+        boolean resume = !lifted && resumable();
+        if (!lifted && !resume) { deleteTree(gen); deleteTree(obj); }
+        lw.println(lifted ? "lift done before: compiling what is left" : resume ? "lift: going on where it stopped" : "lift: from the start");
         gen.mkdirs();
         obj.mkdirs();
         List<String> flags = new ArrayList<>();
@@ -387,7 +427,7 @@ final class GameBuild {
             for (int i = 0; i < SHARDS; i++) {
                 final int si = i;
                 lifts.add(new Job("lift " + i, 0, pythonPb(new String[] { liftPy, "lift", exe.getPath(), catalog, gen.getPath(),
-                        "--shard", i + "/" + SHARDS, "--chunk-bytes", String.valueOf(CHUNK),
+                        "--shard", i + "/" + SHARDS, "--chunk-bytes", String.valueOf(CHUNK), "--resume",
                         "--manifests", String.join(",", manifests) }, null), line -> {
                     Matcher m = LIFTED.matcher(line);
                     if (m.find()) shardFrac[si] = (float) Integer.parseInt(m.group(1)) / Integer.parseInt(m.group(2));
@@ -400,6 +440,7 @@ final class GameBuild {
         }
         try {
             while (true) {
+                checkPause();
                 // finished processes
                 for (java.util.Iterator<Job> it = running.iterator(); it.hasNext(); ) {
                     Job j = it.next();
