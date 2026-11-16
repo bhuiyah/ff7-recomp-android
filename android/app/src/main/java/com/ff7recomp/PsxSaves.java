@@ -17,7 +17,8 @@ import java.util.regex.Pattern;
  * Layout as in ff7tk (Black Chocobo): a card is 16 blocks of 0x2000, block 0 the directory
  * (frame i at 0x80*i: 0x51 = first block of a file, the name at +0x0A); an FF7 save block is a
  * 0x200 header, 0x10F4 bytes of slot data and padding. The PC file is a 9-byte header and 15
- * slots of the same 0x10F4 bytes. On the way to PC the "custom controls" option bit is cleared
+ * slots of the same 0x10F4 bytes. Zips of any of these (Export saves' own, for one) are opened
+ * and each file in them imported in name order; Export saves zips game/save/*.ff7 as they are. On the way to PC the "custom controls" option bit is cleared
  * and the slot CRC recomputed, as Black Chocobo does.
  */
 final class PsxSaves {
@@ -31,6 +32,83 @@ final class PsxSaves {
     }
 
     private PsxSaves() {}
+
+    /** A PC save or a memory card, whichever {@code data} is, into the first free save file. */
+    static Result importAny(byte[] data, File saveDir) throws IOException {
+        return isPcSave(data) ? importPc(data, saveDir) : importCard(data, saveDir);
+    }
+
+    // ------------------------------------------------------------------ zips (FF9 parity)
+    static final int MAX_FILE = 1 << 20, MAX_ZIP = 32 << 20, MAX_ENTRIES = 64;
+
+    static boolean isZip(byte[] d) {
+        return d.length >= 4 && d[0] == 'P' && d[1] == 'K' && d[2] == 3 && d[3] == 4;
+    }
+
+    /** A file from a zip; data is null when it is too big to be a save. */
+    static final class Entry {
+        final String name;
+        final byte[] data;
+        Entry(String name, byte[] data) { this.name = name; this.data = data; }
+    }
+
+    /** The files in a zip (an export from here, a problem report, a pack of saves), by name. */
+    static java.util.List<Entry> unzip(byte[] zip) throws IOException {
+        java.util.List<Entry> out = new java.util.ArrayList<>();
+        try (java.util.zip.ZipInputStream z = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(zip))) {
+            for (java.util.zip.ZipEntry e; (e = z.getNextEntry()) != null; ) {
+                String path = e.getName().replace('\\', '/');
+                String name = path.substring(path.lastIndexOf('/') + 1);
+                if (e.isDirectory() || name.isEmpty() || name.startsWith(".") || path.startsWith("__MACOSX/")) continue;
+                if (out.size() >= MAX_ENTRIES) throw new IOException("this zip holds too many files (" + MAX_ENTRIES + " at most)");
+                java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[65536];
+                boolean big = false;
+                for (int n; (n = z.read(buf)) > 0; ) {
+                    if (o.size() + n > MAX_FILE) { big = true; break; }
+                    o.write(buf, 0, n);
+                }
+                out.add(new Entry(name, big ? null : o.toByteArray()));
+            }
+        } catch (IllegalArgumentException e) {   // a bad file name encoding
+            throw new IOException("this zip cannot be read");
+        }
+        out.sort((a, b) -> a.name.compareToIgnoreCase(b.name));
+        return out;
+    }
+
+    /** A name a save or a memory card would have (anything else in a zip is passed over quietly). */
+    static boolean saveName(String name) {
+        String n = name.toLowerCase(java.util.Locale.ROOT);
+        for (String x : new String[] { ".ff7", ".mcd", ".mcr", ".srm", ".gme", ".vmp", ".mc", ".mcs", ".ps1", ".vgs", ".mem", ".psm", ".ddf" })
+            if (n.endsWith(x)) return true;
+        return n.matches("b[a-z]{5}-\\d{5}ff7-s\\d\\d.*");   // a single exported save block
+    }
+
+    /** All save files (game/save/saveNN.ff7) in one zip in {@code outDir}; the zip. */
+    static File exportZip(File saveDir, File outDir) throws IOException {
+        File[] fs = saveDir.listFiles((d, n) -> n.toLowerCase(java.util.Locale.ROOT).endsWith(".ff7"));
+        if (fs == null || fs.length == 0) throw new IOException("there are no saves yet");
+        java.util.Arrays.sort(fs, (a, b) -> a.getName().compareTo(b.getName()));
+        File[] old = outDir.listFiles();
+        if (old != null) for (File f : old) f.delete();   // one export at a time
+        outDir.mkdirs();
+        String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US).format(new java.util.Date());
+        File zip = new File(outDir, "FF7Recomp-saves-" + stamp + ".zip");
+        try (java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(new FileOutputStream(zip))) {
+            byte[] buf = new byte[65536];
+            for (File f : fs) {
+                java.util.zip.ZipEntry e = new java.util.zip.ZipEntry(f.getName());
+                e.setTime(f.lastModified());
+                z.putNextEntry(e);
+                try (java.io.InputStream in = new java.io.FileInputStream(f)) {
+                    for (int n; (n = in.read(buf)) > 0; ) z.write(buf, 0, n);
+                }
+                z.closeEntry();
+            }
+        }
+        return zip;
+    }
 
     /** Converts {@code data} into the first free save file in {@code saveDir}. */
     static Result importCard(byte[] data, File saveDir) throws IOException {

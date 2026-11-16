@@ -2178,8 +2178,10 @@ public class LauncherActivity extends Activity {
             for (int k = 0; k < data.getClipData().getItemCount(); k++) uris.add(data.getClipData().getItemAt(k).getUri());
         else if (data.getData() != null) uris.add(data.getData());
         StringBuilder msg = new StringBuilder();
+        File saveDir = new File(install.game, "save");
         for (Uri u : uris) {
-            progress("Reading the memory card");
+            String label = uris.size() > 1 ? displayName(u) + ": " : "";
+            progress("Reading the saves");
             byte[] b;
             try (java.io.InputStream in = getContentResolver().openInputStream(u)) {
                 if (in == null) throw new java.io.IOException("cannot open the file");
@@ -2187,21 +2189,80 @@ public class LauncherActivity extends Activity {
                 byte[] buf = new byte[65536];
                 for (int n; (n = in.read(buf)) > 0; ) {
                     o.write(buf, 0, n);
-                    if (o.size() > (1 << 20)) throw new java.io.IOException("this file is too big to be a memory card");
+                    if (o.size() > PsxSaves.MAX_ZIP) break;
                 }
                 b = o.toByteArray();
-            }
-            try {
-                File saveDir = new File(install.game, "save");
-                PsxSaves.Result r = PsxSaves.isPcSave(b) ? PsxSaves.importPc(b, saveDir) : PsxSaves.importCard(b, saveDir);
-                String game = "Save " + r.gameNumber;
-                msg.append(r.saves).append(r.saves == 1 ? " save" : " saves").append(" imported into ").append(game)
-                   .append(". In game: Continue, then pick ").append(game).append(".\n");
             } catch (java.io.IOException e) {
-                msg.append("Not imported: ").append(e.getMessage()).append("\n");
+                msg.append(label).append("Not imported: ").append(e.getMessage()).append("\n");
+                continue;
             }
+            if (PsxSaves.isZip(b)) {
+                // a zip (Export saves', a problem report, a pack from a website): each save in it
+                if (b.length > PsxSaves.MAX_ZIP) { msg.append(label).append("Not imported: this zip is too big for a pack of saves\n"); continue; }
+                java.util.List<PsxSaves.Entry> es;
+                try { es = PsxSaves.unzip(b); }
+                catch (java.io.IOException e) { msg.append(label).append("Not imported: ").append(e.getMessage()).append("\n"); continue; }
+                int found = 0;
+                for (PsxSaves.Entry e : es) {
+                    boolean likely = PsxSaves.saveName(e.name);
+                    if (e.data == null) {
+                        if (likely) msg.append(e.name).append(": Not imported: too big to be a save\n");
+                        continue;
+                    }
+                    if (!likely && !PsxSaves.isPcSave(e.data)) continue;   // a readme, a log...
+                    found++;
+                    msg.append(e.name).append(": ").append(importOne(e.data, saveDir)).append("\n");
+                }
+                if (found == 0) msg.append(label).append("Not imported: there are no FINAL FANTASY VII saves in this zip\n");
+                continue;
+            }
+            if (b.length > PsxSaves.MAX_FILE) { msg.append(label).append("Not imported: this file is too big to be a save or a memory card\n"); continue; }
+            msg.append(label).append(importOne(b, saveDir)).append("\n");
         }
         return msg.toString().trim();
+    }
+
+    /** One save file or memory card into the first free save file; a line saying where it went. */
+    private static String importOne(byte[] b, File saveDir) {
+        try {
+            PsxSaves.Result r = PsxSaves.importAny(b, saveDir);
+            String game = "Save " + r.gameNumber;
+            return r.saves + (r.saves == 1 ? " save" : " saves") + " imported into " + game
+                    + ". In game: Continue, then pick " + game + ".";
+        } catch (java.io.IOException e) {
+            return "Not imported: " + e.getMessage();
+        }
+    }
+
+    private String displayName(Uri u) {
+        try (android.database.Cursor c = getContentResolver().query(u, new String[] { android.provider.OpenableColumns.DISPLAY_NAME }, null, null, null)) {
+            if (c != null && c.moveToFirst() && c.getString(0) != null) return c.getString(0);
+        } catch (Exception ignored) {}
+        String p = u.getLastPathSegment();
+        return p == null ? "file" : p.substring(p.lastIndexOf('/') + 1);
+    }
+
+    /** Export saves (FF9 parity): game/save/*.ff7 in one zip, saved to Downloads, then the share sheet. */
+    private void exportSaves() {
+        if (busy) return;
+        background(() -> {
+            progress("Packing the saves");
+            File zip = PsxSaves.exportZip(new File(install.game, "save"), new File(getCacheDir(), "export"));
+            Uri uri = Reports.toDownloads(this, zip);
+            int n = 0;
+            try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(zip)) { n = z.size(); }
+            final String name = zip.getName();
+            runOnUiThread(() -> {
+                Intent send = new Intent(Intent.ACTION_SEND).setType("application/zip")
+                        .putExtra(Intent.EXTRA_STREAM, uri)
+                        .putExtra(Intent.EXTRA_SUBJECT, "FF7Recomp saves")
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                send.setClipData(android.content.ClipData.newRawUri(name, uri));
+                try { startActivity(Intent.createChooser(send, "Send the saves")); } catch (Exception ignored) {}
+            });
+            return "Saved to Downloads: " + name + " (" + n + (n == 1 ? " save file" : " save files")
+                    + "). Import saves takes this zip back, here or on another device.";
+        });
     }
 
     // ------------------------------------------------------------------- save states
@@ -2337,7 +2398,12 @@ public class LauncherActivity extends Activity {
         col.addView(text("In game: Select+L1 saves to the current slot, Select+R1 loads it, Select+Left / Right "
                 + "picks another slot. \"Play from here\" starts the game at that moment.", 14, DIM));
         col.addView(space(10));
-        col.addView(button("Import saves (PC or PlayStation)…", v -> pick(PICK_PSX)));
+        ViewGroup saveButtons = buttonRow();
+        saveButtons.addView(small("Import saves…", v -> pick(PICK_PSX)));
+        saveButtons.addView(small("Export saves", v -> exportSaves()));
+        col.addView(saveButtons);
+        col.addView(text("Export saves puts all your save files (Save 1-10) in one zip in Downloads, to keep or to "
+                + "move to another device. Import saves takes several files at once, or a zip of them.", 13, DIM));
         col.addView(text("PC: a save file (save00.ff7…save09.ff7) from the current Steam release (in "
                 + "%LOCALAPPDATA%\\FINAL FANTASY VII Steam Edition on the PC; Steam Cloud saves on the Achievements page "
                 + "can also share them), the 2013 Steam release (Documents\\Square Enix\\FINAL FANTASY VII Steam\\user_…), "
