@@ -385,6 +385,8 @@ final class GameInstall {
     boolean crtFilter;          // Settings > Display > CRT filter (FFNx crt_filter, an FF7Recomp edit)
     boolean analogControls;     // Settings > Controller > Analog stick (FFNx's analogue controls and auto run)
     int resolutionScale;        // Settings > Display > Resolution: 1-4 times the original, 0 automatic
+    /** Settings > Sound and Game options (FfnxOptions): changed FFNx.toml keys, over the mods' values. */
+    java.util.Map<String, String> ffnxOptions = new java.util.HashMap<>();
 
     /** The game's languages: FFNx's game_language, the launcher's name, the data/lang-* folder. */
     static final String[][] LANGUAGES = {
@@ -495,6 +497,7 @@ final class GameInstall {
             for (String[] kv : m.ffnx)
                 if (m.optionsMatch(kv.length > 2 ? kv[2] : null)) toml = set(toml, kv[0], tomlValue(kv[1]));
         }
+        for (java.util.Map.Entry<String, String> o : ffnxOptions.entrySet()) toml = set(toml, o.getKey(), o.getValue());
         // Settings > Display > Resolution: a chosen multiple of the original resolution, whatever
         // the mods or Performance would pick (0 = automatic, below)
         if (resolutionScale > 0) {

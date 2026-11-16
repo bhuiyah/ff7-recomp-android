@@ -1561,6 +1561,7 @@ public class LauncherActivity extends Activity {
         crt.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("crt_filter", on).apply());
         col.addView(crt);
         col.addView(space(16));
+        ffnxSections(col);
         col.addView(heading("Screen"));
         CheckBox second = new CheckBox(this);
         second.setText("Use the second screen\nOn dual-screen devices such as the AYN Thor: party, enemy HP and the touch deck. Off: the second screen is free for other apps, such as a guide (tap the game screen to give the controller back to the game)");
@@ -2478,6 +2479,7 @@ public class LauncherActivity extends Activity {
             install.analogControls = prefs.getBoolean("analog_controls", false);
             install.resolutionScale = prefs.getInt("resolution", 0);
             install.openGl = prefs.getInt("renderer", 0) == 1;
+            install.ffnxOptions = FfnxOptions.chosen(prefs);
             int aspect = prefs.getInt("aspect", 2);   // 3: 16:9 stretched by Android (GameActivity), FFNx renders 16:9
             install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, aspect == 3 ? 2 : aspect, prefs.getBoolean("show_fps", false), library.mods,
                                   renderScaleCap());
@@ -2566,6 +2568,72 @@ public class LauncherActivity extends Activity {
                 }))
                 .setNegativeButton("Cancel", null)
                 .show());
+    }
+
+    // ------------------------------------------------------------- Sound, Game options
+    /** Settings > Sound and Game options: FFNx.toml keys (FfnxOptions; FF9Recomp's Memoria page). */
+    private void ffnxSections(LinearLayout col) {
+        java.util.Map<String, String> last = lastToml();
+        col.addView(heading("Sound"));
+        col.addView(text("The game's own volumes, under the device's volume. Default: as the game or a mod sets it.", 14, DIM));
+        for (FfnxOptions.Opt o : FfnxOptions.SOUND) ffnxRow(col, o, last);
+        col.addView(space(16));
+        col.addView(heading("Game options"));
+        col.addView(text("FFNx settings (its FFNx.toml, written before each start). A mod may set these too; what you "
+                + "change here wins. A ticked box shows how the game last started.", 14, DIM));
+        for (FfnxOptions.Opt o : FfnxOptions.GAME) ffnxRow(col, o, last);
+        col.addView(small("Put Sound and Game options back to the defaults", v -> {
+            SharedPreferences.Editor e = prefs.edit();
+            for (FfnxOptions.Opt o : FfnxOptions.all()) e.remove(FfnxOptions.PREFIX + o.key);
+            e.apply();
+            refresh();
+        }));
+        col.addView(space(16));
+    }
+
+    private void ffnxRow(LinearLayout col, FfnxOptions.Opt o, java.util.Map<String, String> last) {
+        final String key = FfnxOptions.PREFIX + o.key;
+        if (o.isSwitch()) {
+            CheckBox cb = new CheckBox(this);
+            cb.setText(o.label + (o.help == null ? "" : "\n" + o.help));
+            cb.setTextColor(TEXT);
+            cb.setTextSize(16);
+            String v = prefs.getString(key, null);
+            if (v == null) v = last.get(o.key);
+            cb.setChecked(v == null ? o.defOn : v.equals("true"));
+            cb.setOnCheckedChangeListener((b, on) -> prefs.edit().putString(key, on ? "true" : "false").apply());
+            col.addView(cb);
+            return;
+        }
+        // a volume: - and + step it, the middle button puts it back to Default
+        final int[] at = { FfnxOptions.index(o, prefs.getString(key, null)) };
+        ViewGroup r = buttonRow();
+        final Button mid = small(o.label + ": " + o.names[at[0]], null);
+        Runnable store = () -> {
+            if (at[0] == 0) prefs.edit().remove(key).apply(); else prefs.edit().putString(key, o.values[at[0]]).apply();
+            mid.setText(o.label + ": " + o.names[at[0]]);
+        };
+        r.addView(compact(small("−", v -> { at[0] = Math.min(o.values.length - 1, Math.max(at[0], 1) + 1); store.run(); })));
+        mid.setOnClickListener(v -> { at[0] = 0; store.run(); });
+        r.addView(mid);
+        r.addView(compact(small("+", v -> { at[0] = Math.max(1, at[0] - 1); store.run(); })));
+        if (o.help != null) r.addView(text(o.help, 13, DIM));
+        col.addView(r);
+    }
+
+    /** FFNx.toml as the game last started with it: key -> value (quotes off). */
+    private java.util.Map<String, String> lastToml() {
+        java.util.Map<String, String> m = new java.util.HashMap<>();
+        File f = new File(install.game, "FFNx.toml");
+        if (!f.isFile()) return m;
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("^([A-Za-z0-9_]+)\\s*=\\s*(.*?)\\s*$");
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f))) {
+            for (String line; (line = r.readLine()) != null; ) {
+                java.util.regex.Matcher mm = p.matcher(line);
+                if (mm.matches()) m.put(mm.group(1), mm.group(2).replace("\"", ""));
+            }
+        } catch (java.io.IOException ignored) {}
+        return m;
     }
 
     // ------------------------------------------------------------------- plumbing

@@ -75,6 +75,12 @@ public class TestControl extends BroadcastReceiver {
                 for (String k : b == null ? new java.util.HashSet<String>() : b.keySet()) {
                     Class<?> t = TYPES.get(k);
                     Object v = b.get(k);
+                    if (k.startsWith(FfnxOptions.PREFIX) && FfnxOptions.known(k.substring(FfnxOptions.PREFIX.length()))) {
+                        String s = v == null ? "" : String.valueOf(v).trim();   // "" puts it back to the default
+                        if (s.isEmpty()) e.remove(k); else e.putString(k, s);
+                        changed.put(k, s);
+                        continue;
+                    }
                     if (t == null) { out.put("error", "unknown setting " + k); continue; }
                     if (t == Integer.class) { int i = v instanceof Number ? ((Number) v).intValue() : Integer.parseInt(String.valueOf(v).trim()); e.putInt(k, i); changed.put(k, i); }
                     else if (t == Boolean.class) { boolean z = v instanceof Boolean ? (Boolean) v : Boolean.parseBoolean(String.valueOf(v).trim()); e.putBoolean(k, z); changed.put(k, z); }
@@ -156,7 +162,7 @@ public class TestControl extends BroadcastReceiver {
             }
             JSONObject all = new JSONObject();
             for (Map.Entry<String, ?> en : prefs.getAll().entrySet())
-                if (TYPES.containsKey(en.getKey())) all.put(en.getKey(), en.getValue());
+                if (TYPES.containsKey(en.getKey()) || en.getKey().startsWith(FfnxOptions.PREFIX)) all.put(en.getKey(), en.getValue());
             out.put("settings", all);
             out.put("game_running", gamePid(ctx) > 0);
         } catch (Exception ex) {
