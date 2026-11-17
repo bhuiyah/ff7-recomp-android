@@ -168,6 +168,7 @@ public class CompanionView extends View {
         new Thread(() -> {
             java.io.File game = new java.io.File(Storage.root(app), "game");
             portraits = Portraits.load(game);
+            gameFont = GameFont.load(game);     // the game's own font (FF9Recomp 0.1.17 does the same)
             postInvalidate();
             worldMap = WorldMap.get(app.getFilesDir(), game);
             postInvalidate();
@@ -226,7 +227,12 @@ public class CompanionView extends View {
         fill.setShader(null);
     }
 
+    /** FF7's text font from the game files, once read (null: Android's sans-serif). */
+    private volatile GameFont gameFont;
+
     private void label(Canvas c, String s, float x, float y, float size, int color, Paint.Align a) {
+        GameFont f = gameFont;
+        if (f != null) { f.draw(c, s, x, y, size, color, a, text); return; }
         text.setTextSize(size);
         text.setColor(color);
         text.setTextAlign(a);
@@ -235,21 +241,25 @@ public class CompanionView extends View {
 
     /** Text shrunk (to 70%) and then cut to fit maxW. */
     private void fitLabel(Canvas c, String s, float x, float y, float size, float maxW, int color, Paint.Align a) {
-        text.setTextSize(size);
-        float w = text.measureText(s);
+        float w = measure(s, size);
         if (w > maxW) {
             float sz = Math.max(size * 0.7f, size * maxW / w);
-            text.setTextSize(sz);
-            if (text.measureText(s) > maxW) {
-                int n = text.breakText(s, true, maxW - text.measureText("…"), null);
-                s = s.substring(0, Math.max(0, n)) + "…";
+            if (measure(s, sz) > maxW) {
+                int n = s.length();
+                while (n > 0 && measure(s.substring(0, n) + "…", sz) > maxW) n--;
+                s = s.substring(0, n) + "…";
             }
             size = sz;
         }
         label(c, s, x, y, size, color, a);
     }
 
-    private float measure(String s, float size) { text.setTextSize(size); return text.measureText(s); }
+    private float measure(String s, float size) {
+        GameFont f = gameFont;
+        if (f != null) return f.measure(s, size, text);
+        text.setTextSize(size);
+        return text.measureText(s);
+    }
 
     private static String clock(long s) {
         return String.format(java.util.Locale.US, "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60);
@@ -339,8 +349,7 @@ public class CompanionView extends View {
         drawDeck(c, W, u, pad, deckT, deckH, battle);
         if (flash != null && System.currentTimeMillis() < flashUntil) {
             float fy = deckT - 22 * u;
-            text.setTextSize(36 * u);
-            float fw = text.measureText(flash) + 40 * u;
+            float fw = measure(flash, 36 * u) + 40 * u;
             fill.setShader(null);
             fill.setColor(0xD0000000);
             r.set(W / 2 - fw / 2, fy - 44 * u, W / 2 + fw / 2, fy + 14 * u);
