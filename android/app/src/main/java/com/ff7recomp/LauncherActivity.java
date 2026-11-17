@@ -827,6 +827,17 @@ public class LauncherActivity extends Activity {
         }
         ScrollView catScroll = scroll(cats);
         catScroll.setVerticalScrollBarEnabled(false);
+        // picking a category rebuilds the page: keep the category list where it was, not back
+        // at the top (GitHub #54)
+        final int keepCatY = catScrollY;
+        catScroll.setOnScrollChangeListener((v, x, y, ox, oy) -> catScrollY = y);
+        if (keepCatY > 0) catScroll.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                catScroll.getViewTreeObserver().removeOnPreDrawListener(this);
+                catScroll.scrollTo(0, keepCatY);
+                return true;
+            }
+        });
         split.addView(catScroll, new LinearLayout.LayoutParams(dp(smallScreen ? 104 : 132), ViewGroup.LayoutParams.MATCH_PARENT));
         View vline = new View(this);
         vline.setBackgroundColor(0x40FFFFFF);
@@ -843,6 +854,7 @@ public class LauncherActivity extends Activity {
 
     /** Get mods: the list the search and the category pick out (filled again as you type). */
     private LinearLayout catList;
+    private int catScrollY;   // the Get mods category list's scroll position (GitHub #54)
     private final Runnable searchNow = () -> {
         if (!"catalog".equals(page) || catList == null) return;
         fillCatalogList();
