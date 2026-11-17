@@ -617,8 +617,8 @@ public class LauncherActivity extends Activity {
 
         LinearLayout whole = column();
         whole.setPadding(0, dp(2), 0, dp(2));
-        LinearLayout r = row();
-        r.setGravity(Gravity.CENTER_VERTICAL);
+        // the buttons wrap onto a second line if even their own line is too narrow
+        ViewGroup r = new FlowRow(this);
         CheckBox cb = new CheckBox(this);
         cb.setTextColor(TEXT);
         cb.setTextSize(smallScreen ? 15 : 17);
@@ -627,7 +627,6 @@ public class LauncherActivity extends Activity {
         cb.setEnabled(m.error == null);
         cb.setOnCheckedChangeListener((b, isOn) -> { m.enabled = isOn; saveProfile(); ensureConflicts(); refresh(); });
         cb.setTag("focus:mod:" + m.file);   // the cursor stays on it when the page is rebuilt (#47)
-        r.addView(cb, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         if (pos >= 0) {
             Button up = rowButton("▲", v -> moveOn(m, -1));
             up.setTag("focus:up:" + m.file);     // follows the mod to its new place (#47)
@@ -649,8 +648,11 @@ public class LauncherActivity extends Activity {
         Button rm = rowButton("Remove", v -> removeMod(m, fromCat, catMod));
         rm.setTag("focus:remove:" + m.file);
         r.addView(rm);
-        // the full width: the box's weight has nothing to fill in a row that only wraps its content
-        whole.addView(r, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // the name, then its buttons beside it; under it when they would leave the name too
+        // little width (a 1240x1080 screen gave it a few pixels, GitHub #58)
+        View line = new NameAndButtons(this, cb, r, dp(200), dp(8));
+        line.setTag("modrow:" + m.file);
+        whole.addView(line, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         // only what needs attention goes under the row
         StringBuilder warn = new StringBuilder();
