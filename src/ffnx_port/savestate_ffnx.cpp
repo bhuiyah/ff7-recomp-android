@@ -236,6 +236,19 @@ extern "C" int ff7_ss_can_save(const char **why) {
     }
 }
 
+// The title screen and the opening credits run before the game has set up what a game in
+// progress has (the game object's field and battle parts): a state saved in a game, loaded
+// there, crashed straight away (#21, a fault in 0x00676578's callers). It is refused there;
+// quickboot's "resume" first starts the game (Continue or New Game), then loads it.
+extern "C" int ff7_ss_can_load(int saved_mode, const char **why) {
+    const int now = ff7_ss_driver_mode();
+    if ((now == MODE_MAIN_MENU || now == MODE_CREDITS) && saved_mode != now) {
+        *why = "the title screen is up: start or continue a game first, then load the state";
+        return 0;
+    }
+    return 1;
+}
+
 // Where the game is, for slot lists: the place name the main menu shows. The field script sets
 // it (opcode MPNAM, 0x633691 in 1.02 US) in the savemap at +0xF0C: up to 24 characters of FF7
 // text (ASCII shifted down by 0x20, 0xFF ends it; MPNAM has already expanded names and

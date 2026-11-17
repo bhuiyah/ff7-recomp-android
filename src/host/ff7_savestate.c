@@ -118,6 +118,7 @@ void ff7_savestate_register(const ff7_savestate_hook *h) { if (g_nhooks < MAX_HO
 /* Optional, from the FFNx port (weak: the headless runner has none). */
 __attribute__((weak)) int ff7_ss_driver_mode(void) { return -1; }
 __attribute__((weak)) int ff7_ss_can_save(const char **why) { (void)why; return 1; }
+__attribute__((weak)) int ff7_ss_can_load(int saved_mode, const char **why) { (void)saved_mode; (void)why; return 1; }
 __attribute__((weak)) void ff7_ss_notify(const char *msg) { (void)msg; }
 __attribute__((weak)) void ff7_achievements_reset(void) {}   /* src/ffnx_port/achievements.cpp */
 /* The settings a state depends on (FFNx's frame-rate and widescreen patches change code and
@@ -307,6 +308,20 @@ static int check(const uint8_t *p, size_t n, const char **why) {
     }
     *why = "damaged (no end)";
     return -1;
+}
+
+/* The state's CPU record (for the log when a load is refused). */
+static int cpu_record(const uint8_t *p, size_t n, ss_cpu *out) {
+    size_t at = 0;
+    while (at + 8 <= n) {
+        uint32_t id, len;
+        memcpy(&id, p + at, 4); memcpy(&len, p + at + 4, 4);
+        if (at + 8 + len > n) return 0;
+        if (id == R_CPU && len == sizeof *out) { memcpy(out, p + at + 8, sizeof *out); return 1; }
+        if (id == R_END) return 0;
+        at += 8 + len;
+    }
+    return 0;
 }
 
 static void apply(const uint8_t *p, size_t n) {
@@ -644,6 +659,7 @@ void ff7_savestate_frame(void) {
         char msg[256];
         /* any mode: the safe point is the same flip in every mode (the stack checks in check()
            hold the rest), and the FFNx hooks rebuild what scene entry would have set up */
+        if (!why) ff7_ss_can_load(h.mode, &why);   /* the title screen: before a game is running (#21) */
         if (!why) check(raw, n, &why);
         if (why && strstr(why, "somewhere a state cannot be loaded")) {
             /* a nested loop (a loading screen, a transition) is flipping: wait for the game's
@@ -659,6 +675,16 @@ void ff7_savestate_frame(void) {
             }
         }
         g_wait_since.tv_sec = 0;
+        /* a state from another version waits like any other, but when it still does not fit,
+           the version is the likely reason (its saved stack depth is that build's) */
+        if (why && strstr(why, "stack differs")) {
+            ss_cpu c;
+            if (cpu_record(raw, n, &c))
+                fprintf(stderr, "[savestate] stack check: saved host %llu guest 0x%08X, now host %llu guest 0x%08X; built \"%s\", now \"%s\"\n",
+                        (unsigned long long)c.host_depth, c.esp, (unsigned long long)host_depth(), g_esp, h.build, build_id());
+        }
+        if (why && strstr(why, "host stack differs") && strcmp(h.build, build_id()))
+            why = "it was made by another version of FF7Recomp; save the state again in this version";
         if (why) snprintf(msg, sizeof msg, "Cannot load the state: %s", why);
         else {
             apply(raw, n);

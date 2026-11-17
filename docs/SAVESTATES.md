@@ -24,8 +24,15 @@ There are 10 slots. The in-game buttons use the *current* slot.
 - A load takes effect at the next frame where the game can be swapped, which is usually the
   next frame. During a loading screen or transition it waits up to 10 s for the game's own
   frame loop. If it still cannot load, it says why.
-- *Play from here* and *Resume* load the slot about 1.5 s after the app starts, which skips
-  the credits, title and opening. If the slot is empty, a new game starts instead.
+- *Play from here* and *Resume* skip the credits and title: they continue the first save
+  (or start a new game when there is none) and load the slot once the field is up. If the
+  slot is empty, the game simply continues or starts. (Before 1.1.24 they tried to load during
+  the credits, where a state cannot be loaded.)
+- A state is not loaded over the title screen or the opening credits (`Cannot load the state:
+  the title screen is up`): the game has not set up a game in progress there, and loading
+  crashed (#21). Start or continue a game, then load.
+- A state from another version of FF7Recomp usually cannot be loaded: the message says so.
+  Save it again in the current version.
 - The launcher's *Save states* page lists every slot with its location, play time and save
   date.
 - The game does not see Select+L1 / R1 / Left / Right. Those combinations are reserved for

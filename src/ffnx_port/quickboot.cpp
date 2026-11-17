@@ -5,7 +5,9 @@
 //   files/quickboot.txt  (the launcher's Start setting)  "newgame", "continue" or "resume"
 //   FF7_QUICKBOOT=newgame|continue|resume                (env.txt, tests)
 // "resume [N]" loads save-state slot N (default: the current slot, savestates/current.txt;
-// src/host/ff7_savestate.c) as soon as the game is up.
+// src/host/ff7_savestate.c) once a game is running: it continues the first save (or starts a
+// new game when there is none) and loads the state in the field. A state cannot be loaded over
+// the title screen or the credits (#21: it crashed there).
 // Ticked once per frame from ffnx_recomp::step_code (ff7_limit_fps). Stops for good once the
 // field is reached, after 40 s, or at the first real press of a button.
 #include <chrono>
@@ -36,6 +38,7 @@ uint32_t g_mode = ~0u;
 int64_t g_mode_since, g_started, g_last_press, g_last_skip;
 int g_title_presses;
 char g_resume_slot[48] = "current";
+int g_flow = -1;              // the title menu's choice: 0 new game, 1 continue (resume goes through one)
 
 int64_t now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -135,6 +138,7 @@ void quickboot_frame() {
         g_target = read_target();
         g_started = now_ms();
         if (g_target >= 0) ffnx_info("quickboot: %s\n", g_target == 2 ? "resume the save state" : g_target ? "continue" : "new game");
+        g_flow = g_target == 2 ? (have_saves() ? 1 : 0) : g_target;
     }
     if (g_target < 0 || g_done) return;
     const int64_t t = now_ms();
@@ -146,14 +150,6 @@ void quickboot_frame() {
     if (mode != g_mode) { g_mode = mode; g_mode_since = t; ff7_platform_pad_inject(0); }
     const int64_t in_mode = t - g_mode_since;
 
-    if (g_target == 2) {                                     // resume: load as soon as the game is up
-        if (mode == MODE_CREDITS && in_mode > 1000) {
-            ff7_savestate_request(1, g_resume_slot);
-            finish("loading the save state");
-        }
-        return;
-    }
-
     switch (mode) {
     case MODE_CREDITS:
         if (in_mode > 300) press(PAD_START, t, 250);
@@ -162,10 +158,10 @@ void quickboot_frame() {
         if (in_mode < 800) break;                            // the menu fading in
         const uint8_t cursor = *(volatile uint8_t *)(uintptr_t)TITLE_CURSOR;
         if (g_title_presses == 0) {
-            if (cursor != g_target) press(PAD_UP, t, 300);
+            if (cursor != g_flow) press(PAD_UP, t, 300);
             else if (t - g_last_press >= 300) { press(PAD_OK, t, 0); g_title_presses = 1; }
             else ff7_platform_pad_inject(0);
-        } else if (g_target == 1) {
+        } else if (g_flow == 1) {
             press(PAD_OK, t, 600);                           // Continue: the save file, then its first slot
         } else {
             ff7_platform_pad_inject(0);
@@ -177,7 +173,12 @@ void quickboot_frame() {
         if (ff7_externals.movie_object && ff7_externals.movie_object->is_playing) {
             if (t - g_last_skip > 500) { ff7_skip_movies(); g_last_skip = t; }
         } else if ((g_last_skip && t - g_last_skip > 1500) || in_mode > 6000) {
-            finish("in the field");                          // the FMV starts a moment into the field
+            if (g_target == 2) {                             // resume: a game is running now
+                ff7_savestate_request(1, g_resume_slot);
+                finish("in the field, loading the save state");
+            } else {
+                finish("in the field");                      // the FMV starts a moment into the field
+            }
         }
         break;
     default:
