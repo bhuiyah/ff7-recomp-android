@@ -53,6 +53,9 @@ public class TouchLayoutActivity extends Activity {
         Button reset = new Button(this);
         reset.setText("Reset");
         reset.setOnClickListener(v -> {
+            // reset the controls themselves: recreate() runs onPause(), whose save() would
+            // otherwise write the old layout straight back over the removed setting (#54)
+            controls.setLayout("");
             prefs.edit().remove("touch_layout").apply();
             recreate();
         });
