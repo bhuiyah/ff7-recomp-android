@@ -417,7 +417,13 @@ public class LauncherActivity extends Activity {
     }
 
     private void refresh() {
-        library.load();
+        // only the cached mod info here: opening every archive (a large library on an SD card)
+        // took longer than Android lets the UI thread wait (GitHub #57); the rest is read in
+        // the background, then the page is rebuilt
+        long t0 = android.os.SystemClock.uptimeMillis();
+        if (!library.load(true)) warmMods();
+        long ms = android.os.SystemClock.uptimeMillis() - t0;
+        if (ms > 100) android.util.Log.w("FF7Recomp", "mod list took " + ms + " ms on the UI thread");
         catalog.prune(library.dir);
         updateStatus();
         playButton.setEnabled(ready() && !busy);
@@ -2719,6 +2725,23 @@ public class LauncherActivity extends Activity {
 
     // ------------------------------------------------------------------- plumbing
     private interface Job { String run() throws Exception; }
+
+    private boolean warmingMods;
+
+    /** Read the mods refresh() could not, off the UI thread, then refresh again. */
+    private void warmMods() {
+        if (warmingMods) return;
+        warmingMods = true;
+        new Thread(() -> {
+            long t0 = android.os.SystemClock.uptimeMillis();
+            try { library.warm(); } catch (Throwable t) { android.util.Log.w("FF7Recomp", "mod info: " + t); }
+            android.util.Log.i("FF7Recomp", "mod info read in the background: " + (android.os.SystemClock.uptimeMillis() - t0) + " ms");
+            runOnUiThread(() -> {
+                warmingMods = false;
+                if (!isFinishing() && !isDestroyed()) refresh();
+            });
+        }, "mod-info").start();
+    }
 
     private void background(Job job) {
         busy = true;

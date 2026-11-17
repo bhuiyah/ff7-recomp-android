@@ -57,7 +57,9 @@ final class ModLibrary {
         // hext patches as the last game run applied them (mods/hext_status.txt, written by
         // src/host/ff7_hext.cpp); null if the mod had none or the game has not run with it
         String hext;
-        boolean hextProblem;                                   // a file stopped, or a code patch had no effect
+        boolean hextProblem;
+        // mod.xml not read yet: load(true) left it for the background read (GitHub #57)
+        boolean pending;                                   // a file stopped, or a code patch had no effect
 
         String title() { return name != null && !name.isEmpty() ? name : file; }
         int value(Option o) {
@@ -93,8 +95,51 @@ final class ModLibrary {
         dir.mkdirs();
     }
 
+    // Each mod's nativeModInfo answer, by path, with the size and time it was read at (GitHub #57).
+    // Opening every archive again on each launcher refresh took many seconds with a large library
+    // on an SD card, on the UI thread (Android's "isn't responding"). Process-wide: every
+    // ModLibrary (launcher, download queue) shares it.
+    private static final Map<String, String[]> INFO = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** What changes when a mod is replaced: an archive's size and time; a folder's own time
+     *  (entries added or removed) and its mod.xml's. */
+    private static String stamp(File f) {
+        if (f.isDirectory()) {
+            File x = new File(f, "mod.xml");
+            if (!x.isFile()) x = new File(f, "Mod.xml");
+            return "d" + f.lastModified() + "/" + x.length() + "/" + x.lastModified();
+        }
+        return "f" + f.length() + "/" + f.lastModified();
+    }
+
+    /** The mod's info JSON: from the cache when the file is unchanged, else read (slow: it
+     *  opens the archive) unless `onlyCached`, which returns null instead. */
+    private static String info(File f, boolean onlyCached) {
+        String key = f.getAbsolutePath(), st = stamp(f);
+        String[] c = INFO.get(key);
+        if (c != null && c[0].equals(st)) return c[1];
+        if (onlyCached) return null;
+        String json = nativeModInfo(key);
+        INFO.put(key, new String[] { st, json });
+        return json;
+    }
+
+    /** Read every mod in the folder that is not cached yet (on a background thread). */
+    void warm() {
+        File[] files = dir.listFiles();
+        if (files != null) for (File f : files) {
+            String n = f.getName();
+            if (f.isDirectory() || n.toLowerCase(Locale.ROOT).endsWith(".iro")) info(f, false);
+        }
+    }
+
     /** Re-read the folder and the saved profile. New mods are added at the end, disabled. */
-    void load() {
+    void load() { load(false); }
+
+    /** As load(); with `onlyCached` (the UI thread), mods whose info is not cached are listed
+     *  by file name and marked pending instead of opened. False if any is pending: warm() and
+     *  load again. */
+    boolean load(boolean onlyCached) {
         List<Mod> loaded = new ArrayList<>();
         Map<String, Mod> saved = new LinkedHashMap<>();
         if (profile.exists()) {
@@ -135,7 +180,8 @@ final class ModLibrary {
             loaded.add(m);
             added.add(m);
         }
-        for (Mod m : loaded) readInfo(m);
+        boolean complete = true;
+        for (Mod m : loaded) if (!readInfo(m, onlyCached)) complete = false;
         // A new user interface mod goes above the content loaded: its fonts and menu textures
         // pair with its own hext (the letter widths), so a content mod above it that ships the
         // game's fonts too (Echo-S) would draw them with the wrong widths. 7th Heaven's
@@ -149,6 +195,7 @@ final class ModLibrary {
         }
         mods = new java.util.concurrent.CopyOnWriteArrayList<>(loaded);
         readHextStatus();
+        return complete;
     }
 
     /** One line per mod from the last run's hext_status.txt (TSV: mod, file, state, data,
@@ -192,11 +239,14 @@ final class ModLibrary {
         }
     }
 
-    private void readInfo(Mod m) {
+    /** False if `onlyCached` and the info is not cached (the mod is left pending). */
+    private boolean readInfo(Mod m, boolean onlyCached) {
         try {
-            JSONObject j = new JSONObject(nativeModInfo(new File(dir, m.file).getAbsolutePath()));
+            String info = info(new File(dir, m.file), onlyCached);
+            if (info == null) { m.pending = true; return false; }
+            JSONObject j = new JSONObject(info);
             m.error = j.optString("error", null);
-            if (m.error != null) return;
+            if (m.error != null) return true;
             m.kind = j.optString("kind");
             m.name = j.optString("name");
             m.author = j.optString("author");
@@ -238,6 +288,7 @@ final class ModLibrary {
         } catch (Exception ex) {
             m.error = ex.toString();
         }
+        return true;
     }
 
     /** The saved profile's enabled mods loaded as the game loads them: the game files two of
