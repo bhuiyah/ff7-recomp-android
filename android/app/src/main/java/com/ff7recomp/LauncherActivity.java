@@ -525,17 +525,25 @@ public class LauncherActivity extends Activity {
         return null;
     }
 
+    /** Mods, laid out like FF9Recomp's (the user's wish): a note, one row of buttons, then a row
+     *  per mod with its on/off box, its place in the load order and small buttons. The mods that
+     *  are on come first, in load order, then the ones that are off. */
     private View modsPage() {
         LinearLayout col = column();
         col.addView(heading("Mods"));
-        col.addView(text("Higher in the list wins when two mods change the same file. Mods are 7th Heaven archives (.iro) or mod folders. "
-                + "Mods from Nexus Mods or other sites: download the file (.iro, .zip or .7z), then Add a mod file.", 14, DIM));
+        TextView how = text("FF7Recomp loads the mods that are on, top first: when two change the same file, the higher one wins. "
+                + "▲▼ change the order. Get mods finds more; Add a mod file takes a .iro, .zip or .7z from Nexus Mods or another site.", 13, DIM);
+        how.setPadding(0, dp(2), 0, dp(4));
+        col.addView(how);
         ViewGroup actions = buttonRow();
+        actions.addView(button("Get mods…", v -> show("catalog")));
         actions.addView(button("Add a mod file", v -> pick(PICK_IRO)));
         actions.addView(button("Add folder", v -> pick(PICK_FOLDER)));
-        actions.addView(button("Get mods…", v -> show("catalog")));
-        java.util.List<ModCatalog.Mod> ups = catalog.updates();
-        if (!ups.isEmpty()) actions.addView(button("Update all (" + ups.size() + ")", v -> installMods(ups, true)));
+        if (!library.mods.isEmpty()) {
+            // every mod on or off in one go (GitHub #47)
+            actions.addView(button("All on", v -> allMods(true)));
+            actions.addView(button("All off", v -> allMods(false)));
+        }
         // 7th Heaven's Auto-sort: category order, then the mods' own load-order rules (requested in the comments)
         if (library.mods.size() > 1) {
             Button sort = button("Auto-sort", v -> {
@@ -549,16 +557,15 @@ public class LauncherActivity extends Activity {
             });
             sort.setSingleLine(true);   // one line: "Auto-" / "sort" read badly
             actions.addView(sort);
-            // every mod on or off in one go (GitHub #47)
-            actions.addView(button("All on", v -> allMods(true)));
-            actions.addView(button("All off", v -> allMods(false)));
         }
+        java.util.List<ModCatalog.Mod> ups = catalog.updates();
+        if (!ups.isEmpty()) actions.addView(button("Update all (" + ups.size() + ")", v -> installMods(ups, true)));
         col.addView(actions);
         // what the enabled mods share (computed in the background: archives are read)
         ensureConflicts();
         if (library.enabledCount() > 1) {
             LinearLayout box = column();
-            box.setPadding(0, dp(8), 0, dp(4));
+            box.setPadding(0, dp(6), 0, dp(4));
             ConflictChecker.Report r = conflictReport;
             // while it is checked again the last answer stays, so the list below does not move
             // up and down (GitHub #47)
@@ -580,63 +587,125 @@ public class LauncherActivity extends Activity {
             }
             col.addView(box);
         }
-        if (library.mods.isEmpty()) col.addView(text("\nNo mods yet.", 16, DIM));
-        for (int i = 0; i < library.mods.size(); i++) col.addView(modRow(i));
+        if (library.mods.isEmpty()) col.addView(text("No mods installed yet. Get mods lists 7th Heaven's catalogs; Add a mod file takes one you downloaded.", 16, DIM));
+        java.util.List<ModLibrary.Mod> on = new java.util.ArrayList<>(), off = new java.util.ArrayList<>();
+        for (ModLibrary.Mod m : library.mods) (m.enabled && m.error == null ? on : off).add(m);
+        for (int i = 0; i < on.size(); i++) col.addView(modRow(on.get(i), i, on.size()));
+        for (ModLibrary.Mod m : off) col.addView(modRow(m, -1, on.size()));
         return scroll(col);
     }
 
-    private View modRow(int index) {
-        ModLibrary.Mod m = library.mods.get(index);
-        CheckBox cb = new CheckBox(this);
-        cb.setTextColor(TEXT);
-        cb.setTextSize(18);
-        cb.setText(m.title() + (m.version != null && !m.version.isEmpty() ? "  " + m.version : ""));
-        cb.setChecked(m.enabled && m.error == null);
-        cb.setEnabled(m.error == null);
-        cb.setOnCheckedChangeListener((b, on) -> { m.enabled = on; saveProfile(); ensureConflicts(); });
-        cb.setTag("focus:mod:" + m.file);   // the cursor stays on it when the page is rebuilt (#47)
-        LinearLayout info = column();
-        info.addView(cb);
-        StringBuilder sub = new StringBuilder();
-        if (m.error != null) sub.append("Cannot read: ").append(m.error);
-        else {
-            if (m.author != null && !m.author.isEmpty()) sub.append("by ").append(m.author).append("  ·  ");
-            sub.append(m.file);
-            for (String u : m.unsupported) sub.append("\n⚠ ").append(u).append(" (Windows code, skipped)");
-            String[] inside = new File(library.dir, m.file).list();
-            if (inside != null && inside.length == 0) sub.append("\n⚠ This folder is empty, so it changes nothing. Remove it below.");
-        }
-        info.addView(text(sub.toString(), 13, m.error != null ? 0xFFFF8080 : DIM));
-        if (m.error == null && m.hext != null)
-            info.addView(text((m.hextProblem ? "⚠ " : "") + m.hext, 13, m.hextProblem ? 0xFFFFC060 : DIM));
+    /** A mod: its on/off box (load-order number, name, a dim note), ▲▼ while it is on, then
+     *  Options, Update, Info and Remove; warnings, if any, on a line under it (which files it
+     *  shares with other mods is under All details). */
+    private View modRow(ModLibrary.Mod m, int pos, int onCount) {
         ModCatalog.Installed fromCat = catalog.installedByFile(m.file);
         ModCatalog.Mod catMod = fromCat == null ? null : catalog.byId(fromCat.id);
-        if (catMod != null && catalog.updateAvailable(catMod))
-            info.addView(text("Update available: " + fromCat.versionText + " → " + catMod.versionText, 13, ACCENT));
-        java.util.List<String> notes = conflictReport == null || !m.enabled ? null : conflictReport.perMod.get(m.file.toLowerCase(java.util.Locale.ROOT));
-        if (notes != null) for (int i = 0; i < Math.min(3, notes.size()); i++) info.addView(text("↕ " + notes.get(i), 13, 0xFFE0C080));
-        // the mod's details, then its buttons on a line of their own (side by side, the
-        // buttons left the details no width)
+        boolean update = catMod != null && catalog.updateAvailable(catMod);
+        StringBuilder note = new StringBuilder();
+        String ver = fromCat != null && !fromCat.versionText.isEmpty() ? fromCat.versionText : m.version;
+        if (ver != null && !ver.isEmpty()) note.append(ver.matches("(?i)v.*") ? ver : "v" + ver);
+        if (update) note.append(note.length() > 0 ? ", " : "").append("update ").append(catMod.versionText);
+        if (!m.options.isEmpty()) note.append(note.length() > 0 ? ", " : "").append(m.options.size()).append(m.options.size() == 1 ? " option" : " options");
+        if (catMod == null) note.append(note.length() > 0 ? ", " : "").append("added from a file");
+
         LinearLayout whole = column();
-        whole.setPadding(0, dp(8), 0, dp(8));
-        whole.addView(info);
-        ViewGroup buttons = buttonRow();
-        buttons.setPadding(dp(smallScreen ? 16 : 32), 0, 0, 0);
-        Button up = small("▲", v -> { library.move(index, -1); saveProfile(); refresh(); });
-        up.setTag("focus:up:" + m.file);     // follows the mod to its new place (#47)
-        buttons.addView(up);
-        Button down = small("▼", v -> { library.move(index, +1); saveProfile(); refresh(); });
-        down.setTag("focus:down:" + m.file);
-        buttons.addView(down);
-        if (!m.options.isEmpty()) buttons.addView(small("Options", v -> options(m)));
-        if (catMod != null && catalog.updateAvailable(catMod)) buttons.addView(small("Update", v -> installMods(java.util.Collections.singletonList(catMod), true)));
-        if (catMod != null) buttons.addView(small("Info", v -> modPage(catMod)));
+        whole.setPadding(0, dp(2), 0, dp(2));
+        LinearLayout r = row();
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        CheckBox cb = new CheckBox(this);
+        cb.setTextColor(TEXT);
+        cb.setTextSize(smallScreen ? 15 : 17);
+        cb.setText(withNote((pos >= 0 ? (pos + 1) + ".  " : "") + m.title(), note.toString()));
+        cb.setChecked(pos >= 0);
+        cb.setEnabled(m.error == null);
+        cb.setOnCheckedChangeListener((b, isOn) -> { m.enabled = isOn; saveProfile(); ensureConflicts(); refresh(); });
+        cb.setTag("focus:mod:" + m.file);   // the cursor stays on it when the page is rebuilt (#47)
+        r.addView(cb, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        if (pos >= 0) {
+            Button up = rowButton("▲", v -> moveOn(m, -1));
+            up.setTag("focus:up:" + m.file);     // follows the mod to its new place (#47)
+            up.setEnabled(pos > 0);
+            r.addView(up);
+            Button down = rowButton("▼", v -> moveOn(m, +1));
+            down.setTag("focus:down:" + m.file);
+            down.setEnabled(pos < onCount - 1);
+            r.addView(down);
+        }
+        if (!m.options.isEmpty()) r.addView(rowButton("Options", v -> options(m)));
+        if (update && queue.pending(catMod) == null) r.addView(rowButton("Update", v -> installMods(java.util.Collections.singletonList(catMod), true)));
+        if (catMod != null) {
+            Button info = rowButton("Info", v -> modPage(catMod));
+            info.setTag("focus:info:" + m.file);
+            r.addView(info);
+        }
         // any mod can be removed here, also one added from a file or folder (asked on Reddit)
-        Button rm = small("Remove", v -> removeMod(m, fromCat, catMod));
+        Button rm = rowButton("Remove", v -> removeMod(m, fromCat, catMod));
         rm.setTag("focus:remove:" + m.file);
-        buttons.addView(rm);
-        whole.addView(buttons);
+        r.addView(rm);
+        // the full width: the box's weight has nothing to fill in a row that only wraps its content
+        whole.addView(r, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // only what needs attention goes under the row
+        StringBuilder warn = new StringBuilder();
+        if (m.error != null) warn.append("Cannot read: ").append(m.error);
+        else {
+            for (String u : m.unsupported) warn.append(warn.length() > 0 ? "\n" : "").append("⚠ ").append(u).append(" (Windows code, skipped)");
+            String[] inside = new File(library.dir, m.file).list();
+            if (inside != null && inside.length == 0) warn.append(warn.length() > 0 ? "\n" : "").append("⚠ This folder is empty, so it changes nothing. Remove it.");
+            if (m.hext != null && m.hextProblem) warn.append(warn.length() > 0 ? "\n" : "").append("⚠ ").append(m.hext);
+        }
+        if (warn.length() > 0) {
+            TextView w = text(warn.toString(), 13, m.error != null ? 0xFFFF8080 : 0xFFE0C080);
+            w.setPadding(dp(smallScreen ? 32 : 40), 0, 0, dp(4));
+            whole.addView(w);
+        }
+        whole.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return whole;
+    }
+
+    /** ▲▼ on the Mods page: m trades places with the mod that is on above or below it. */
+    private void moveOn(ModLibrary.Mod m, int dir) {
+        java.util.List<ModLibrary.Mod> mods = library.mods;
+        int i = mods.indexOf(m);
+        if (i < 0) return;
+        for (int j = i + dir; j >= 0 && j < mods.size(); j += dir) {
+            ModLibrary.Mod o = mods.get(j);
+            if (!o.enabled || o.error != null) continue;
+            mods.set(j, m);
+            mods.set(i, o);
+            saveProfile();
+            ensureConflicts();
+            refresh();
+            return;
+        }
+    }
+
+    /** A small button only as wide as its label (FF9Recomp's size): five of them share a mod's
+     *  row with its name. */
+    private Button rowButton(String label, View.OnClickListener l) {
+        Button b = button(label, l);
+        b.setTextSize(14);
+        b.setPadding(dp(10), 0, dp(10), 0);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setMinHeight(dp(34));
+        b.setMinimumHeight(dp(34));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
+        lp.setMarginStart(dp(6));
+        b.setLayoutParams(lp);
+        return b;
+    }
+
+    /** A label with a smaller, dim note after it (as in FF9Recomp). */
+    private CharSequence withNote(String label, String note) {
+        if (note == null || note.isEmpty()) return label;
+        android.text.SpannableStringBuilder b = new android.text.SpannableStringBuilder(label).append("   ");
+        int at = b.length();
+        b.append(note);
+        b.setSpan(new android.text.style.ForegroundColorSpan(DIM), at, b.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        b.setSpan(new android.text.style.RelativeSizeSpan(0.82f), at, b.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return b;
     }
 
     /** Remove a mod from the Mods page: the launcher's copy (its file or folder in the mods
