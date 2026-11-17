@@ -261,6 +261,11 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     /** Launcher setting: 0 auto (one screen and no controller), 1 always, 2 off. */
     private int touchMode;
     private boolean portrait;
+    /** Split (Settings > Screen): the game on top and the second screen's panels below it on the
+     *  same screen, chosen by the window's shape rather than its orientation (a foldable's inner
+     *  screen is about square and often wider than tall, so "portrait" never comes). */
+    private boolean split;
+    private android.widget.FrameLayout bottom;      // split: the panels, the on-screen pad over them
 
     private android.widget.FrameLayout gameFrame;   // the game's SurfaceView and the booster icons
     private CompanionView panel;                     // portrait: the panels below the game
@@ -285,6 +290,21 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         return getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT;
     }
 
+    /** Split: the window has room for a usable panel area under the game at its aspect ratio
+     *  (at least a quarter of the window and 200 dp). A foldable's inner screen has it held either
+     *  way; its cover screen and an ordinary phone in landscape do not, and get the usual layout. */
+    private boolean splitRoom() {
+        android.content.res.Configuration c = getResources().getConfiguration();
+        float ratio = getIntent().getIntExtra("aspect", 2) == 0 ? 3f / 4f : 9f / 16f;
+        float left = c.screenHeightDp - c.screenWidthDp * ratio;
+        boolean room = left >= 200 && left >= c.screenHeightDp * 0.25f;
+        Log.i(TAG, "split: window " + c.screenWidthDp + "x" + c.screenHeightDp + " dp, " + Math.round(left)
+                + " dp below the game: " + (room ? "game on top, panels below" : "no room, landscape"));
+        return room;
+    }
+
+    private boolean wantStacked() { return split ? splitRoom() : portrait && isTall(); }
+
     /**
      * Lay the screen out: landscape (the game fills the window, the on-screen pad over it) or
      * tall (portrait setting: the game on top at its own aspect ratio; below it the panels and
@@ -295,7 +315,9 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         arrangedTall = tall;
         for (android.view.View v : new android.view.View[] { gameFrame, panel, touch })
             if (v != null && v.getParent() != null) ((android.view.ViewGroup) v.getParent()).removeView(v);
+        if (bottom != null && bottom.getParent() != null) ((android.view.ViewGroup) bottom.getParent()).removeView(bottom);
         ((AspectFrame) gameFrame).fill = !tall;
+        if (tall && split) { arrangeSplit(); return; }
         if (!tall) {
             if (touch != null)
                 gameFrame.addView(touch, new android.widget.FrameLayout.LayoutParams(
@@ -314,12 +336,61 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         setContentView(col);
     }
 
+    /**
+     * Split: the game across the top at its aspect ratio; below it the panels the AYN Thor shows on
+     * its second screen (CompanionView, with the deck and CRT settings of the second screen). The
+     * on-screen pad, when it shows, lies over that area: the D-pad and L buttons at its left, the
+     * face and R buttons at its right, and the panels narrow to the space between (fitPanels).
+     * Touches the pad does not use go through to the panels.
+     */
+    private void arrangeSplit() {
+        android.widget.LinearLayout col = new android.widget.LinearLayout(this);
+        col.setOrientation(android.widget.LinearLayout.VERTICAL);
+        col.setBackgroundColor(0xFF000000);
+        col.addView(gameFrame, new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        if (bottom == null) {
+            bottom = new android.widget.FrameLayout(this);
+            bottom.addView(panel, new android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+            if (getIntent().getBooleanExtra("crt_filter", false)) bottom.addView(new CrtOverlay(this));
+        } else if (panel.getParent() == null) {
+            bottom.addView(panel, 0);
+        }
+        if (touch != null) {
+            touch.setPassThrough(true);
+            touch.setOnPlaced(this::fitPanels);
+            bottom.addView(touch, new android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        col.addView(bottom, new android.widget.LinearLayout.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        setContentView(col);
+    }
+
+    /** Split: the panels between the pad's two sides while it shows, the whole width otherwise. */
+    private void fitPanels() {
+        if (!split || panel == null || !(panel.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams)) return;
+        android.widget.FrameLayout.LayoutParams lp = (android.widget.FrameLayout.LayoutParams) panel.getLayoutParams();
+        boolean on = touch != null && touch.getVisibility() == android.view.View.VISIBLE && touch.getParent() == bottom;
+        int gap = Math.round(8 * getResources().getDisplayMetrics().density);
+        int l = on ? Math.round(touch.leftEdge()) + gap : 0, r = on ? Math.round(touch.rightEdge()) + gap : 0;
+        if (lp.leftMargin == l && lp.rightMargin == r) return;
+        lp.leftMargin = l;
+        lp.rightMargin = r;
+        panel.setLayoutParams(lp);
+    }
+
+    private void setTouchVisible(boolean show) {
+        touch.setVisibility(show ? android.view.View.VISIBLE : android.view.View.GONE);
+        fitPanels();
+    }
+
     /** Portrait chosen: follow the window's shape until the game starts (its renderer is made at
      *  the first size). */
     @Override
     public void onConfigurationChanged(android.content.res.Configuration c) {
         super.onConfigurationChanged(c);
-        if (portrait && !started && isTall() != arrangedTall) arrange(isTall());
+        if ((portrait || split) && !started && wantStacked() != arrangedTall) arrange(wantStacked());
         ui.post(this::followGameDisplay);
     }
 
@@ -328,7 +399,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
      *  panels already were and covered it: a blank screen with the game's sound). The panels go
      *  to the screen the game is not on. */
     private void followGameDisplay() {
-        if (portrait || panelsFor < 0 || isFinishing()) return;
+        if (portrait || (split && arrangedTall) || panelsFor < 0 || isFinishing()) return;
         Display mine = Compat.display(this);
         if (mine == null || mine.getDisplayId() == panelsFor) return;
         displayLog("game moved from display " + panelsFor + " to " + mine.getDisplayId() + ": panels placed again");
@@ -510,7 +581,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private void updateTouch() {
         if (touch == null) return;
         boolean show = touchMode == 1 || (touchMode == 0 && companion == null && companionHost == null && !gamepadConnected());
-        touch.setVisibility(show ? android.view.View.VISIBLE : android.view.View.GONE);
+        setTouchVisible(show);
         if (!show && (touchButtons != 0 || touchLt != 0 || touchRt != 0)) {
             touchButtons = touchLt = touchRt = 0;
             sendPad();
@@ -540,7 +611,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         if (bit == 0) return super.dispatchKeyEvent(e);   // volume etc. stay with the system
         // a controller is in use: the on-screen pad (auto) steps aside
         if (touchMode == 0 && touch != null && touch.getVisibility() == android.view.View.VISIBLE
-                && (isGamepad(e.getDevice()) || isPhysicalKeyboard(e.getDevice()))) touch.setVisibility(android.view.View.GONE);
+                && (isGamepad(e.getDevice()) || isPhysicalKeyboard(e.getDevice()))) setTouchVisible(false);
         if (e.getAction() == KeyEvent.ACTION_DOWN) padButtons |= bit;
         else if (e.getAction() == KeyEvent.ACTION_UP) padButtons &= ~bit;
         sendPad();
@@ -577,8 +648,12 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         loadGame(this);
         // The screen stays on while the game runs (it timed out and the device slept mid-game).
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        portrait = getIntent().getBooleanExtra("portrait", false);
+        split = getIntent().getBooleanExtra("split", false);
+        portrait = !split && getIntent().getBooleanExtra("portrait", false);
         if (portrait) setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
+        // split: any way the device is held (the manifest's sensorLandscape would turn a
+        // foldable's inner screen sideways)
+        if (split) setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
         SurfaceView view = new SurfaceView(this);
         view.getHolder().addCallback(this);
         // the game, and the game boosters' icons over its top-right corner (BoosterIcons)
@@ -605,12 +680,15 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             });
             touch.setLayout(getIntent().getStringExtra("touch_layout"));   // size, opacity, positions (#28)
         }
-        if (portrait) panel = new CompanionView(this);
-        arrange(portrait && isTall());
+        if (portrait || split) panel = new CompanionView(this);
+        if (split) panel.setDeck(getIntent().getBooleanExtra("bottom_buttons", true));
+        arrange(wantStacked());
         preferHighestRefreshRate(getWindow(), Compat.display(this));
         startDisplayWatch();
         Compat.hideSystemBars(getWindow());
-        if (!portrait) showCompanion();   // in portrait the panels are on this screen
+        // in portrait and split the panels are on this screen; Split on a screen without room
+        // below the game (a dual-screen handheld's top screen) keeps the second screen's panels
+        if (!portrait && !(split && arrangedTall)) showCompanion();
         updateTouch();
         ((android.hardware.input.InputManager) getSystemService(Context.INPUT_SERVICE)).registerInputDeviceListener(deviceListener, null);
         android.content.IntentFilter padFilter = new android.content.IntentFilter("com.ff7recomp.test.PAD");

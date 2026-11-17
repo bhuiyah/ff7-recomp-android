@@ -61,6 +61,19 @@ final class TouchControls extends View {
     private float dragX, dragY;
     private Runnable onEdited;
 
+    // Split layout (GameActivity.arrangeSplit): the pad lies over the panels, so a finger that
+    // lands on no button goes through to them, and the panels are told where the pad's sides end.
+    private boolean passThrough;
+    private Runnable onPlaced;
+    void setPassThrough(boolean on) { passThrough = on; }
+    void setOnPlaced(Runnable r) { onPlaced = r; }
+
+    /** How far the D-pad and the left buttons reach in from the left edge. */
+    float leftEdge() { return Math.max(bounds(G_PAD).right, bounds(G_LEFT).right); }
+
+    /** How far the face and right buttons reach in from the right edge. */
+    float rightEdge() { return getWidth() - Math.min(bounds(G_FACE).left, bounds(G_RIGHT).left); }
+
     /** "scale;opacity;padX,padY;faceX,faceY;leftX,leftY;rightX,rightY" (Settings > On-screen controls). */
     void setLayout(String layout) {
         java.util.Arrays.fill(groupOff, 0f);
@@ -151,6 +164,7 @@ final class TouchControls extends View {
                 groupOff[2 * gi + 1] += dy / h;
             }
         }
+        if (onPlaced != null) post(onPlaced);
     }
 
     private Btn[] members(int g) {
@@ -233,6 +247,8 @@ final class TouchControls extends View {
     @Override
     public boolean onTouchEvent(MotionEvent e) {
         if (editing) return drag(e);
+        // split: a first finger on no button belongs to the panels under the pad
+        if (passThrough && e.getActionMasked() == MotionEvent.ACTION_DOWN && hit(e.getX(), e.getY()) == 0) return false;
         int s = 0;
         int lifted = -1;
         int act = e.getActionMasked();

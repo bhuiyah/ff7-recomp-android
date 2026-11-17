@@ -1678,18 +1678,21 @@ public class LauncherActivity extends Activity {
             { "0", "Landscape", "The game fills the screen" },
             { "1", "Portrait (phones)", "The game on top; below it the party, location and enemy HP, a touch deck "
                     + "(menu, save/load state, speed) and the on-screen controls" },
+            { "2", "Split (foldables, tablets)", "Held either way: the game on top and the second screen's panels below it, "
+                    + "with the on-screen controls at their sides when they show. Screens without room below the game "
+                    + "(a foldable's cover screen) play in landscape" },
         };
-        boolean curPortrait = prefs.getBoolean("portrait", false);
+        int curLayout = prefs.getBoolean("split", false) ? 2 : prefs.getBoolean("portrait", false) ? 1 : 0;
         for (String[] o : orientations) {
             RadioButton rb = new RadioButton(this);
             rb.setId(View.generateViewId());
             rb.setText(o[1] + "\n" + o[2]);
             rb.setTextColor(TEXT);
             rb.setTextSize(16);
-            final boolean v = o[0].equals("1");
-            rb.setOnClickListener(x -> prefs.edit().putBoolean("portrait", v).apply());
+            final int v = Integer.parseInt(o[0]);
+            rb.setOnClickListener(x -> prefs.edit().putBoolean("portrait", v == 1).putBoolean("split", v == 2).apply());
             or.addView(rb);
-            if (v == curPortrait) rb.setChecked(true);
+            if (v == curLayout) rb.setChecked(true);
         }
         col.addView(or);
         col.addView(space(16));
@@ -2580,6 +2583,7 @@ public class LauncherActivity extends Activity {
                     .putExtra("touch_controls", prefs.getInt("touch_controls", 0))
                     .putExtra("touch_layout", prefs.getString("touch_layout", ""))
                     .putExtra("portrait", prefs.getBoolean("portrait", false))
+                    .putExtra("split", prefs.getBoolean("split", false))
                     .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
                     .putExtra("bottom_buttons", prefs.getBoolean("bottom_buttons", true))
                     .putExtra("crt_filter", prefs.getBoolean("crt_filter", false))
