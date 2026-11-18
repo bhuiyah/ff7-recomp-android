@@ -383,6 +383,45 @@ struct host_pool<R(A...)> {
     }
 };
 
+// A native function standing in for a game thiscall function (replace_function): the guest
+// caller passes `this` in ecx and the rest on the stack. FFNx writes such replacements as
+// __fastcall with a dummy edx parameter, which means nothing on arm64: without this pool the
+// cdecl thunk read `this` from the stack and every argument came one place off (GitHub #59:
+// the snowboard minigame crashed on its first frame). Like the cdecl thunks it pops only
+// the return address: the override runner pops the original's `ret N` bytes
+// (src/host/ff7_overrides.c), so popping them here too would unbalance the stack.
+template <typename Sig> struct host_pool_this;
+template <typename R, typename T, typename... A>
+struct host_pool_this<R(T, A...)> {
+    static_assert(std::is_pointer_v<T>, "a thiscall replacement takes `this` as a pointer");
+    using fp = R (*)(T, A...);
+    static constexpr int N = 16;
+    static inline fp fns[N];
+    static inline uint32_t vas[N];
+    static inline int used;
+    template <int I> static void thunk() {
+        T self = ptr_of<std::remove_pointer_t<T>>(g_ecx);
+        run_export<R, A...>([self](A... a) { return fns[I](self, a...); }, false);   // the runner pops ret N
+    }
+    template <int... I>
+    static constexpr std::array<recomp_func_t, N> make(std::integer_sequence<int, I...>) { return { &thunk<I>... }; }
+    static uint32_t va_for(fp f) {
+        static const std::array<recomp_func_t, N> thunks = make(std::make_integer_sequence<int, N>{});
+        for (int i = 0; i < used; i++) if (fns[i] == f) return vas[i];
+        if (used == N) fatal("host_pool_this exhausted for a signature", (uintptr_t)f);
+        int i = used++;
+        fns[i] = f;
+        char *name = static_cast<char *>(std::malloc(40));
+        std::snprintf(name, 40, "host_this:%p", reinterpret_cast<void *>(f));
+        win32hle_shim one[2] = { { name, thunks[i] }, { nullptr, nullptr } };
+        win32hle_register(one);
+        vas[i] = hle_resolve(name);
+        return vas[i];
+    }
+};
+template <typename R, typename T, typename... A>
+inline uint32_t thiscall_va_of(R (*f)(T, A...)) { return host_pool_this<R(T, A...)>::va_for(f); }
+
 // ---- gfn<Sig>: a 4-byte function pointer in game memory --------------------------------
 // From a value below 4 GB it is a guest address (a game function, or a cast integer as
 // in FFNx's externals tables); from a native function it is a pooled thunk.

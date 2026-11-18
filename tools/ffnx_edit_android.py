@@ -478,6 +478,20 @@ EDITS = [
      '\tif (*(const uint8_t *)(uintptr_t)0x68944F == 0xE8 && *(const uint32_t *)(uintptr_t)0x68944B == 0x6893CA)   // FF7Recomp: US 1.02 layout\n'
      '\t\treplace_call_function(0x68944F, ff7r_effect_thread_sync);\n'
      '#endif\n'),
+    # GitHub #59: the game calls 0x732159 as thiscall (`this` in ecx, then 4 stack
+    # arguments); FFNx's replacement is __fastcall with a dummy edx, which arm64 ignores, so
+    # the cdecl thunk took `this` from the stack and the snowboard minigame crashed on its
+    # first frame. Registered through a thiscall thunk instead (src/ffnx_bridge/guest_abi.h).
+    ('ff7_opengl.cpp',
+     '\treplace_function(ff7_externals.snowboard_parse_model_vertices_732159, ff7_snowboard_parse_model_vertices);\n',
+     '#ifdef FFNX_ANDROID\n'
+     '\tffnx_recomp::replace_function_va(ff7_externals.snowboard_parse_model_vertices_732159,\n'
+     '\t\tguest::thiscall_va_of(+[](snowboard_this *self, const matrix *m, int current_obj, int obj_type, int unk) {\n'
+     '\t\t\tff7_snowboard_parse_model_vertices(self, nullptr, m, current_obj, obj_type, unk);\n'
+     '\t\t}), "replace_function (thiscall)");   // FF7Recomp (#59)\n'
+     '#else\n'
+     '\treplace_function(ff7_externals.snowboard_parse_model_vertices_732159, ff7_snowboard_parse_model_vertices);\n'
+     '#endif\n'),
     ('ff7_opengl.cpp', 'void ff7_init_hooks(struct game_obj *_game_object)\n',
      '#ifdef FFNX_ANDROID\n'
      '// FF7Recomp: _beginthread(0x6893CA, stack, obj) run in place (see tools/ffnx_edit_android.py).\n'
