@@ -950,7 +950,7 @@ public class CompanionView extends View {
             android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
             if (getDisplay() != null) o.setLaunchDisplayId(getDisplay().getDisplayId());
             getContext().startActivity(i, o.toBundle());
-            GameActivity.guideOpened();
+            GameActivity.guideOpened(getDisplay() != null ? getDisplay().getDisplayId() : -1);
         } catch (RuntimeException e) {
             flash = "Pixel Guide could not open";
             flashUntil = System.currentTimeMillis() + 2500;

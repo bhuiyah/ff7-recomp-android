@@ -45,11 +45,19 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
 
     /** Pixel Guide is opening on the bottom screen: the panels step aside (a Presentation is
      *  drawn above activities), and the game is put back in front on the top screen so the
-     *  pad keeps playing the game while the guide stays in view. */
-    static void guideOpened() {
+     *  pad keeps playing the game while the guide stays in view. Opened from panels on the game's
+     *  own screen (Portrait, Split: one screen), the guide covers the game instead, and the back
+     *  button or Recents returns to it: bringing the game back in front there closed the guide a
+     *  moment after it opened (#56). */
+    static void guideOpened(int guideDisplay) {
         GameActivity a = current;
         if (a == null) return;
         a.runOnUiThread(() -> {
+            Display game = Compat.display(a);
+            if (game != null && game.getDisplayId() == guideDisplay) {
+                Log.i(TAG, "Pixel Guide opened over the game (one screen)");
+                return;
+            }
             if (a.companion != null) a.companion.hide();
             a.showGuideTab(true);
             new android.os.Handler(a.getMainLooper()).postDelayed(() -> {
