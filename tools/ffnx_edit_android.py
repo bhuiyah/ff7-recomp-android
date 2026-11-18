@@ -126,6 +126,17 @@ EDITS = [
      '#else\n'
      '                eye_data.static_left_eye_filename = filename.data();\n'
      '#endif'),
+    # A model with no default eye file names (an NPC in Wonder Square): `gptr ? gptr : ""` makes
+    # the "" a guest pointer, and a host literal is not guest memory, so the game closed on
+    # entering Wonder Square with advanced blinking on (GitHub issue #60). Read the name as a
+    # host char pointer first.
+    ('ff7/field/kawai_eyetx.cpp',
+     '            const char *left_filename = defaults.static_left_eye_filename ? defaults.static_left_eye_filename : "";\n'
+     '            const char *right_filename = defaults.static_right_eye_filename ? defaults.static_right_eye_filename : "";',
+     '            const char *left_filename = defaults.static_left_eye_filename;   // FF7Recomp (#60)\n'
+     '            if (!left_filename) left_filename = "";\n'
+     '            const char *right_filename = defaults.static_right_eye_filename;\n'
+     '            if (!right_filename) right_filename = "";'),
     # 120 FPS world map: the movement multiplier (2, divided by 4) is stepped 0/1 per frame,
     # but the game stores it only once, when the world map starts: on a 0 frame the player
     # turns but cannot walk. Step the variable itself as well.
