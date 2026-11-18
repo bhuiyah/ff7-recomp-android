@@ -319,6 +319,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         ((AspectFrame) gameFrame).fill = !tall;
         if (tall && split) { arrangeSplit(); return; }
         if (!tall) {
+            if (touch != null) touch.setPassThrough(false);
             if (touch != null)
                 gameFrame.addView(touch, new android.widget.FrameLayout.LayoutParams(
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
@@ -373,10 +374,17 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         android.widget.FrameLayout.LayoutParams lp = (android.widget.FrameLayout.LayoutParams) panel.getLayoutParams();
         boolean on = touch != null && touch.getVisibility() == android.view.View.VISIBLE && touch.getParent() == bottom;
         int gap = Math.round(8 * getResources().getDisplayMetrics().density);
-        int l = on ? Math.round(touch.leftEdge()) + gap : 0, r = on ? Math.round(touch.rightEdge()) + gap : 0;
-        if (lp.leftMargin == l && lp.rightMargin == r) return;
+        int l = on ? Math.round(touch.leftEdge()) + gap : 0, r = on ? Math.round(touch.rightEdge()) + gap : 0, b = 0;
+        // a narrow screen (a foldable's cover screen held upright): too little room between the
+        // pad's sides, so the panels take the whole width above the pad instead (#56)
+        if (on && touch.narrow()) {
+            l = r = 0;
+            b = Math.max(0, Math.round(touch.getHeight() - touch.topEdge()) + gap);
+        }
+        if (lp.leftMargin == l && lp.rightMargin == r && lp.bottomMargin == b) return;
         lp.leftMargin = l;
         lp.rightMargin = r;
+        lp.bottomMargin = b;
         panel.setLayoutParams(lp);
     }
 

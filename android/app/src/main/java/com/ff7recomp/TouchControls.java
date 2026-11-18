@@ -67,9 +67,19 @@ final class TouchControls extends View {
     private Runnable onPlaced;
     void setPassThrough(boolean on) { passThrough = on; }
     void setOnPlaced(Runnable r) { onPlaced = r; }
+    private boolean narrow;
+    /** Split: the panels go above the pad rather than between its sides (see place). */
+    boolean narrow() { return narrow; }
 
     /** How far the D-pad and the left buttons reach in from the left edge. */
     float leftEdge() { return Math.max(bounds(G_PAD).right, bounds(G_LEFT).right); }
+
+    /** The top of the highest group (split: the panels end above it when the screen is narrow). */
+    float topEdge() {
+        float t = Float.MAX_VALUE;
+        for (int g = 0; g < 4; g++) t = Math.min(t, bounds(g).top);
+        return t;
+    }
 
     /** How far the face and right buttons reach in from the right edge. */
     float rightEdge() { return getWidth() - Math.min(bounds(G_FACE).left, bounds(G_RIGHT).left); }
@@ -127,7 +137,15 @@ final class TouchControls extends View {
     protected void onSizeChanged(int w, int h, int ow, int oh) { place(w, h); }
 
     private void place(int w, int h) {
-        unit = Math.min(w, h) / 8f * scale;
+        // Split: the pad lies over the panel area under the game, a strip much lower than the
+        // screen. Its size follows the whole window, as in Settings > On-screen controls (where the
+        // size is chosen full screen), not the strip; capped so the shoulder buttons and the D-pad
+        // below them still fit the strip's height (#56: the pad came out about a third smaller).
+        float ref = Math.min(w, h);
+        View root = passThrough ? getRootView() : null;
+        if (root != null && root.getWidth() > 0 && root.getHeight() > 0) ref = Math.min(root.getWidth(), root.getHeight());
+        unit = ref / 8f * scale;
+        if (passThrough) unit = Math.min(unit, h / 4.6f);
         line.setStrokeWidth(Math.max(2f, unit * 0.04f));
         text.setTextSize(unit * 0.38f);
         small.setTextSize(unit * 0.24f);
@@ -152,6 +170,26 @@ final class TouchControls extends View {
         float pw = unit * 1.4f, ph = unit * 0.5f, py = m + sh + unit * 0.25f;
         select.r.set(m, py, m + pw, py + ph);
         start.r.set(w - m - pw, py, w - m, py + ph);
+        // Split on a narrow screen (a foldable's cover screen held upright): the panels between
+        // the pad's sides would be a thin column, so they go above the pad instead, the shoulder
+        // groups brought down from the strip's top to sit just above the D-pad and face buttons.
+        // Chosen by which gives the panels (drawn at min(w/1240, h/1080), CompanionView) more
+        // room (#56).
+        narrow = false;
+        if (passThrough) {
+            float gap = 8 * getResources().getDisplayMetrics().density;
+            float top = Math.min(bounds(G_PAD).top, bounds(G_FACE).top) - unit * 0.3f;
+            float shoulders = Math.max(bounds(G_LEFT).height(), bounds(G_RIGHT).height());
+            float between = Math.min((w - leftEdge() - rightEdge() - 2 * gap) / 1240f, h / 1080f);
+            float above = Math.min(w / 1240f, (top - shoulders - gap) / 1080f);
+            if (above > between) {
+                narrow = true;
+                for (int gi : new int[] { G_LEFT, G_RIGHT }) {
+                    float dy = top - bounds(gi).bottom;
+                    if (dy > 0) shift(gi, 0, dy);
+                }
+            }
+        }
         // each group moved by its offset, then kept on the screen (a bigger size can push it off)
         for (int gi = 0; gi < 4; gi++) {
             shift(gi, groupOff[2 * gi] * w, groupOff[2 * gi + 1] * h);
