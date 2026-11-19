@@ -23,13 +23,18 @@ import android.view.View;
  * Settings > On-screen controls (GitHub #28): a size, an opacity and where each of the four groups
  * sits (the D-pad, the face buttons, L2/L1/SELECT, R1/R2/START), as a layout string (layout()).
  * In edit mode (TouchLayoutActivity) a finger drags a group instead of pressing buttons.
+ *
+ * Optional (Settings > On-screen controls > Size and layout, "Right stick, L3 and R3", GitHub #62):
+ * an analog right stick above the face buttons (a fifth group; the battle camera with FFNx's
+ * analogue controls) and L3 / R3 under SELECT / START (FFNx's L3 shortcuts, e.g. L3+R1 speed).
  */
 final class TouchControls extends View {
-    interface Listener { void pad(int buttons, int lt, int rt); }
+    interface Listener { void pad(int buttons, int lt, int rt, int rx, int ry); }
 
     private static final int UP = 0x0001, DOWN = 0x0002, LEFT = 0x0004, RIGHT = 0x0008;
     private static final int START = 0x0010, SELECT = 0x0020, L1 = 0x0100, R1 = 0x0200;
     private static final int CIRCLE = 0x2000, CROSS = 0x1000, SQUARE = 0x4000, TRIANGLE = 0x8000;
+    private static final int L3 = 0x0040, R3 = 0x0080;
     private static final int L2 = 1 << 20, R2 = 1 << 21;    // triggers: sent as analog values
 
     private static final class Btn {
@@ -43,8 +48,17 @@ final class TouchControls extends View {
             x = new Btn(SQUARE, "X", "", true), y = new Btn(TRIANGLE, "Y", "Menu", true),
             l1 = new Btn(L1, "L1", "", false), l2 = new Btn(L2, "L2", "", false),
             r1 = new Btn(R1, "R1", "", false), r2 = new Btn(R2, "R2", "", false),
-            select = new Btn(SELECT, "SELECT", "", false), start = new Btn(START, "START", "", false);
-    private final Btn[] buttons = { a, b, x, y, l1, l2, r1, r2, select, start };
+            select = new Btn(SELECT, "SELECT", "", false), start = new Btn(START, "START", "", false),
+            l3 = new Btn(L3, "L3", "", false), r3 = new Btn(R3, "R3", "", false);
+    private final Btn[] base = { a, b, x, y, l1, l2, r1, r2, select, start },
+            withExtra = { a, b, x, y, l1, l2, r1, r2, select, start, l3, r3 };
+    private Btn[] buttons = base;
+
+    // the right stick (#62): its ring, the finger that holds it and where the knob is (-1..1)
+    private boolean extra;
+    private float stickX, stickY, stickR;
+    private int stickPointer = -1;
+    private float knobX, knobY;
 
     private final Listener listener;
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG), fill = new Paint(Paint.ANTI_ALIAS_FLAG),
@@ -53,9 +67,9 @@ final class TouchControls extends View {
     private int state;
 
     // the four groups that move together
-    static final int G_PAD = 0, G_FACE = 1, G_LEFT = 2, G_RIGHT = 3;
+    static final int G_PAD = 0, G_FACE = 1, G_LEFT = 2, G_RIGHT = 3, G_STICK = 4, GROUPS = 5;
     private float scale = 1f;
-    private final float[] groupOff = new float[8];   // each group's offset, as fractions of the width / height
+    private final float[] groupOff = new float[2 * GROUPS];   // each group's offset, as fractions of the width / height
     private boolean editing;
     private int dragGroup = -1;
     private float dragX, dragY;
@@ -74,17 +88,37 @@ final class TouchControls extends View {
     /** How far the D-pad and the left buttons reach in from the left edge. */
     float leftEdge() { return Math.max(bounds(G_PAD).right, bounds(G_LEFT).right); }
 
+    /** Shows the right stick, L3 and R3 (#62). */
+    void setExtra(boolean on) {
+        extra = on;
+        buttons = on ? withExtra : base;
+        if (!on) release();
+        if (getWidth() > 0) { place(getWidth(), getHeight()); invalidate(); }
+    }
+    boolean extra() { return extra; }
+
+    private int groups() { return extra ? GROUPS : 4; }
+
+    private void release() {
+        stickPointer = -1;
+        knobX = knobY = 0;
+    }
+
     /** The top of the highest group (split: the panels end above it when the screen is narrow). */
     float topEdge() {
         float t = Float.MAX_VALUE;
-        for (int g = 0; g < 4; g++) t = Math.min(t, bounds(g).top);
+        for (int g = 0; g < groups(); g++) t = Math.min(t, bounds(g).top);
         return t;
     }
 
     /** How far the face and right buttons reach in from the right edge. */
-    float rightEdge() { return getWidth() - Math.min(bounds(G_FACE).left, bounds(G_RIGHT).left); }
+    float rightEdge() {
+        float l = Math.min(bounds(G_FACE).left, bounds(G_RIGHT).left);
+        if (extra) l = Math.min(l, bounds(G_STICK).left);
+        return getWidth() - l;
+    }
 
-    /** "scale;opacity;padX,padY;faceX,faceY;leftX,leftY;rightX,rightY" (Settings > On-screen controls). */
+    /** "scale;opacity;padX,padY;faceX,faceY;leftX,leftY;rightX,rightY[;stickX,stickY]" (Settings > On-screen controls). */
     void setLayout(String layout) {
         java.util.Arrays.fill(groupOff, 0f);
         scale = 1f;
@@ -94,7 +128,7 @@ final class TouchControls extends View {
                 String[] p = layout.split(";");
                 scale = Math.max(0.5f, Math.min(2f, Float.parseFloat(p[0])));
                 alpha = Math.max(0.15f, Math.min(1f, Float.parseFloat(p[1])));
-                for (int g = 0; g < 4 && 2 + g < p.length; g++) {
+                for (int g = 0; g < GROUPS && 2 + g < p.length; g++) {
                     String[] xy = p[2 + g].split(",");
                     groupOff[2 * g] = Float.parseFloat(xy[0]);
                     groupOff[2 * g + 1] = Float.parseFloat(xy[1]);
@@ -108,7 +142,7 @@ final class TouchControls extends View {
     String layout() {
         StringBuilder b = new StringBuilder();
         b.append(String.format(java.util.Locale.ROOT, "%.2f;%.2f", scale, getAlpha()));
-        for (int g = 0; g < 4; g++) b.append(String.format(java.util.Locale.ROOT, ";%.4f,%.4f", groupOff[2 * g], groupOff[2 * g + 1]));
+        for (int g = 0; g < GROUPS; g++) b.append(String.format(java.util.Locale.ROOT, ";%.4f,%.4f", groupOff[2 * g], groupOff[2 * g + 1]));
         return b.toString();
     }
 
@@ -170,6 +204,14 @@ final class TouchControls extends View {
         float pw = unit * 1.4f, ph = unit * 0.5f, py = m + sh + unit * 0.25f;
         select.r.set(m, py, m + pw, py + ph);
         start.r.set(w - m - pw, py, w - m, py + ph);
+        // L3 / R3 under SELECT / START, in their groups (#62)
+        float py3 = py + ph + unit * 0.2f;
+        l3.r.set(m, py3, m + pw, py3 + ph);
+        r3.r.set(w - m - pw, py3, w - m, py3 + ph);
+        // the right stick, above the face buttons (#62)
+        stickR = unit * 0.85f;
+        stickX = fx;
+        stickY = fy - off - br - unit * 0.35f - stickR;
         // Split on a narrow screen (a foldable's cover screen held upright): the panels between
         // the pad's sides would be a thin column, so they go above the pad instead, the shoulder
         // groups brought down from the strip's top to sit just above the D-pad and face buttons.
@@ -178,7 +220,9 @@ final class TouchControls extends View {
         narrow = false;
         if (passThrough) {
             float gap = 8 * getResources().getDisplayMetrics().density;
-            float top = Math.min(bounds(G_PAD).top, bounds(G_FACE).top) - unit * 0.3f;
+            float top = Math.min(bounds(G_PAD).top, bounds(G_FACE).top);
+            if (extra) top = Math.min(top, bounds(G_STICK).top);
+            top -= unit * 0.3f;
             float shoulders = Math.max(bounds(G_LEFT).height(), bounds(G_RIGHT).height());
             float between = Math.min((w - leftEdge() - rightEdge() - 2 * gap) / 1240f, h / 1080f);
             float above = Math.min(w / 1240f, (top - shoulders - gap) / 1080f);
@@ -191,7 +235,7 @@ final class TouchControls extends View {
             }
         }
         // each group moved by its offset, then kept on the screen (a bigger size can push it off)
-        for (int gi = 0; gi < 4; gi++) {
+        for (int gi = 0; gi < groups(); gi++) {
             shift(gi, groupOff[2 * gi] * w, groupOff[2 * gi + 1] * h);
             RectF r = bounds(gi);
             float dx = r.left < 0 ? -r.left : r.right > w ? w - r.right : 0;
@@ -208,19 +252,21 @@ final class TouchControls extends View {
     private Btn[] members(int g) {
         switch (g) {
             case G_FACE: return new Btn[] { a, b, x, y };
-            case G_LEFT: return new Btn[] { l2, l1, select };
-            case G_RIGHT: return new Btn[] { r1, r2, start };
+            case G_LEFT: return extra ? new Btn[] { l2, l1, select, l3 } : new Btn[] { l2, l1, select };
+            case G_RIGHT: return extra ? new Btn[] { r1, r2, start, r3 } : new Btn[] { r1, r2, start };
             default: return new Btn[0];
         }
     }
 
     private void shift(int g, float dx, float dy) {
         if (g == G_PAD) { padX += dx; padY += dy; return; }
+        if (g == G_STICK) { stickX += dx; stickY += dy; return; }
         for (Btn btn : members(g)) btn.r.offset(dx, dy);
     }
 
     private RectF bounds(int g) {
         if (g == G_PAD) return new RectF(padX - padR, padY - padR, padX + padR, padY + padR);
+        if (g == G_STICK) return new RectF(stickX - stickR, stickY - stickR, stickX + stickR, stickY + stickR);
         RectF r = null;
         for (Btn btn : members(g)) { if (r == null) r = new RectF(btn.r); else r.union(btn.r); }
         return r;
@@ -232,7 +278,7 @@ final class TouchControls extends View {
     protected void onDraw(Canvas c) {
         if (editing) {
             fill.setColor(0x30FFD54F);
-            for (int g = 0; g < 4; g++) {
+            for (int g = 0; g < groups(); g++) {
                 RectF r = bounds(g);
                 r.inset(-unit * 0.15f, -unit * 0.15f);
                 fill.setColor(g == dragGroup ? 0x60FFD54F : 0x30FFD54F);
@@ -247,6 +293,17 @@ final class TouchControls extends View {
         drawArrow(c, 0, 1, DOWN);
         drawArrow(c, -1, 0, LEFT);
         drawArrow(c, 1, 0, RIGHT);
+        if (extra) {
+            // right stick: a ring and a knob that follows the finger
+            fill.setColor(0x26FFFFFF);
+            c.drawCircle(stickX, stickY, stickR, fill);
+            c.drawCircle(stickX, stickY, stickR, line);
+            float kr = stickR * 0.45f, kx = stickX + knobX * (stickR - kr), ky = stickY + knobY * (stickR - kr);
+            fill.setColor(stickPointer >= 0 ? 0x90FFFFFF : 0x50FFFFFF);
+            c.drawCircle(kx, ky, kr, fill);
+            c.drawCircle(kx, ky, kr, line);
+            c.drawText("R", kx, ky - (text.descent() + text.ascent()) / 2, text);
+        }
         for (Btn btn : buttons) {
             boolean on = (state & btn.bit) != 0;
             fill.setColor(on ? 0x90FFFFFF : 0x26FFFFFF);
@@ -286,21 +343,43 @@ final class TouchControls extends View {
     public boolean onTouchEvent(MotionEvent e) {
         if (editing) return drag(e);
         // split: a first finger on no button belongs to the panels under the pad
-        if (passThrough && e.getActionMasked() == MotionEvent.ACTION_DOWN && hit(e.getX(), e.getY()) == 0) return false;
+        if (passThrough && e.getActionMasked() == MotionEvent.ACTION_DOWN && hit(e.getX(), e.getY()) == 0
+                && !onStick(e.getX(), e.getY())) return false;
         int s = 0;
         int lifted = -1;
         int act = e.getActionMasked();
         if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_POINTER_UP) lifted = e.getActionIndex();
+        float oldKx = knobX, oldKy = knobY;
+        boolean oldHeld = stickPointer >= 0;
+        // the right stick: a finger that lands on it holds it until it lifts, wherever it slides
+        if (act == MotionEvent.ACTION_CANCEL) release();
+        else if (extra) {
+            if (act == MotionEvent.ACTION_DOWN || act == MotionEvent.ACTION_POINTER_DOWN) {
+                int i = e.getActionIndex();
+                if (stickPointer < 0 && onStick(e.getX(i), e.getY(i))) stickPointer = e.getPointerId(i);
+            }
+            if (lifted >= 0 && e.getPointerId(lifted) == stickPointer) release();
+            int si = stickPointer >= 0 ? e.findPointerIndex(stickPointer) : -1;
+            if (si >= 0) {
+                float dx = (e.getX(si) - stickX) / (stickR * 0.8f), dy = (e.getY(si) - stickY) / (stickR * 0.8f);
+                float d = (float) Math.hypot(dx, dy);
+                if (d > 1f) { dx /= d; dy /= d; }
+                knobX = dx; knobY = dy;
+            } else if (stickPointer >= 0) release();
+        }
         if (act != MotionEvent.ACTION_CANCEL) {
             for (int i = 0; i < e.getPointerCount(); i++) {
-                if (i == lifted) continue;
+                if (i == lifted || (stickPointer >= 0 && e.getPointerId(i) == stickPointer)) continue;
                 s |= hit(e.getX(i), e.getY(i));
             }
         }
-        if (s != state) {
-            if ((s & ~state) != 0) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        boolean stickMoved = knobX != oldKx || knobY != oldKy;
+        if (s != state || stickMoved) {
+            if ((s & ~state) != 0 || (stickPointer >= 0 && !oldHeld)) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
             state = s;
-            listener.pad(s & 0xFFFF, (s & L2) != 0 ? 255 : 0, (s & R2) != 0 ? 255 : 0);
+            // XInput: Y points up, the screen's down
+            listener.pad(s & 0xFFFF, (s & L2) != 0 ? 255 : 0, (s & R2) != 0 ? 255 : 0,
+                         Math.round(knobX * 32767f), Math.round(-knobY * 32767f));
             invalidate();
         }
         return true;
@@ -311,7 +390,7 @@ final class TouchControls extends View {
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN: {
                 dragGroup = -1;
-                for (int g = 0; g < 4; g++) {
+                for (int g = 0; g < groups(); g++) {
                     RectF r = bounds(g);
                     r.inset(-unit * 0.3f, -unit * 0.3f);
                     if (r.contains(e.getX(), e.getY())) { dragGroup = g; break; }
@@ -339,8 +418,14 @@ final class TouchControls extends View {
         return true;
     }
 
+    /** Whether a finger at (px, py) takes the right stick. */
+    private boolean onStick(float px, float py) {
+        return extra && Math.hypot(px - stickX, py - stickY) < stickR * 1.2f;
+    }
+
     /** What a finger at (px, py) presses. */
     private int hit(float px, float py) {
+        if (onStick(px, py)) return 0;
         float dx = px - padX, dy = py - padY;
         float d = (float) Math.hypot(dx, dy);
         if (d < padR * 1.35f) {

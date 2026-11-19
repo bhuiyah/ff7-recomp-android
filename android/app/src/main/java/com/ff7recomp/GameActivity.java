@@ -306,7 +306,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     // the on-screen pad (TouchControls), added to the real one
-    private int touchButtons, touchLt, touchRt;
+    private int touchButtons, touchLt, touchRt, touchRx, touchRy;
     private TouchControls touch;
     /** Launcher setting: 0 auto (one screen and no controller), 1 always, 2 off. */
     private int touchMode;
@@ -485,8 +485,10 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
 
     private void sendPad() {
         int buttons = padButtons | hatButtons | touchButtons | testButtons;
+        // the on-screen right stick (#62) when the real one is centred
+        boolean real = padRx != 0 || padRy != 0;
         nativePad(buttons, Math.max(padLt, touchLt), Math.max(padRt, touchRt),
-                  padLx, padLy, padRx, padRy);
+                  padLx, padLy, real ? padRx : touchRx, real ? padRy : touchRy);
         // Select+Start held for a second: leave the game (GitHub #42)
         boolean combo = (buttons & 0x0030) == 0x0030;
         if (combo != quitHeld) {
@@ -600,7 +602,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         if (isFinishing() || (quitDialog != null && quitDialog.isShowing())) return;
         // the dialog takes the keys from here: the game sees everything let go
         padButtons = hatButtons = touchButtons = testButtons = 0;
-        padLt = padRt = touchLt = touchRt = 0;
+        padLt = padRt = touchLt = touchRt = touchRx = touchRy = 0;
         sendPad();
         quitDialog = new android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Leave the game?")
@@ -640,8 +642,8 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         if (touch == null) return;
         boolean show = touchMode == 1 || (touchMode == 0 && companion == null && companionHost == null && !gamepadConnected());
         setTouchVisible(show);
-        if (!show && (touchButtons != 0 || touchLt != 0 || touchRt != 0)) {
-            touchButtons = touchLt = touchRt = 0;
+        if (!show && (touchButtons != 0 || touchLt != 0 || touchRt != 0 || touchRx != 0 || touchRy != 0)) {
+            touchButtons = touchLt = touchRt = touchRx = touchRy = 0;
             sendPad();
         }
     }
@@ -730,12 +732,15 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         touchMode = getIntent().getIntExtra("touch_controls", 0);
         if (touchMode != 2) {
-            touch = new TouchControls(this, (buttons, lt, rt) -> {
+            touch = new TouchControls(this, (buttons, lt, rt, rx, ry) -> {
                 touchButtons = buttons;
                 touchLt = lt;
                 touchRt = rt;
+                touchRx = rx;
+                touchRy = ry;
                 sendPad();
             });
+            touch.setExtra(getIntent().getBooleanExtra("touch_extra", false));   // right stick, L3, R3 (#62)
             touch.setLayout(getIntent().getStringExtra("touch_layout"));   // size, opacity, positions (#28)
         }
         if (portrait || split) panel = new CompanionView(this);

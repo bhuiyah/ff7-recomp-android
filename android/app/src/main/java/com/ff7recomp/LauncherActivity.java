@@ -2608,6 +2608,7 @@ public class LauncherActivity extends Activity {
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)
                     .putExtra("touch_controls", prefs.getInt("touch_controls", 0))
                     .putExtra("touch_layout", prefs.getString("touch_layout", ""))
+                    .putExtra("touch_extra", prefs.getBoolean("touch_extra", false))
                     .putExtra("portrait", prefs.getBoolean("portrait", false))
                     .putExtra("split", prefs.getBoolean("split", false))
                     .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
