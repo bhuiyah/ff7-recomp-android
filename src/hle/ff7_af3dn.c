@@ -21,7 +21,17 @@
 #define W8(p)  (*(uint8_t *)(uintptr_t)(p))
 #define W32(p) (*(uint32_t *)(uintptr_t)(p))
 
-static long g_sfx_volume = -1, g_music_volume = -1;   /* FFNx cfg defaults (unset) */
+/* The game's volumes are FFNx's external_sfx_volume / external_music_volume (FFNx.toml, which
+ * the launcher's Settings > Sound writes), as under FFNx on Windows. -1 there means "unset":
+ * FFNx would read the Steam ff7sound.cfg, which Android does not have, so it is 100 here.
+ * Weak, for builds without FFNx linked. */
+extern long external_sfx_volume __attribute__((weak));
+extern long external_music_volume __attribute__((weak));
+static long g_sfx_volume = -1, g_music_volume = -1;   /* the game's own Config menu, this session */
+
+static long *sfx_cfg(void)   { return &external_sfx_volume ? &external_sfx_volume : &g_sfx_volume; }
+static long *music_cfg(void) { return &external_music_volume ? &external_music_volume : &g_music_volume; }
+static uint32_t volume_of(long v) { return v < 0 ? 100u : v > 100 ? 100u : (uint32_t)v; }
 
 static void d_RegOpenKeyExA(void)  { RET(ERROR_SUCCESS, 5); }   /* (hKey, sub, opts, sam, phk) */
 static void d_RegCloseKey(void)    { RET(ERROR_SUCCESS, 1); }
@@ -35,10 +45,10 @@ static void d_RegSetValueExA(void) {
     if (name && data) {
         if (!strcmp(name, "SFXVolume")) {
             if (W8(data) > 0x64) W8(data) = 0x64;
-            g_sfx_volume = W8(data);
+            *sfx_cfg() = W8(data);
         } else if (!strcmp(name, "MusicVolume")) {
             if (W8(data) > 0x64) W8(data) = 0x64;
-            g_music_volume = W8(data);
+            *music_cfg() = W8(data);
         }
     }
     RET(ERROR_SUCCESS, 6);
@@ -62,8 +72,11 @@ static void d_RegQueryValueExA(void) {
     else if (!strcmp(name, "DD_GUID") || !strcmp(name, "Sound_GUID")) memset(out, 0, cb);
     else if (!strcmp(name, "MIDI_DeviceID")) W8(data) = 0;
     else if (!strcmp(name, "Sound") || !strcmp(name, "Midi") || !strcmp(name, "wave_music")) ret = 2;
-    else if (!strcmp(name, "SFXVolume"))   W8(data) = (uint8_t)g_sfx_volume;
-    else if (!strcmp(name, "MusicVolume")) W8(data) = (uint8_t)g_music_volume;
+    /* The whole DWORD: the exe (0x4075B0) reads into an uninitialised stack DWORD and clamps it
+     * to 0..100, so a lone low byte (0xFF for "unset") left the volume to stack garbage: 0 or 100,
+     * whatever the launcher said (GitHub #55). */
+    else if (!strcmp(name, "SFXVolume"))   { if (cb >= 4) W32(data) = volume_of(*sfx_cfg()); else W8(data) = (uint8_t)volume_of(*sfx_cfg()); }
+    else if (!strcmp(name, "MusicVolume")) { if (cb >= 4) W32(data) = volume_of(*music_cfg()); else W8(data) = (uint8_t)volume_of(*music_cfg()); }
     else if (!strcmp(name, "Driver"))      W8(data) = 3;
     else if (!strcmp(name, "DriverPath"))  snprintf(out, cb, "AF3DN.P");
     else if (!strcmp(name, "Mode")) {
