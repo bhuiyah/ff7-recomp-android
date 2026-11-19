@@ -62,14 +62,8 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             a.showGuideTab(true);
             new android.os.Handler(a.getMainLooper()).postDelayed(() -> {
                 // Android gives keys to the display that last started or touched an activity:
-                // starting the game again on the top screen (singleTask: no new instance, see
-                // onNewIntent) makes that screen the focused one while the guide stays in view.
-                try {
-                    android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
-                    if (Compat.display(a) != null) o.setLaunchDisplayId(Compat.display(a).getDisplayId());
-                    a.startActivity(new Intent(a, GameActivity.class).putExtra("refocus", true)
-                            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NO_ANIMATION), o.toBundle());
-                } catch (RuntimeException e) { Log.w(TAG, "game not brought back in front: " + e); }
+                // the game is made the focused one again while the guide stays in view.
+                a.bringToFront();
             }, 900);
         });
     }
@@ -80,6 +74,54 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         Log.i(TAG, "back in front" + (intent.getBooleanExtra("refocus", false) ? " (guide open)" : ""));
+    }
+
+    // Low memory with another app in front on the other screen (GitHub #59). Touching Pixel Guide
+    // (or any app) on the bottom screen makes it Android's top app, and the game, still on screen
+    // above it, drops to "visible": with ~500 MB it was then the first thing Android's low-memory
+    // killer closed, before the guide. When Android reports memory running low while the game is
+    // on screen but not the top app, the game is put back in front: it is the top app again (and
+    // the controller plays it), and the other app is the one Android trims or closes first.
+    private boolean onScreen, topResumed = true;
+    private long lastLowMemoryRefocus;
+
+    @Override
+    protected void onStart() { super.onStart(); onScreen = true; }
+
+    @Override
+    protected void onStop() { onScreen = false; super.onStop(); }
+
+    @Override
+    public void onTopResumedActivityChanged(boolean top) {
+        super.onTopResumedActivityChanged(top);
+        topResumed = top;
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level != TRIM_MEMORY_RUNNING_MODERATE && level != TRIM_MEMORY_RUNNING_LOW
+                && level != TRIM_MEMORY_RUNNING_CRITICAL) return;
+        if (!onScreen || topResumed || isFinishing()) {
+            Log.i(TAG, "memory running low (level " + level + ")" + (onScreen && !topResumed ? "" : ", game in front or not on screen"));
+            return;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastLowMemoryRefocus < 2000) return;
+        lastLowMemoryRefocus = now;
+        Log.i(TAG, "memory running low (level " + level + ") with another app in front: game back in front");
+        bringToFront();
+    }
+
+    /** Make the game the focused (top) activity again on its own screen: starting it there again
+     *  (singleTask: no new instance, see onNewIntent) moves Android's focus to that screen. */
+    private void bringToFront() {
+        try {
+            android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
+            if (Compat.display(this) != null) o.setLaunchDisplayId(Compat.display(this).getDisplayId());
+            startActivity(new Intent(this, GameActivity.class).putExtra("refocus", true)
+                    .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NO_ANIMATION), o.toBundle());
+        } catch (RuntimeException e) { Log.w(TAG, "game not brought back in front: " + e); }
     }
 
     /** Android's install confirmation for Pixel Guide is on the bottom screen: the panels step
@@ -830,12 +872,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         // on its own screen so the controller keeps playing it (as in guideOpened).
         new android.os.Handler(a.getMainLooper()).postDelayed(() -> {
             if (current != a || a.isFinishing()) return;
-            try {
-                android.app.ActivityOptions o = android.app.ActivityOptions.makeBasic();
-                if (Compat.display(a) != null) o.setLaunchDisplayId(Compat.display(a).getDisplayId());
-                a.startActivity(new Intent(a, GameActivity.class).putExtra("refocus", true)
-                        .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NO_ANIMATION), o.toBundle());
-            } catch (RuntimeException e) { Log.w(TAG, "game not brought back in front: " + e); }
+            a.bringToFront();
         }, 400);
     }
 
