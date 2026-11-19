@@ -27,6 +27,8 @@ import java.util.Map;
  *     (the game's files from Steam into that folder, in the background; logcat FF7SteamFiles)
  *   adb shell am broadcast -a com.ff7recomp.test.STEAM_CLOUD -n com.ff7recomp/.TestControl --es op list|sync|delete
  *     [--es dir SAVES --es state FILE] --es folder TESTFOLDER   (sync refuses the real FF7Recomp folder; folder PC: the PC game's saves, for a test save folder; delete refuses both)
+ *   adb shell am broadcast -a com.ff7recomp.test.SET -n com.ff7recomp/.TestControl --es storage_custom /sdcard/FF7RecompTest
+ *     (use the files in that folder, moving nothing; "" goes back to the app's own folder. GitHub #61)
  *   adb shell am broadcast -a com.ff7recomp.test.SCREEN -n com.ff7recomp/.TestControl --es size 640x480@240
  *     (the launcher as on that screen from its next start; --es size "" turns it off)
  *
@@ -56,6 +58,8 @@ public class TestControl extends BroadcastReceiver {
             TYPES.put(k, Boolean.class);
         TYPES.put("quickboot", String.class);
         TYPES.put("touch_layout", String.class);
+        // Settings > Storage > Custom folder's path ("" = the app's own folder), switched without moving anything
+        TYPES.put("storage_custom", String.class);
     }
 
     @Override

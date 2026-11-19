@@ -16,6 +16,11 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Rumble (Settings > Controller): the device's motor, or a controller's. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Settings > Storage > Custom folder (GitHub #61): the files in a folder the player picks, such
+         as /sdcard/FF7Recomp. Asked for only when they choose one (Storage.java). -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
     <!-- Pixel Guide: the bottom screen's book opens it when it is installed (CompanionView) -->
     <queries>
         <package android:name="app.nanostack.pixelguide" />
@@ -28,6 +33,7 @@
         android:hasCode="true"
         android:extractNativeLibs="true"
         android:isGame="true"
+        android:requestLegacyExternalStorage="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
         <!-- The entry point: game files, mods, settings, Play (LauncherActivity.java). -->
         <activity

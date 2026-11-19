@@ -35,7 +35,18 @@ import java.io.File;
  * quitting it lands back here and Play can start a fresh one.
  */
 public class LauncherActivity extends Activity {
-    private static final int PICK_GAME = 1, PICK_IRO = 2, PICK_FOLDER = 3, PICK_PSX = 4;
+    private static final int PICK_GAME = 1, PICK_IRO = 2, PICK_FOLDER = 3, PICK_PSX = 4, PICK_STORAGE = 5;
+    /** Settings > Storage > Custom folder sent the player to grant All files access: pick the folder when they are back. */
+    private boolean wantStorageFolder;
+
+    /** Back with All files access: a custom folder that only lacked it is usable again (restart
+     *  into it), else pick the folder. */
+    private void storageAccessBack() {
+        wantStorageFolder = false;
+        if (!Storage.allFilesAccess(this)) return;
+        if (Storage.place(this) == Storage.CUSTOM && Storage.customProblem(this) == null) restartLauncher();
+        else pick(PICK_STORAGE);
+    }
     // FF7-style menus: blue gradient windows with a light double border, white text with a drop
     // shadow, cyan labels, a pointing-glove cursor (HandCursor.java) on the menu.
     private static final int BG = 0xFF03050C, ACCENT = 0xFF7FD8FF, TEXT = 0xFFF4F6FF, DIM = 0xFFB4C0E4;
@@ -285,6 +296,11 @@ public class LauncherActivity extends Activity {
             new android.os.Handler(getMainLooper()).post(() -> toastDialog("Your game files are on the SD card, which is "
                     + "not inserted. Insert it and open FF7Recomp again (Settings > Storage moves them back to internal "
                     + "storage)."));
+        String customProblem = Storage.customProblem(this);
+        if (customProblem != null)
+            new android.os.Handler(getMainLooper()).post(() -> toastDialog(customProblem + ". Until that is fixed the "
+                    + "launcher uses the app's own folder in internal storage, so your game files, mods and saves are "
+                    + "missing. Settings > Storage > Custom folder asks for the access again."));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.HORIZONTAL);
@@ -364,6 +380,7 @@ public class LauncherActivity extends Activity {
     protected void onResume() {
         super.onResume();
         hideSystemBars();
+        if (wantStorageFolder) storageAccessBack();   // back from Android's All files access screen
         queue.setListener(this::queueChanged);
         loadSounds();
         refresh();
@@ -1450,34 +1467,40 @@ public class LauncherActivity extends Activity {
         }
         col.addView(lg);
         File sd = Storage.sdRoot(this);
-        if (sd != null || Storage.onSd(this)) {
+        {
             col.addView(space(10));
             col.addView(heading("Storage"));
             col.addView(text("Where your game files, mods, saves and save states are kept. Moving them takes a few "
-                    + "minutes; the built game itself always stays in internal storage.", 14, DIM));
+                    + "minutes; the built game itself always stays in internal storage. A custom folder (for example "
+                    + "/sdcard/FF7Recomp) is easy to back up or sync, and needs Android's \"All files access\".", 14, DIM));
             RadioGroup sg = new RadioGroup(this);
-            boolean onSd = Storage.onSd(this);
-            String[][] places = {
-                { "0", "Internal storage", ModDownloader.human(Storage.internalRoot(this).getUsableSpace()) + " free" },
-                { "1", "SD card", sd != null ? ModDownloader.human(sd.getUsableSpace()) + " free" : "not inserted" },
-            };
+            int place = Storage.place(this);
+            File custom = Storage.customRoot(this);
+            java.util.List<String[]> places = new java.util.ArrayList<>();
+            places.add(new String[] { "0", "Internal storage", ModDownloader.human(Storage.internalRoot(this).getUsableSpace()) + " free" });
+            if (sd != null || place == Storage.SD)
+                places.add(new String[] { "1", "SD card", sd != null ? ModDownloader.human(sd.getUsableSpace()) + " free" : "not inserted" });
+            places.add(new String[] { "2", "Custom folder", custom != null
+                    ? custom.getAbsolutePath() + (custom.isDirectory() ? ", " + ModDownloader.human(custom.getUsableSpace()) + " free" : ", not there")
+                    : "A folder you choose on the device or the SD card" });
             for (String[] pl : places) {
                 RadioButton rb = new RadioButton(this);
                 rb.setId(View.generateViewId());
                 rb.setText(pl[1] + "\n" + pl[2]);
                 rb.setTextColor(TEXT);
                 rb.setTextSize(16);
-                final boolean toSd = pl[0].equals("1");
-                rb.setChecked(toSd == onSd);
-                rb.setEnabled(!toSd || sd != null);
+                final int to = Integer.parseInt(pl[0]);
+                rb.setChecked(to == place);
+                rb.setEnabled(to != Storage.SD || sd != null);
                 rb.setOnClickListener(x -> {
-                    if (toSd == Storage.onSd(this)) return;
-                    moveStorage(toSd);
+                    if (to == Storage.CUSTOM) customStorage();
+                    else if (to != Storage.place(this)) moveStorage(to, null);
                     refresh();                               // the radio shows the real place until moved
                 });
                 sg.addView(rb);
             }
             col.addView(sg);
+            if (place == Storage.CUSTOM) col.addView(small("Choose another folder", v -> customStorage()));
         }
         col.addView(space(10));
         col.addView(heading("Frame rate"));
@@ -2021,6 +2044,7 @@ public class LauncherActivity extends Activity {
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
         if (res != RESULT_OK || data == null) return;
+        if (req == PICK_STORAGE) { pickedStorageFolder(data.getData()); return; }
         if (req == PICK_GAME) {
             // JobService (#53): the import goes on in the background, and Continue after a stop
             // needs the folder again, so the permission is kept until the import ends
@@ -2155,7 +2179,7 @@ public class LauncherActivity extends Activity {
         col.addView(where);
         col.addView(text("With the PC game: a save changed on only one side goes to the other. The first time, a save file "
                 + "that differs on both sides keeps the newer one, and the other copy is backed up in "
-                + "Android/data/com.ff7recomp/files/steam/cloud-backup. The PC picks the saves up the next time FINAL "
+                + new File(install.files, "steam/cloud-backup").getAbsolutePath() + ". The PC picks the saves up the next time FINAL "
                 + "FANTASY VII starts there (with Steam Cloud on).", 13, DIM));
         if (prefs.getBoolean("cloud_saves", false)) {
             String last = prefs.getString("cloud_last", null);
@@ -2637,30 +2661,96 @@ public class LauncherActivity extends Activity {
         try { library.save(); } catch (Exception e) { toastDialog("Could not save the mod list: " + e); }
     }
 
-    /** Settings > Storage: move everything to the SD card or back, then restart the launcher. */
-    private void moveStorage(boolean toSd) {
-        if (busy) return;
-        if (GameBuild.running) { toastDialog("Not moved: the game is being built. Wait for the build to finish."); return; }
-        if (JobService.running != null || JobService.pending(this) != null) { toastDialog("Not moved: finish or cancel the download or import on the Game files page first."); return; }
-        if (sQueue != null && sQueue.pendingCount() > 0) { toastDialog("Not moved: mods are downloading. Wait for them, or cancel them, first."); return; }
-        android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
-        if (am != null && am.getRunningAppProcesses() != null)
-            for (android.app.ActivityManager.RunningAppProcessInfo pi : am.getRunningAppProcesses())
-                if (pi.processName.endsWith(":game")) { toastDialog("Not moved: close the game first."); return; }
+    /** Nothing is using the files now (a build, a download, the game), else says so and returns false. */
+    private boolean canMoveStorage() {
+        if (busy) return false;
+        if (GameBuild.running) { toastDialog("Not moved: the game is being built. Wait for the build to finish."); return false; }
+        if (JobService.running != null || JobService.pending(this) != null) { toastDialog("Not moved: finish or cancel the download or import on the Game files page first."); return false; }
+        if (sQueue != null && sQueue.pendingCount() > 0) { toastDialog("Not moved: mods are downloading. Wait for them, or cancel them, first."); return false; }
+        if (TestControl.gamePid(this) > 0) { toastDialog("Not moved: close the game first."); return false; }
+        return true;
+    }
+
+    /** Every per-process object points at the old folder: start the launcher afresh. */
+    private void restartLauncher() {
+        startActivity(Intent.makeRestartActivityTask(new android.content.ComponentName(this, LauncherActivity.class)));
+        Runtime.getRuntime().exit(0);
+    }
+
+    /** Settings > Storage: move everything to internal storage, the SD card or a custom folder, then restart the launcher. */
+    private void moveStorage(int place, File custom) {
+        if (!canMoveStorage()) return;
         long size = Storage.size(install.files);
+        String where = place == Storage.CUSTOM ? custom.getAbsolutePath() : place == Storage.SD ? "the SD card" : "internal storage";
         ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setMessage("Move your game files, mods, saves and save states (" + ModDownloader.human(size) + ") to "
-                        + (toSd ? "the SD card" : "internal storage") + "? The launcher restarts when it is done.")
+                        + where + "? The launcher restarts when it is done.")
                 .setPositiveButton("Move", (d, w) -> background(() -> {
-                    Storage.move(this, toSd, this::progress);
-                    runOnUiThread(() -> {
-                        startActivity(Intent.makeRestartActivityTask(new android.content.ComponentName(this, LauncherActivity.class)));
-                        Runtime.getRuntime().exit(0);   // every per-process object points at the old folder
-                    });
+                    Storage.move(this, place, custom, this::progress);
+                    runOnUiThread(this::restartLauncher);
                     return null;
                 }))
                 .setNegativeButton("Cancel", null)
                 .show());
+    }
+
+    /** Settings > Storage > Custom folder (GitHub #61): All files access first, then the folder. */
+    private void customStorage() {
+        if (!canMoveStorage()) return;
+        if (Storage.allFilesAccess(this)) { pick(PICK_STORAGE); return; }
+        ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setMessage("To keep your files in a folder you choose, FF7Recomp needs Android's \"All files access\" "
+                        + "(apps can only use their own Android/data folder without it). Turn it on for FF7Recomp on the "
+                        + "next screen, then go back and pick the folder.")
+                .setPositiveButton("Continue", (d, w) -> {
+                    wantStorageFolder = true;
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        try {
+                            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                    Uri.parse("package:" + getPackageName())));
+                        } catch (Exception e) {
+                            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+                        }
+                    } else {
+                        requestPermissions(new String[] { android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                                android.Manifest.permission.READ_EXTERNAL_STORAGE }, 10);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show());
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int req, String[] perms, int[] res) {
+        super.onRequestPermissionsResult(req, perms, res);
+        if (req == 10 && wantStorageFolder) storageAccessBack();
+    }
+
+    /** The folder picked for Settings > Storage > Custom folder. */
+    private void pickedStorageFolder(Uri tree) {
+        File to = Storage.treeToPath(tree);
+        String why = Storage.customRefusal(this, to);
+        if (why != null) { toastDialog("Not moved. " + why); return; }
+        if (to.isDirectory() && !Storage.emptyEnough(to)) {
+            if (!Storage.looksLikeOurs(to)) {
+                toastDialog("Not moved: " + to.getAbsolutePath() + " already has other files in it. Pick an empty folder, "
+                        + "or create a new one in the folder picker.");
+                return;
+            }
+            ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setMessage(to.getAbsolutePath() + " already has FF7Recomp's files in it (a backup, or a synced copy). "
+                            + "Use the files there? Your current files stay where they are ("
+                            + install.files.getAbsolutePath() + "); delete them yourself once you no longer need them. "
+                            + "The launcher restarts.")
+                    .setPositiveButton("Use them", (d, w) -> {
+                        try { Storage.useCustom(this, to); restartLauncher(); }
+                        catch (java.io.IOException e) { toastDialog("Not changed: " + e.getMessage()); }
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show());
+            return;
+        }
+        moveStorage(Storage.CUSTOM, to);
     }
 
     // ------------------------------------------------------------- Sound, Game options

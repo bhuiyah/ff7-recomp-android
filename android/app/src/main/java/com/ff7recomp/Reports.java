@@ -164,7 +164,7 @@ final class Reports {
         if (pm != null) s.append("\nPower saving: ").append(pm.isPowerSaveMode() ? "on" : "off");
         s.append("\n");
         File root = Storage.root(c);
-        s.append("Files: ").append(root.getAbsolutePath()).append(Storage.onSd(c) ? " (SD card)" : "").append(", ")
+        s.append("Files: ").append(root.getAbsolutePath()).append(Storage.place(c) == Storage.CUSTOM ? " (custom folder" + (Storage.customProblem(c) != null ? ", unusable: " + Storage.customProblem(c) : "") + ")" : Storage.onSd(c) ? " (SD card)" : "").append(", ")
          .append(root.getUsableSpace() >> 20).append(" MB free\n");
         File[] game = new File(root, "game").listFiles();
         s.append("Game folder: ").append(game == null ? "missing" : game.length + " entries").append("\n\n");
