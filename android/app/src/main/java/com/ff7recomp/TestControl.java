@@ -33,7 +33,8 @@ import java.util.Map;
  *     (the launcher as on that screen from its next start; --es size "" turns it off)
  *
  * SET takes typed extras (--ei / --ez / --es); a string is converted to the setting's type
- * (fps 0 Original, 1 Original fixed, 2 30 FPS battles, 3 60 FPS, 4 120 FPS; renderer 0 Vulkan,
+ * (fps 0 Original, 1 Original fixed, 2 30 FPS battles, 3 60 FPS, 4 120 FPS,
+ * 5 60 FPS with battles at 30; renderer 0 Vulkan,
  * 1 OpenGL ES; quickboot "" / newgame / continue / resume; ...). Unknown names are refused.
  * Play is an activity start (Android does not let a broadcast receiver start one in the
  * background): the launcher presses Play once it is ready; test_start overrides the Start setting

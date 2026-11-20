@@ -946,6 +946,12 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         started = true;
         File base = Storage.root(this);
         File game = new File(base, "game");
+        // GitHub #64: "60 FPS, battles at 30" (frame rate 5): FFNx runs its 60 FPS mode with x2
+        // battles when FF7_BATTLE30=1 (tools/ffnx_edit_android.py).
+        try {
+            android.system.Os.setenv("FF7_BATTLE30", getIntent().getIntExtra("fps", -1) == 5 ? "1" : "0", true);
+        } catch (Exception ignored) {
+        }
         nativeStart(game.getAbsolutePath(), base.getAbsolutePath());
         startRumble(getApplicationContext());
     }

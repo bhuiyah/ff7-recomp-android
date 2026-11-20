@@ -1506,7 +1506,7 @@ public class LauncherActivity extends Activity {
         col.addView(heading("Frame rate"));
         RadioGroup g = new RadioGroup(this);
         int cur = prefs.getInt("fps", 3);
-        for (int mode = 0; mode <= 4; mode++) {
+        for (int mode : new int[] { 0, 1, 2, 5, 3, 4 }) {   // 5: 60 FPS with battles at 30 (#64)
             RadioButton rb = new RadioButton(this);
             rb.setId(View.generateViewId());
             // one line: the name, then a short dim note
@@ -1866,6 +1866,7 @@ public class LauncherActivity extends Activity {
             case 1: return "Original, fixed";
             case 2: return "30 FPS battles";
             case 4: return "120 FPS (experimental)";
+            case 5: return "60 FPS, battles at 30";
             default: return "60 FPS";
         }
     }
@@ -1876,6 +1877,7 @@ public class LauncherActivity extends Activity {
             case 1: return "As shipped, smoother pacing";
             case 2: return "Battles at 30, the rest as shipped";
             case 4: return "Field at 120; world map and battles at 60";
+            case 5: return "Everything at 60 but battles, for devices that slow down in battle";
             default: return "Everything at 60";
         }
     }
@@ -2597,7 +2599,7 @@ public class LauncherActivity extends Activity {
             install.openGl = prefs.getInt("renderer", 0) == 1;
             install.ffnxOptions = FfnxOptions.chosen(prefs);
             int aspect = prefs.getInt("aspect", 2);   // 3: 16:9 stretched by Android (GameActivity), FFNx renders 16:9
-            install.writeFfnxToml(prefs.getInt("fps", 3), boosterSpeed() > 1, aspect == 3 ? 2 : aspect, prefs.getBoolean("show_fps", false), library.mods,
+            install.writeFfnxToml(prefs.getInt("fps", 3) == 5 ? 3 : prefs.getInt("fps", 3), boosterSpeed() > 1, aspect == 3 ? 2 : aspect, prefs.getBoolean("show_fps", false), library.mods,
                                   renderScaleCap());
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
             install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false),

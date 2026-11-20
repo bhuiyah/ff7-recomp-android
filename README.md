@@ -37,7 +37,8 @@ and I would rather you know before you install it.
 
 ## What you get
 
-- The game running natively (no emulation, no Wine/FEX), at 30, 60 or 120 FPS.
+- The game running natively (no emulation, no Wine/FEX), at 30, 60 or 120 FPS, or 60 FPS with
+  battles at 30 for devices that slow down in battle.
 - A launcher: import your game files, browse and install mods from the 7th Heaven catalogs
   (.iro, .zip, .7z), set mod order and options, settings, save states, achievements. It plays
   FF7's own menu sounds (or your mods' versions of them).
@@ -194,6 +195,10 @@ does: by category, then by each mod's own load-order rules (for example Finishin
 Enhanced Stock UI). Those rules, and the option values one mod sets for another for compatibility,
 also apply in game whatever the list order, as 7th Heaven applies them at launch. Large mods download and unpack on the device; you
 can keep using the launcher meanwhile. You can also add your own `.iro` files or mod folders.
+
+**Frame rate: use Settings, not a mod.** Don't install the **60/30 FPS Gameplay** mod, even if a PC
+modding guide lists it: it doesn't work with FF7Recomp. Choose the frame rate under **Settings > Frame rate** instead (30 FPS battles, 60 FPS, 60 FPS with battles at
+30, or 120 FPS).
 
 ## Steam achievements and cloud saves
 

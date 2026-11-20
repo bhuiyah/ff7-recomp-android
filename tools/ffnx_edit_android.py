@@ -1708,6 +1708,23 @@ EDITS = [
      'extern "C" void ff7r_ffnx_audio_suspend(int on) { nxAudioEngine.ff7rSuspend(on != 0); }   // FF7Recomp\n'
      '#endif\n\n'
      'bool NxAudioEngine::init()\n'),
+    # GitHub #64: "60 FPS, battles at 30" (FF7_BATTLE30=1, set by GameActivity for that frame-rate
+    # choice): the field, world map and minigames run at 60, battles at 30 (x2), for devices that
+    # hold 60 in the field but not in battle. The battle code below keys on the battle multiplier
+    # instead of the limiter, so x2 battles get the 30 FPS patches inside the 60 FPS mode.
+    ('ff7_opengl.cpp',
+     '   // FF7Recomp: 120 FPS battles are opt-in until every effect is checked at x8\n',
+     '   // FF7Recomp: 120 FPS battles are opt-in until every effect is checked at x8\n'
+     '\t\t\tif (ff7_fps_limiter < FPS_LIMITER_120FPS && getenv("FF7_BATTLE30") && atoi(getenv("FF7_BATTLE30"))) battle_frame_multiplier = 2;   // FF7Recomp (#64): battles at 30 in the 60 FPS mode\n'),
+    ('ff7/battle/animations.cpp',
+     '        if(ff7_fps_limiter == FPS_LIMITER_30FPS)\n        {\n            patch_multiply_code<byte>(ff7_externals.battle_update_3d_model_data + 0x13E',
+     '        if(battle_frame_multiplier == 2)   // FF7Recomp (#64): also x2 battles in the 60 FPS mode\n        {\n            patch_multiply_code<byte>(ff7_externals.battle_update_3d_model_data + 0x13E'),
+    ('ff7/battle/animations.cpp',
+     'if (ff7_fps_limiter >= FPS_LIMITER_60FPS || (ff7_fps_limiter == FPS_LIMITER_30FPS && widescreen_enabled)) ',
+     'if (battle_frame_multiplier >= 4 || (battle_frame_multiplier == 2 && widescreen_enabled))   /* FF7Recomp (#64) */ '),
+    ('ff7/battle/animations.cpp',
+     '        if(ff7_fps_limiter >= FPS_LIMITER_60FPS)\n        {\n            // Speed up window menu closing speed',
+     '        if(battle_frame_multiplier >= 4)   // FF7Recomp (#64): by the battle rate\n        {\n            // Speed up window menu closing speed'),
 ]
 
 
