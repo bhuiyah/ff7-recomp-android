@@ -60,6 +60,7 @@ public class TestControl extends BroadcastReceiver {
             TYPES.put(k, Boolean.class);
         TYPES.put("quickboot", String.class);
         TYPES.put("touch_layout", String.class);
+        TYPES.put("touch_layout_square", String.class);   // a foldable's inner screen (#66)
         // Settings > Storage > Custom folder's path ("" = the app's own folder), switched without moving anything
         TYPES.put("storage_custom", String.class);
     }

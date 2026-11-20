@@ -119,6 +119,22 @@ final class TouchControls extends View {
     }
 
     /** "scale;opacity;padX,padY;faceX,faceY;leftX,leftY;rightX,rightY[;stickX,stickY]" (Settings > On-screen controls). */
+    /** GitHub #66: a foldable's inner screen (nearly square) and its cover screen (long and
+     *  narrow) each keep their own size and layout. The launcher setting for the window's shape:
+     *  "touch_layout" for ordinary screens, "touch_layout_square" for ones narrower than 3:2. */
+    static String layoutKey(Context c) {
+        android.content.res.Configuration cf = c.getResources().getConfiguration();
+        int lo = Math.min(cf.screenWidthDp, cf.screenHeightDp), hi = Math.max(cf.screenWidthDp, cf.screenHeightDp);
+        return lo > 0 && hi * 2 < lo * 3 ? "touch_layout_square" : "touch_layout";
+    }
+
+    /** The saved layout for this window's shape; a square screen without one of its own starts
+     *  from the ordinary one. */
+    static String savedLayout(android.content.SharedPreferences prefs, String key) {
+        String main = prefs.getString("touch_layout", "");
+        return key.equals("touch_layout") ? main : prefs.getString(key, main);
+    }
+
     void setLayout(String layout) {
         java.util.Arrays.fill(groupOff, 0f);
         scale = 1f;

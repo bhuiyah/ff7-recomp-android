@@ -1696,6 +1696,59 @@ EDITS = [
      '    }\n'
      '#endif\n'
      '    bgfx::frame(frameFlags);\n'),
+    # GitHub #66: the window size was read once, at start. Folding or unfolding a foldable
+    # (Galaxy Z Fold) mid-game gives the game a surface of another shape, and the old frame,
+    # black bars and all, was stretched onto it: the aspect setting seemed to do nothing on the
+    # other screen. Like FFNx's WM_SIZE on Windows, a new surface size now recalculates the
+    # picture (aspect bars, framebuffers, swap chain) after this frame.
+    ('renderer.cpp',
+     '#endif\n'
+     '    bgfx::frame(frameFlags);\n',
+     '#endif\n'
+     '    bgfx::frame(frameFlags);\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    {   // FF7Recomp (#66): the surface changed size\n'
+     '        int sw = 0, sh = 0;\n'
+     '        ff7_platform_window(&sw, &sh);\n'
+     '        if (sw > 0 && sh > 0 && (sw != window_size_x || sh != window_size_y))\n'
+     '        {\n'
+     '            ffnx_info("FF7Recomp: surface %dx%d (was %ldx%ld): picture recalculated\\n", sw, sh, window_size_x, window_size_y);\n'
+     '            window_size_x = sw;\n'
+     '            window_size_y = sh;\n'
+     '            viewOffsetX = viewOffsetY = 0;\n'
+     '            x_offset = y_offset = 0;\n'
+     '            reset();\n'
+     '        }\n'
+     '    }\n'
+     '#endif\n'),
+    # GitHub #66: FFNx letterboxes only sideways. On a screen narrower than the picture (a Galaxy
+    # Z Fold's inner screen, about 1.16:1, is narrower than 4:3) the game was stretched to the
+    # full height, squashed, the same in every aspect mode. The picture now keeps its shape,
+    # with bars above and below.
+    ('renderer.cpp',
+     '    float y0 = 0.0f;\n'
+     '    float u0 = 0.0f;\n',
+     '    float y0 = 0.0f;\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    // FF7Recomp (#66): bars above and below on a screen narrower than the picture\n'
+     '    const float ff7rGameHeight = widescreen_enabled ? wide_game_height : game_height;\n'
+     '    float ff7rVertexHeight = ff7rGameHeight;\n'
+     '    if (aspect_ratio != AR_STRETCH && window_size_y > 0 && viewHeight < window_size_y)\n'
+     '    {\n'
+     '        ff7rVertexHeight = ff7rGameHeight * viewHeight / (float)window_size_y;\n'
+     '        y0 = (ff7rGameHeight - ff7rVertexHeight) / 2.0f;\n'
+     '    }\n'
+     '#endif\n'
+     '    float u0 = 0.0f;\n'),
+    ('renderer.cpp',
+     '    float x1 = x0;\n'
+     '    float y1 = game_height;\n',
+     '    float x1 = x0;\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    float y1 = y0 + ff7rVertexHeight;   // FF7Recomp (#66)\n'
+     '#else\n'
+     '    float y1 = game_height;\n'
+     '#endif\n'),
     # ... with the music silent meanwhile (SoLoud's miniaudio output cannot pause; FFNx does
     # not use the global volume otherwise).
     ('audio.h', '\tbool init();\n\tvoid flush();\n\tvoid cleanup();\n',

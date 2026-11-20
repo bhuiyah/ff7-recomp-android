@@ -443,12 +443,27 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         fitPanels();
     }
 
+    private String touchLayoutKey = "touch_layout";
+
+    /** The on-screen controls' layout for this screen's shape (#66; the launcher sends both). */
+    private String touchLayout() {
+        String main = getIntent().getStringExtra("touch_layout");
+        if (!touchLayoutKey.equals("touch_layout") && getIntent().hasExtra(touchLayoutKey))
+            return getIntent().getStringExtra(touchLayoutKey);
+        return main;
+    }
+
     /** Portrait chosen: follow the window's shape until the game starts (its renderer is made at
      *  the first size). */
     @Override
     public void onConfigurationChanged(android.content.res.Configuration c) {
         super.onConfigurationChanged(c);
         if ((portrait || split) && !started && wantStacked() != arrangedTall) arrange(wantStacked());
+        // folded or unfolded (#66): the on-screen controls' layout for the screen now in use
+        if (touch != null && !TouchControls.layoutKey(this).equals(touchLayoutKey)) {
+            touchLayoutKey = TouchControls.layoutKey(this);
+            touch.setLayout(touchLayout());
+        }
         ui.post(this::followGameDisplay);
     }
 
@@ -741,7 +756,8 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
                 sendPad();
             });
             touch.setExtra(getIntent().getBooleanExtra("touch_extra", false));   // right stick, L3, R3 (#62)
-            touch.setLayout(getIntent().getStringExtra("touch_layout"));   // size, opacity, positions (#28)
+            touchLayoutKey = TouchControls.layoutKey(this);
+            touch.setLayout(touchLayout());   // size, opacity, positions (#28), this screen's (#66)
         }
         if (portrait || split) panel = new CompanionView(this);
         if (split) panel.setDeck(getIntent().getBooleanExtra("bottom_buttons", true));

@@ -17,11 +17,13 @@ import android.widget.TextView;
  * Settings > On-screen controls > Size and layout (GitHub #28): the touch controls full screen,
  * as they sit over the game. Drag the D-pad, the face buttons or a shoulder group to move it; the
  * sliders set the size and opacity. Saved to the launcher's "touch_layout" setting, which
- * GameActivity gets at Play (TouchControls.setLayout).
+ * GameActivity gets at Play (TouchControls.setLayout). A foldable's inner screen keeps its own
+ * layout, "touch_layout_square" (GitHub #66, TouchControls.layoutKey).
  */
 public class TouchLayoutActivity extends Activity {
     private TouchControls controls;
     private SharedPreferences prefs;
+    private String key;   // the setting for this screen's shape (#66)
 
     @Override
     protected void onCreate(Bundle state) {
@@ -32,7 +34,8 @@ public class TouchLayoutActivity extends Activity {
 
         controls = new TouchControls(this, (b, lt, rt, rx, ry) -> { });
         controls.setExtra(prefs.getBoolean("touch_extra", false));
-        controls.setLayout(prefs.getString("touch_layout", ""));
+        key = TouchControls.layoutKey(this);
+        controls.setLayout(TouchControls.savedLayout(prefs, key));
         controls.setEditing(true, this::save);
         root.addView(controls, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -70,7 +73,7 @@ public class TouchLayoutActivity extends Activity {
             // reset the controls themselves: recreate() runs onPause(), whose save() would
             // otherwise write the old layout straight back over the removed setting (#54)
             controls.setLayout("");
-            prefs.edit().remove("touch_layout").apply();
+            prefs.edit().putString(key, "").apply();   // "": the default, not the other screen's (#66)
             recreate();
         });
         Button done = new Button(this);
@@ -125,7 +128,15 @@ public class TouchLayoutActivity extends Activity {
         return row;
     }
 
-    private void save() { prefs.edit().putString("touch_layout", controls.layout()).apply(); }
+    private void save() { prefs.edit().putString(key, controls.layout()).apply(); }
+
+    /** Folded or unfolded while editing (#66): this screen's layout is kept, the other
+     *  screen's is shown (recreate() saves this one first, in onPause). */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration c) {
+        super.onConfigurationChanged(c);
+        if (!TouchControls.layoutKey(this).equals(key)) recreate();
+    }
 
     @Override
     protected void onPause() { save(); super.onPause(); }
