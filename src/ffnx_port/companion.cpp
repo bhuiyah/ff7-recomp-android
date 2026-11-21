@@ -234,6 +234,16 @@ void savemap_json(std::string &j, const savemap *sm) {
     snprintf(b, sizeof b, "\"stats\":{\"battles\":%u,\"escapes\":%u,\"kills\":%u,\"races\":%u,\"countdown\":%u},",
              *(const uint16_t *)(s + 0x0BBC), *(const uint16_t *)(s + 0x0BBE), kills, races, sm->countdown_timer);
     j += b;
+    // Date (love) points, 0x0BA8..0x0BAB: Aerith, Tifa, Yuffie, Barret (#71). The highest one
+    // decides who asks Cloud out at the Gold Saucer. Names as the player chose them.
+    static const int love_char[4] = { 3, 2, 5, 1 };
+    j += "\"love\":[";
+    for (int i = 0; i < 4; i++) {
+        snprintf(b, sizeof b, "%s[\"%s\",%u]", i ? "," : "",
+                 ff7_name(sm->chars[love_char[i]].name, sizeof sm->chars[0].name).c_str(), (unsigned)s[0x0BA8 + i]);
+        j += b;
+    }
+    j += "],";
     // world map: x in the low 19 bits of the first word, z in the low 18 of the second
     // (leader 0x0F5C, Tiny Bronco / chocobo 0x0F6C, buggy / Highwind 0x0F74, submarine
     // 0x0F7C); which vehicles exist: 0x0C23 (1 buggy, 4 Tiny Bronco, 0x10 Highwind)

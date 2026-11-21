@@ -890,6 +890,35 @@ public class CompanionView extends View {
             divider(c, in, y + 52 * u, u);
             y += 54 * u;
         }
+        // Date points (#71): who Cloud is closest to; the highest goes on the Gold Saucer date.
+        JSONArray love = state.optJSONArray("love");
+        if (love != null && love.length() > 0) {
+            y += 20 * u;
+            label(c, "Date points", in.left, y + 36 * u, 30 * u, GOLD, Paint.Align.LEFT);
+            label(c, "highest = Gold Saucer date", in.right, y + 36 * u, 24 * u, DIM, Paint.Align.RIGHT);
+            y += 50 * u;
+            int best = -1, top = -1;
+            for (int i = 0; i < love.length(); i++) {
+                JSONArray e = love.optJSONArray(i);
+                int v = e == null ? 0 : e.optInt(1);
+                if (v > top) { top = v; best = i; }
+            }
+            String[] fallback = { "Aerith", "Tifa", "Yuffie", "Barret" };
+            for (int i = 0; i < love.length(); i++) {
+                JSONArray e = love.optJSONArray(i);
+                if (e == null) continue;
+                String nm = e.optString(0);
+                if (nm.isEmpty() && i < fallback.length) nm = fallback[i];
+                int v = e.optInt(1);
+                boolean lead = i == best && v > 0;
+                label(c, (lead ? "♥ " : "") + nm, in.left, y + 36 * u, 30 * u, lead ? 0xFFFF8FB0 : LABEL, Paint.Align.LEFT);
+                float bx = in.left + in.width() * 0.42f, bwid = in.width() * 0.40f;
+                bar(c, bx, y + 22 * u, bwid, 10 * u, Math.min(1.0, v / 255.0), lead ? 0xFFFF8FB0 : 0xFF6F8FD0);
+                label(c, String.valueOf(v), in.right, y + 36 * u, 30 * u, WHITE, Paint.Align.RIGHT);
+                divider(c, in, y + 52 * u, u);
+                y += 54 * u;
+            }
+        }
         return y + 10 * u;
     }
 
