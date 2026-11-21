@@ -315,6 +315,10 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
      *  same screen, chosen by the window's shape rather than its orientation (a foldable's inner
      *  screen is about square and often wider than tall, so "portrait" never comes). */
     private boolean split;
+    /** Side by side (Settings > Screen): Split, but on a window wider than tall the panels are at
+     *  the game's right instead of below it (one larger handheld screen: the game and the second
+     *  screen's panels beside each other). Held upright it is Split. */
+    private boolean side, arrangedSide;
     private android.widget.FrameLayout bottom;      // split: the panels, the on-screen pad over them
 
     private android.widget.FrameLayout gameFrame;   // the game's SurfaceView and the booster icons
@@ -326,9 +330,19 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private static final class AspectFrame extends android.widget.FrameLayout {
         private final float ratio;   // height / width
         boolean fill = true;
+        /** Side by side: as tall as the window allows at the game's aspect ratio, leaving at least
+         *  a quarter of the width to the panels (a 4:3 picture on a 16:9 screen fills the height). */
+        boolean side;
         AspectFrame(Context c, float ratio) { super(c); this.ratio = ratio; }
         @Override protected void onMeasure(int w, int h) {
             if (fill) { super.onMeasure(w, h); return; }
+            if (side) {
+                int maxW = Math.round(MeasureSpec.getSize(w) * 0.75f), maxH = MeasureSpec.getSize(h);
+                int width = Math.min(maxW, Math.round(maxH / ratio));
+                int height = Math.min(maxH, Math.round(width * ratio));
+                super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+                return;
+            }
             int width = MeasureSpec.getSize(w);
             int height = Math.round(width * ratio);
             super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
@@ -353,7 +367,17 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         return room;
     }
 
-    private boolean wantStacked() { return split ? splitRoom() : portrait && isTall(); }
+    /** The window is wider than tall (by its shape, not the device's orientation). */
+    private boolean isWide() {
+        android.content.res.Configuration c = getResources().getConfiguration();
+        return c.screenWidthDp > c.screenHeightDp;
+    }
+
+    /** The panels on this screen: below the game (Split, Portrait) or beside it (Side by side). */
+    private boolean wantStacked() {
+        if (side && isWide()) return true;
+        return split ? splitRoom() : portrait && isTall();
+    }
 
     /**
      * Lay the screen out: landscape (the game fills the window, the on-screen pad over it) or
@@ -367,6 +391,9 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             if (v != null && v.getParent() != null) ((android.view.ViewGroup) v.getParent()).removeView(v);
         if (bottom != null && bottom.getParent() != null) ((android.view.ViewGroup) bottom.getParent()).removeView(bottom);
         ((AspectFrame) gameFrame).fill = !tall;
+        ((AspectFrame) gameFrame).side = false;
+        arrangedSide = tall && side && isWide();
+        if (arrangedSide) { arrangeSide(); return; }
         if (tall && split) { arrangeSplit(); return; }
         if (!tall) {
             if (touch != null) touch.setPassThrough(false);
@@ -418,6 +445,45 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         setContentView(col);
     }
 
+    /**
+     * Side by side: the game at the left at its aspect ratio, as tall as the window (centred
+     * when the picture is wider than three quarters of the window); at its right the panels the
+     * AYN Thor shows on its second screen (CompanionView, which lays itself out for a tall, narrow
+     * area). The on-screen pad, when it shows, lies over the whole window; touches it does not
+     * use go through to the panels.
+     */
+    private void arrangeSide() {
+        ((AspectFrame) gameFrame).side = true;
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row.setBackgroundColor(0xFF000000);
+        android.widget.LinearLayout.LayoutParams glp = new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        glp.gravity = android.view.Gravity.CENTER_VERTICAL;
+        row.addView(gameFrame, glp);
+        if (bottom == null) {
+            bottom = new android.widget.FrameLayout(this);
+            bottom.addView(panel, new android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+            if (getIntent().getBooleanExtra("crt_filter", false)) bottom.addView(new CrtOverlay(this));
+        } else if (panel.getParent() == null) {
+            bottom.addView(panel, 0);
+        }
+        android.widget.FrameLayout.LayoutParams plp = (android.widget.FrameLayout.LayoutParams) panel.getLayoutParams();
+        plp.leftMargin = plp.rightMargin = plp.bottomMargin = 0;
+        panel.setLayoutParams(plp);
+        row.addView(bottom, new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        if (touch == null) { setContentView(row); return; }
+        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+        root.addView(row, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        touch.setPassThrough(true);
+        touch.setOnPlaced(this::fitPanels);
+        root.addView(touch, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        setContentView(root);
+    }
+
     /** Split: the panels between the pad's two sides while it shows, the whole width otherwise. */
     private void fitPanels() {
         if (!split || panel == null || !(panel.getLayoutParams() instanceof android.widget.FrameLayout.LayoutParams)) return;
@@ -458,7 +524,8 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     public void onConfigurationChanged(android.content.res.Configuration c) {
         super.onConfigurationChanged(c);
-        if ((portrait || split) && !started && wantStacked() != arrangedTall) arrange(wantStacked());
+        if ((portrait || split) && !started
+                && (wantStacked() != arrangedTall || (side && wantStacked() && isWide() != arrangedSide))) arrange(wantStacked());
         // folded or unfolded (#66): the on-screen controls' layout for the screen now in use
         if (touch != null && !TouchControls.layoutKey(this).equals(touchLayoutKey)) {
             touchLayoutKey = TouchControls.layoutKey(this);
@@ -723,7 +790,8 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         loadGame(this);
         // The screen stays on while the game runs (it timed out and the device slept mid-game).
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        split = getIntent().getBooleanExtra("split", false);
+        side = getIntent().getBooleanExtra("side", false);
+        split = side || getIntent().getBooleanExtra("split", false);
         portrait = !split && getIntent().getBooleanExtra("portrait", false);
         if (portrait) setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
         // split: any way the device is held (the manifest's sensorLandscape would turn a
