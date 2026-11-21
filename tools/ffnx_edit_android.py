@@ -1796,6 +1796,83 @@ EDITS = [
      '                else\n'
      '                    ff7_externals.wait_frames_ptr[*ff7_externals.current_entity_id] *= get_frame_multiplier();\n'
      '            }\n'),
+    # GitHub #69, part 2: the green wave itself. In woa_2 and woa_3 the entity "woa2" scrolls
+    # background layer 3 (the wave) with BGSCR while it counts bank-5 counters down one per frame
+    # (IFUB / DEC / JMPB), then resets the layer with a BGSCR that lasts one frame (the one right
+    # before the loop's JMPB). FFNx divides every BGSCR speed by the frame multiplier m but the
+    # countdowns ran m times as fast, so the wave covered 1/m of its path and its reset jump was
+    # 1/m too: at 60 FPS it stopped halfway across and restarted. Its countdown starts (SETBYTE
+    # into bank 5) are now m times longer and the one-frame reset is not divided, so the wave
+    # sweeps as at 30 FPS. (60/30 FPS Gameplay's Flevel fix doubles the same values; doubling
+    # the reset in the script would overflow at 120 FPS.)
+    ('ff7/field/opcode.cpp',
+     '    short ff7_opcode_divide_get_bank_value(short bank, short address)\n'
+     '    {\n'
+     '        int16_t ret = ff7_externals.get_bank_value(bank, address);\n'
+     '        if(is_fps_running_more_than_original())\n',
+     '    static bool woa_wave_no_divide = false;   // FF7Recomp (#69)\n\n'
+     '    short ff7_opcode_divide_get_bank_value(short bank, short address)\n'
+     '    {\n'
+     '        int16_t ret = ff7_externals.get_bank_value(bank, address);\n'
+     '        if(is_fps_running_more_than_original() && !woa_wave_no_divide)\n'),
+    ('ff7/field/opcode.cpp',
+     '    int opcode_script_MVIEF()\n',
+     '    // FF7Recomp (#69): the Whirlwind Maze\'s wave, entity "woa2" of woa_2 / woa_3, above 30 FPS\n'
+     '    static bool woa_wave_entity()\n'
+     '    {\n'
+     '        if(!is_fps_running_more_than_original()) return false;\n'
+     '        const char* f = get_current_field_name();\n'
+     '        if(!f || strncmp(f, "woa_", 4) != 0) return false;\n'
+     '        const byte* s = *ff7_externals.field_script_ptr;\n'
+     '        const byte id = *ff7_externals.current_entity_id;\n'
+     '        if(!s || id >= s[2]) return false;                       // entity count\n'
+     '        return strncmp((const char*)&s[32 + 8 * id], "woa2", 8) == 0;   // entity names follow the 32-byte header\n'
+     '    }\n'
+     '\n'
+     '    // Its countdowns (SETBYTE of a constant into bank 5) last m times as many frames.\n'
+     '    int opcode_script_SETBYTE()\n'
+     '    {\n'
+     '        if(woa_wave_entity() && get_field_parameter<byte>(0) == 0x50)\n'
+     '        {\n'
+     '            byte* value = get_field_parameter_address<byte>(2);\n'
+     '            const byte v = *value;\n'
+     '            const int m = get_frame_multiplier();\n'
+     '            if(v * m <= 255)\n'
+     '            {\n'
+     '                static int logged = 0;\n'
+     '                if(logged++ < 4) ffnx_info("woa wave (#69): counter %d set to %d\\n", v, v * m);\n'
+     '                *value = (byte)(v * m);\n'
+     '                const int ret = call_original_opcode_function(SETBYTE);\n'
+     '                *value = v;                                         // the script stays as loaded\n'
+     '                return ret;\n'
+     '            }\n'
+     '        }\n'
+     '        return call_original_opcode_function(SETBYTE);\n'
+     '    }\n'
+     '\n'
+     '    // Its one-frame reset (the BGSCR just before the JMPB back) keeps its full speed.\n'
+     '    int opcode_script_BGSCR()\n'
+     '    {\n'
+     '        if(woa_wave_entity() && *get_field_parameter_address<byte>(6) == 0x12)   // next opcode: JMPB\n'
+     '        {\n'
+     '            woa_wave_no_divide = true;\n'
+     '            const int ret = call_original_opcode_function(BGSCR);\n'
+     '            woa_wave_no_divide = false;\n'
+     '            return ret;\n'
+     '        }\n'
+     '        return call_original_opcode_function(BGSCR);\n'
+     '    }\n'
+     '\n'
+     '    int opcode_script_MVIEF()\n'),
+    ('ff7/field/opcode.h', '    int opcode_script_WAIT();\n',
+     '    int opcode_script_WAIT();\n'
+     '    int opcode_script_SETBYTE();   // FF7Recomp (#69)\n'
+     '    int opcode_script_BGSCR();     // FF7Recomp (#69)\n'),
+    ('ff7/field/field.cpp',
+     '        patch_code_dword((uint32_t)&common_externals.execute_opcode_table[WAIT], ffnx_guest_va(&opcode_script_WAIT));\n',
+     '        patch_code_dword((uint32_t)&common_externals.execute_opcode_table[WAIT], ffnx_guest_va(&opcode_script_WAIT));\n'
+     '        patch_code_dword((uint32_t)&common_externals.execute_opcode_table[SETBYTE], ffnx_guest_va(&opcode_script_SETBYTE));   // FF7Recomp (#69)\n'
+     '        patch_code_dword((uint32_t)&common_externals.execute_opcode_table[BGSCR], ffnx_guest_va(&opcode_script_BGSCR));       // FF7Recomp (#69)\n'),
 ]
 
 

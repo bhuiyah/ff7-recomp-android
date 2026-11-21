@@ -791,3 +791,21 @@
   Frame rate (the mod's FPS Mode default 3 forced 60 FPS on Original players). A mod whose
   ff7_fps_limiter follows one of its options gets that option set to the frame rate's value (else
   the highest below: 120 FPS takes 60), so its 60 FPS folders and hext flag (0x914B21) match.
+
+## 2026-11-21: Whirlwind Maze green wave at 60/120 FPS (v1.1.40, #69 part 2)
+- After 1.1.38 (gust timing) the reporter still could not pass at 60 FPS: "the green wave stops
+  halfway across the screen before restarting". Original frame rate worked.
+- Cause: in woa_2 / woa_3 the entity "woa2" scrolls background layer 3 (the wave) with BGSCR while
+  bank-5 counters count down one per frame (IFUB / DEC / JMPB loops, no WAIT), then resets the
+  layer with a BGSCR that lasts one frame (right before the loop's JMPB). FFNx divides every BGSCR
+  speed by the frame multiplier m (field.cpp BGSCR divide_get_bank_value), but the countdowns ran
+  m times as fast: the wave covered 1/m of its path, and the reset jump was 1/m as well.
+  60/30 FPS Gameplay's Flevel fix doubles exactly these values (woa_2: Var[5][16]/[17] starts and
+  the last BGSCR x; woa_3: Var[5][5]/[6] and the last BGSCR), found by diffing its woa_2/woa_3.
+- Fix (tools/ffnx_edit_android.py, ff7/field/opcode.cpp): opcode-table hooks for SETBYTE and BGSCR,
+  only for entity "woa2" in woa_* fields above 30 FPS: SETBYTE of a constant into bank 5 x m (the
+  script bytes are restored after the call), and the BGSCR followed by JMPB is not divided (a script
+  x4 would overflow s16 for woa_3 at 120 FPS: -13440 x 4).
+- Thor, reporter's save edited to start in woa_2 (field 710 at 132,-604 tri 31 from trnad_3's
+  gateway): log "counter 16 set to 32 / 8 set to 16"; an 8 s recording at 60 FPS shows the wave
+  sweep the whole screen right to left in about 1.5 s per cycle, the same as at Original.
