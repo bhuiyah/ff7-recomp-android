@@ -465,8 +465,8 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
      * the panels the AYN Thor shows on its second screen (CompanionView, which lays itself out for
      * a tall, narrow area). The panels' hide button gives the game the whole window and shows a
      * small tab at that edge to bring them back; only visibility and sizes change, so the game's
-     * surface stays where it is. The on-screen pad, when it shows, lies over the whole window;
-     * touches it does not use go through to the panels.
+     * surface stays where it is. The on-screen pad, when it shows, lies over the game's frame
+     * (the whole window while the panels are hidden).
      */
     private void arrangeSide() {
         ((AspectFrame) gameFrame).side = true;
@@ -504,10 +504,12 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         float d = getResources().getDisplayMetrics().density;
         root.addView(showTab, new android.widget.FrameLayout.LayoutParams(Math.round(30 * d), Math.round(76 * d),
                 android.view.Gravity.CENTER_VERTICAL | (sideLeft ? android.view.Gravity.LEFT : android.view.Gravity.RIGHT)));
+        // the on-screen pad over the game only (over the panels its buttons covered their tabs
+        // and deck); with the panels hidden the game's frame is the whole window, and so is the pad
         if (touch != null) {
-            touch.setPassThrough(true);
+            touch.setPassThrough(false);
             touch.setOnPlaced(this::fitPanels);
-            root.addView(touch, new android.widget.FrameLayout.LayoutParams(
+            gameFrame.addView(touch, new android.widget.FrameLayout.LayoutParams(
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         }
         applyPanelsHidden();

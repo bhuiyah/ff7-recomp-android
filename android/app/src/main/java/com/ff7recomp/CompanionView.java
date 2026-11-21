@@ -323,12 +323,15 @@ public class CompanionView extends View {
             boolean party = !wide;
             float panelL = pad, panelT = bodyT;
             if (party && nar) {              // the party across the top, the details below
-                float partyH = Math.min(3 * 180 * u + 24 * u, (bodyB - bodyT) * 0.5f);
-                drawParty(c, pad, bodyT, W - pad, bodyT + partyH, u, battle);
+                // as many cards as the party has (empty slots would only shrink them)
+                JSONArray members = state.optJSONArray("party");
+                int slots = Math.max(1, Math.min(3, members == null ? 0 : members.length()));
+                float partyH = Math.min(slots * 180 * u + (slots - 1) * 12 * u, (bodyB - bodyT) * 0.5f);
+                drawParty(c, pad, bodyT, W - pad, bodyT + partyH, u, battle, slots);
                 panelT = bodyT + partyH + 12 * u;
             } else if (party) {
                 float colW = Math.min(420 * u, W * 0.36f);
-                drawParty(c, pad, bodyT, pad + colW, bodyB, u, battle);
+                drawParty(c, pad, bodyT, pad + colW, bodyB, u, battle, 3);
                 panelL = pad + colW + 12 * u;
             }
             panelBox.set(panelL, panelT, W - pad, bodyB);
@@ -462,11 +465,11 @@ public class CompanionView extends View {
                                             0xFF3A6A3A, 0xFF4A4A7A, 0xFF6A1A22, 0xFF3A5A7A };
 
     /** The party: a card each (portrait letter, name, Lv, HP, MP or ATB, Limit). */
-    private void drawParty(Canvas c, float l, float t, float rr, float b, float u, boolean battle) {
+    private void drawParty(Canvas c, float l, float t, float rr, float b, float u, boolean battle, int slots) {
         JSONArray party = state.optJSONArray("party");
         int n = party == null ? 0 : party.length();
-        float gap = 12 * u, cardH = Math.min(260 * u, (b - t - 2 * gap) / 3f);
-        for (int i = 0; i < 3; i++) {
+        float gap = 12 * u, cardH = Math.min(260 * u, (b - t - (slots - 1) * gap) / slots);
+        for (int i = 0; i < slots; i++) {
             float ct = t + i * (cardH + gap), cb = ct + cardH;
             window(c, l, ct, rr, cb);
             JSONObject m = i < n ? party.optJSONObject(i) : null;
