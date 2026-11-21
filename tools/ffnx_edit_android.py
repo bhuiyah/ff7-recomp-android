@@ -1778,6 +1778,24 @@ EDITS = [
     ('ff7/battle/animations.cpp',
      '        if(ff7_fps_limiter >= FPS_LIMITER_60FPS)\n        {\n            // Speed up window menu closing speed',
      '        if(battle_frame_multiplier >= 4)   // FF7Recomp (#64): by the battle rate\n        {\n            // Speed up window menu closing speed'),
+    # GitHub #69: the Whirlwind Maze's wind walls (woa_1-woa_3) step their gusts once per loop of
+    # WAIT 0 (one frame) and a backward jump (JMPB, one more frame): two frames at 30 FPS. The
+    # 60/120 FPS modes stretch only waits of 1 or more (0 x 2 = 0), so the gusts ran 2-4x as fast
+    # and the calm gap was cut short (woa_3: 1.9 s at 30 FPS, 1.0 s at 60, 0.5 at 120); the wall
+    # closed on Cloud halfway through. There WAIT 0 now lasts 2m - 1 frames, so wait plus jump
+    # take 2m frames, the 30 FPS time (an interpreter of the three scripts gives 30 FPS gaps).
+    ('ff7/field/opcode.cpp',
+     '            if(is_fps_running_more_than_original())\n'
+     '                ff7_externals.wait_frames_ptr[*ff7_externals.current_entity_id] *= get_frame_multiplier();\n',
+     '            if(is_fps_running_more_than_original())\n'
+     '            {\n'
+     '                // FF7Recomp (#69): the wind walls (woa_*) step their gusts by WAIT 0 + JMPB, 2 frames at 30 FPS\n'
+     '                const char* wait_field = get_current_field_name();\n'
+     '                if (!ff7_externals.wait_frames_ptr[*ff7_externals.current_entity_id] && wait_field && strncmp(wait_field, "woa_", 4) == 0)\n'
+     '                    ff7_externals.wait_frames_ptr[*ff7_externals.current_entity_id] = 2 * get_frame_multiplier() - 1;\n'
+     '                else\n'
+     '                    ff7_externals.wait_frames_ptr[*ff7_externals.current_entity_id] *= get_frame_multiplier();\n'
+     '            }\n'),
 ]
 
 
