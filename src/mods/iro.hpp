@@ -38,6 +38,9 @@ public:
     int64_t size(const std::string &name) const;
     bool read(const std::string &name, std::vector<uint8_t> &out) const;
     const std::vector<Entry> &entries() const { return entries_; }
+    // n bytes at `off` of an entry stored without compression, read in place (false for a
+    // compressed entry or a range past its end): the frame counts of a mod's animations.
+    bool read_stored(const Entry &e, uint64_t off, void *buf, size_t n) const;
 
     static std::string key(const std::string &name);   // lower case, backslashes
 

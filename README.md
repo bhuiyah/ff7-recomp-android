@@ -196,9 +196,11 @@ Enhanced Stock UI). Those rules, and the option values one mod sets for another 
 also apply in game whatever the list order, as 7th Heaven applies them at launch. Large mods download and unpack on the device; you
 can keep using the launcher meanwhile. You can also add your own `.iro` files or mod folders.
 
-**Frame rate: use Settings, not a mod.** Don't install the **60/30 FPS Gameplay** mod, even if a PC
-modding guide lists it: it doesn't work with FF7Recomp. Choose the frame rate under **Settings > Frame rate** instead (30 FPS battles, 60 FPS, 60 FPS with battles at
-30, or 120 FPS).
+**Frame rate: Settings decides.** Choose it under **Settings > Frame rate** (30 FPS battles, 60 FPS,
+60 FPS with battles at 30, or 120 FPS). Frame-rate mods such as **60/30 FPS Gameplay** or **60 FPS
+Animations for ChaOS** can stay on, but you don't need them: the game adds the in-between animation
+frames itself at every frame rate. Their own copies of those frames are left out (otherwise every
+motion would play at half speed), and a frame-rate choice in a mod's options follows your Settings.
 
 ## Steam achievements and cloud saves
 

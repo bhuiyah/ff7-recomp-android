@@ -121,6 +121,11 @@ int64_t IroArchive::size(const std::string &name) const {
     return e->length;
 }
 
+bool IroArchive::read_stored(const Entry &e, uint64_t off, void *buf, size_t n) const {
+    if ((e.flags & kCompressMask) != 0 || off + n > e.length) return false;
+    return read_at(e.offset + off, buf, n);
+}
+
 bool IroArchive::read(const std::string &name, std::vector<uint8_t> &out) const {
     const Entry *e = find(name);
     out.clear();

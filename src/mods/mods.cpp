@@ -8,6 +8,7 @@
 #include <cstring>
 #include <algorithm>
 #include <cstdlib>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -384,6 +385,187 @@ extern "C" void ff7_mods_hext(ff7_mods_hext_cb cb, void *ctx) {
     }
 }
 
+// ---- Animations with their own in-between frames (GitHub #63, #70) ----
+// The game adds in-between frames to every field and battle animation itself at 60 and 120 FPS
+// (ffnx_smooth_animation, tools/ffnx_edit_android.py): original frame k becomes frame k * m.
+// "60 FPS" animation mods (60/30 FPS Gameplay, 60 FPS Animations for ChaOS, ...) ship the same
+// animations with those frames already in: (n - 1) * m + 1 frames for n. On top of the game's
+// own, every motion played at half speed (a quarter in battles) and the scripts' frame numbers
+// pointed at the wrong poses: a scene replayed a fall and then waited for an animation end that
+// never came (#70). A mod animation that is the file below it (the next mod's, else the game's
+// own) with m in-between frames is left out, so the game's frames are added once, at any frame
+// rate. Found by the files' frame counts, not by mod names.
+
+// Reads `n` bytes at `off` of one file (false past its end).
+using ByteReader = std::function<bool(uint64_t off, void *buf, size_t n)>;
+
+// Frame counts of an animation file: a field animation (char/*.a: version 1, frames, bones) has
+// one; a battle animation pack (battle/??da, magic/*.a0?: count, then per animation bones,
+// frames, block size, block) one per animation. Empty if it is not one.
+std::vector<uint32_t> anim_frame_counts(const ByteReader &rd, uint64_t size, bool field) {
+    std::vector<uint32_t> out;
+    if (field) {
+        uint32_t h[3];
+        if (size < 36 || !rd(0, h, sizeof h) || h[0] != 1 || h[2] > 256 || h[1] == 0 || h[1] > 100000) return out;
+        out.push_back(h[1]);
+        return out;
+    }
+    uint32_t cnt;
+    if (size < 4 || !rd(0, &cnt, 4) || cnt == 0 || cnt > 1024) return out;
+    uint64_t p = 4;
+    for (uint32_t i = 0; i < cnt; i++) {
+        uint32_t h[3];
+        if (p + 12 > size || !rd(p, h, sizeof h) || h[0] > 256 || h[1] > 100000) return {};
+        out.push_back(h[1]);
+        p += 12 + (uint64_t)h[2];
+    }
+    if (p > size) return {};
+    return out;
+}
+
+// m (2, 4 or 8) if `mod` is `below` with m in-between frames per original frame (each animation
+// (n - 1) * m + 1 or n * m frames long, for most of them), else 0.
+int interpolated_by(const std::vector<uint32_t> &mod, const std::vector<uint32_t> &below) {
+    if (mod.empty() || mod.size() != below.size()) return 0;
+    int votes[9] = {}, counted = 0;
+    for (size_t i = 0; i < mod.size(); i++) {
+        const int64_t a = mod[i], b = below[i];
+        if (b < 2) continue;                       // one-frame poses say nothing
+        counted++;
+        int best = 0;
+        int64_t best_err = 1 << 30;
+        for (int m : { 2, 4, 8 }) {
+            int64_t err = std::min(std::llabs(a - ((b - 1) * m + 1)), std::llabs(a - b * m));
+            if (err < best_err) { best_err = err; best = m; }
+        }
+        if (best_err <= (b < 3 ? 0 : 1)) votes[best]++;
+    }
+    if (!counted) return 0;
+    for (int m : { 2, 4, 8 }) if (votes[m] * 4 >= counted * 3) return m;
+    return 0;
+}
+
+// One of the game's LGP archives (name table only; entries read in place).
+struct Lgp {
+    std::FILE *f = nullptr;
+    std::unordered_map<std::string, uint32_t> at;   // lower-case name -> entry header offset
+    ~Lgp() { if (f) std::fclose(f); }
+    bool open(const std::string &path) {
+        f = std::fopen(path.c_str(), "rb");
+        if (!f) return false;
+        uint8_t hdr[16];
+        if (std::fread(hdr, 1, 16, f) != 16) return false;
+        uint32_t n;
+        std::memcpy(&n, hdr + 12, 4);
+        if (n == 0 || n > 200000) return false;
+        std::vector<uint8_t> tab((size_t)n * 27);
+        if (std::fread(tab.data(), 1, tab.size(), f) != tab.size()) return false;
+        for (uint32_t i = 0; i < n; i++) {
+            const uint8_t *e = tab.data() + (size_t)i * 27;
+            std::string name((const char *)e, strnlen((const char *)e, 20));
+            uint32_t off;
+            std::memcpy(&off, e + 20, 4);
+            at.emplace(lower(name), off);
+        }
+        return true;
+    }
+    // A reader over entry `name` and its size, or false.
+    bool entry(const std::string &name, ByteReader &rd, uint64_t &size) {
+        auto it = at.find(name);
+        if (!f || it == at.end()) return false;
+        uint32_t len;
+        if (std::fseek(f, (long)it->second + 20, SEEK_SET) != 0 || std::fread(&len, 1, 4, f) != 4) return false;
+        const uint64_t base = (uint64_t)it->second + 24;
+        std::FILE *fp = f;
+        size = len;
+        rd = [fp, base, len](uint64_t off, void *buf, size_t n) {
+            return off + n <= len && std::fseek(fp, (long)(base + off), SEEK_SET) == 0 && std::fread(buf, 1, n, fp) == n;
+        };
+        return true;
+    }
+};
+
+// Frame counts of one override (an archive entry read in place, or a folder mod's file).
+std::vector<uint32_t> override_frames(const Override &o, bool field) {
+    const Mod &m = *g.mods[o.mod];
+    if (m.iro) {
+        const IroArchive::Entry *e = m.iro->find(o.file);
+        if (!e) return {};
+        if ((e->flags & 0xFu) == 0) {
+            const IroArchive *iro = m.iro.get();
+            return anim_frame_counts([iro, e](uint64_t off, void *buf, size_t n) { return iro->read_stored(*e, off, buf, n); },
+                                     e->length, field);
+        }
+        std::vector<uint8_t> d;                          // compressed: unpacked whole
+        if (!m.iro->read(o.file, d)) return {};
+        return anim_frame_counts([&d](uint64_t off, void *buf, size_t n) {
+            if (off + n > d.size()) return false;
+            std::memcpy(buf, d.data() + off, n);
+            return true;
+        }, d.size(), field);
+    }
+    std::FILE *f = std::fopen(o.file.c_str(), "rb");
+    if (!f) return {};
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    std::vector<uint32_t> r = size > 0 ? anim_frame_counts([f](uint64_t off, void *buf, size_t n) {
+        return std::fseek(f, (long)off, SEEK_SET) == 0 && std::fread(buf, 1, n, f) == n;
+    }, (uint64_t)size, field) : std::vector<uint32_t>();
+    std::fclose(f);
+    return r;
+}
+
+// Leave out every mod animation that is the file below it with in-between frames (see above).
+// `game`: the game folder (data/field/char.lgp, data/battle/battle.lgp, data/battle/magic.lgp).
+void drop_interpolated_animations(const std::string &game) {
+    Lgp chr, btl, mag;
+    bool have_chr = chr.open(join(game, "data/field/char.lgp"));
+    bool have_btl = btl.open(join(game, "data/battle/battle.lgp"));
+    bool have_mag = mag.open(join(game, "data/battle/magic.lgp"));
+    std::map<int, std::pair<int, int>> dropped;          // mod -> (files, m)
+    for (auto &kv : g.map) {
+        std::string k = kv.first;
+        if (k.compare(0, 7, "direct/") == 0) k = k.substr(7);
+        size_t slash = k.find('/');
+        if (slash == std::string::npos || k.find('/', slash + 1) != std::string::npos) continue;
+        const std::string dir = k.substr(0, slash), name = k.substr(slash + 1);
+        Lgp *lgp = nullptr;
+        bool field = false;
+        if (dir == "char" && name.size() > 2 && name.compare(name.size() - 2, 2, ".a") == 0) { lgp = have_chr ? &chr : nullptr; field = true; }
+        else if (dir == "battle" && name.size() == 4 && name.compare(2, 2, "da") == 0) lgp = have_btl ? &btl : nullptr;
+        else if (dir == "magic" && name.size() > 4 && name.compare(name.size() - 4, 3, ".a0") == 0) lgp = have_mag ? &mag : nullptr;
+        else continue;
+        std::vector<Override> &chain = kv.second;
+        std::vector<uint32_t> base;
+        bool base_read = false;
+        // bottom up, so a file is compared with what is really below it once the others are out
+        for (size_t i = chain.size(); i-- > 0;) {
+            std::vector<uint32_t> mine = override_frames(chain[i], field);
+            if (mine.empty()) continue;
+            int m = 0;
+            if (i + 1 < chain.size()) m = interpolated_by(mine, override_frames(chain[i + 1], field));
+            if (!m && lgp) {
+                if (!base_read) {
+                    ByteReader rd;
+                    uint64_t size = 0;
+                    if (lgp->entry(name, rd, size)) base = anim_frame_counts(rd, size, field);
+                    base_read = true;
+                }
+                m = interpolated_by(mine, base);
+            }
+            if (!m) continue;
+            auto &d = dropped[chain[i].mod];
+            d.first++;
+            d.second = std::max(d.second, m);
+            chain.erase(chain.begin() + (long)i);
+        }
+    }
+    for (auto it = g.map.begin(); it != g.map.end();) it = it->second.empty() ? g.map.erase(it) : std::next(it);
+    for (const auto &d : dropped)
+        std::fprintf(stderr, "[mods] %s: %d animation(s) with their own in-between frames (x%d) left out; the game adds them itself at every frame rate\n",
+                     g.mods[d.first]->name.c_str(), d.second.first, d.second.second);
+}
+
 extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
     std::lock_guard<std::mutex> lk(g.lock);
     g.mods.clear();
@@ -580,6 +762,36 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         }
     }
 
+    // The frame rate is the launcher's (Settings > Frame rate; it ignores the mods' ff7_fps_limiter,
+    // GitHub #63, #70). A mod that picks ff7_fps_limiter with one of its own options (60/30 FPS
+    // Gameplay's FPS Mode: 1 original, 2 30 FPS battles, 3 60 FPS) gets that option set to match,
+    // so the folders and flags it ties to a frame rate are the ones for the frame rate the game runs
+    // at: the same value, else the highest below it (120 FPS takes the 60 FPS choice).
+    if (auto lim = ffnx.find("ffnx_ff7_fps_limiter"); lim != ffnx.end()) {
+        for (Pending &pm : pending) {
+            const ModInfo &info = pm.mod->info;
+            std::string opt;
+            int pick = 0, pick_lim = -1;
+            for (size_t i = 0; i < info.ffnx_config.size() && i < info.ffnx_config_when.size(); i++) {
+                if (lower(info.ffnx_config[i].first) != "ff7_fps_limiter" || info.ffnx_config_when[i].size() != 1) continue;
+                const auto &w = info.ffnx_config_when[i][0];
+                char *e1 = nullptr, *e2 = nullptr;
+                const long l = std::strtol(info.ffnx_config[i].second.c_str(), &e1, 10);
+                const long v = std::strtol(w.second.c_str(), &e2, 10);
+                if (*e1 || *e2 || w.second.empty() || (!opt.empty() && opt != w.first)) continue;
+                opt = w.first;
+                if (l <= lim->second && l > pick_lim) { pick_lim = (int)l; pick = (int)v; }
+            }
+            if (pick_lim < 0) continue;
+            const OptionValues now = info.values(pm.chosen);
+            auto cur = now.find(opt);
+            if (cur != now.end() && cur->second == pick) continue;
+            pm.chosen[opt] = pick;
+            std::fprintf(stderr, "[mods] %s: option %s set to %d to match the frame rate in Settings (ff7_fps_limiter %d)\n",
+                         pm.mod->name.c_str(), opt.c_str(), pick, lim->second);
+        }
+    }
+
     for (Pending &pm : pending) {
         OptionValues opts = pm.mod->info.values(pm.chosen);
         for (const auto &kv : ffnx) opts.emplace(kv.first, kv.second);   // a mod's own option wins
@@ -614,6 +826,7 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
     }
     // The mod.xml at a mod's root is metadata, never a game file.
     g.map.erase("mod.xml");
+    drop_interpolated_animations(join(base, "../game"));
     std::fprintf(stderr, "[mods] %zu mod(s), %zu game paths replaced\n", g.mods.size(), g.map.size());
     prune_cache(g.cache, keep);
     return 0;

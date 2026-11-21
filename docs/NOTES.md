@@ -770,3 +770,24 @@
   Tiny Bronco block (0x0F6C) once the Bronco is gone, and 0x0C22 bit 0x01 was never set in ~150
   slots, so chocobo markers do not show; the Bronco's stale position stays after it is lost and is
   correctly hidden by 0x0C23.
+
+
+## 2026-11-21: frame-rate mods (60/30 FPS Gameplay) work at every frame rate (v1.1.39, #63, #70)
+- #70: a Nibelheim reactor scene replayed Tifa's fall and stopped, with 60/30 FPS Gameplay on (we had
+  told #63 and #70 to turn it off). Cause: the game adds in-between frames to every field and battle
+  animation itself (ffnx_smooth_animation, 2026-11-08), and the mod's animations already have them
+  ((n - 1) * m + 1 frames: field 30 -> 59 at x2, KOTR 86 -> 341 at x4, battle 9 -> 33 at x4). Doubled
+  twice, motion ran at half speed and CANIM frame ranges (scaled by m) pointed at the wrong poses.
+- Fix (src/mods/mods.cpp drop_interpolated_animations): after the overlay is built, each mod file at
+  char/*.a, battle/??da or magic/*.a0? is compared with the file below it (the next mod's, else the
+  game's own from data/field/char.lgp, data/battle/battle.lgp, magic.lgp). If 75 % of its animations
+  are that file with m = 2, 4 or 8 in-between frames, it is left out and logged. Frame counts are read
+  in place (IroArchive::read_stored), 0.15 s for the whole mod on a PC. Found by contents, not names:
+  60 FPS Animations for ChaOS over ChaOS is caught the same way.
+- Measured with the real archives: 60/30 FPS Gameplay alone, 3534 of 3700 files left out (the rest
+  are one-frame poses and NinoStyle's own animations that differ from the game's); with ChaOS + its
+  60 FPS pack, every ChaOS animation resolves to ChaOS's own file.
+- The frame rate: the launcher no longer lets a mod's FFNxConfig ff7_fps_limiter replace Settings >
+  Frame rate (the mod's FPS Mode default 3 forced 60 FPS on Original players). A mod whose
+  ff7_fps_limiter follows one of its options gets that option set to the frame rate's value (else
+  the highest below: 120 FPS takes 60), so its 60 FPS folders and hext flag (0x914B21) match.

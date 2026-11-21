@@ -494,8 +494,13 @@ final class GameInstall {
         for (int i = mods.size() - 1; i >= 0; i--) {
             ModLibrary.Mod m = mods.get(i);
             if (!m.enabled || m.error != null) continue;
-            for (String[] kv : m.ffnx)
+            for (String[] kv : m.ffnx) {
+                // The frame rate is Settings > Frame rate's, whatever a mod asks for (60/30 FPS
+                // Gameplay sets ff7_fps_limiter from its FPS Mode; GitHub #63, #70). The game
+                // matches the mod's option to it instead (src/mods/mods.cpp).
+                if (kv[0].equalsIgnoreCase("ff7_fps_limiter")) continue;
                 if (m.optionsMatch(kv.length > 2 ? kv[2] : null)) toml = set(toml, kv[0], tomlValue(kv[1]));
+            }
         }
         for (java.util.Map.Entry<String, String> o : ffnxOptions.entrySet()) toml = set(toml, o.getKey(), o.getValue());
         // Settings > Display > Resolution: a chosen multiple of the original resolution, whatever
