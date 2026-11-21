@@ -1723,6 +1723,14 @@ public class LauncherActivity extends Activity {
             if (v == curLayout) rb.setChecked(true);
         }
         col.addView(or);
+        CheckBox sideLeftBox = new CheckBox(this);
+        sideLeftBox.setText("Side by side: panels on the left\nThe panels at the game's left instead of its right. "
+                + "In the game, the button at the top of the panels hides them; the tab at the screen's edge brings them back");
+        sideLeftBox.setTextColor(TEXT);
+        sideLeftBox.setTextSize(16);
+        sideLeftBox.setChecked(prefs.getBoolean("side_left", false));
+        sideLeftBox.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("side_left", on).apply());
+        col.addView(sideLeftBox);
         col.addView(space(16));
         col.addView(heading("On-screen controls"));
         RadioGroup tc = new RadioGroup(this);
@@ -2618,6 +2626,7 @@ public class LauncherActivity extends Activity {
                     .putExtra("portrait", prefs.getBoolean("portrait", false))
                     .putExtra("split", prefs.getBoolean("split", false))
                     .putExtra("side", prefs.getBoolean("side", false))
+                    .putExtra("side_left", prefs.getBoolean("side_left", false))
                     .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
                     .putExtra("bottom_buttons", prefs.getBoolean("bottom_buttons", true))
                     .putExtra("crt_filter", prefs.getBoolean("crt_filter", false))

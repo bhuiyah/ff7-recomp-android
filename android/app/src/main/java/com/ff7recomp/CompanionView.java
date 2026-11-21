@@ -78,6 +78,11 @@ public class CompanionView extends View {
     // Settings > Screen > Second screen buttons (requested in the comments): off, the panels
     // take the deck's place and the controller does everything.
     private boolean deck = true;
+    /** Side by side: the header's hide button (null: none), on the header's left or right end. */
+    private Runnable onHide;
+    private boolean hideAtLeft, hidePressed;
+    private final RectF hideBox = new RectF();
+    void setOnHide(Runnable r, boolean atLeft) { onHide = r; hideAtLeft = atLeft; if (r == null) hideBox.setEmpty(); invalidate(); }
     void setDeck(boolean on) { deck = on; if (!on) for (Button b : buttons) b.box.setEmpty(); invalidate(); }
 
     // ---- tabs ---------------------------------------------------------------------------------
@@ -380,6 +385,14 @@ public class CompanionView extends View {
         window(c, l, t, rr, b);
         float h = b - t;
         final boolean nar = narrow();
+        final float l0 = l, r0 = rr;   // the second row (narrow) keeps the whole width
+        if (onHide != null) {          // Side by side: hide the panels, on the edge next to the game
+            float hs = nar ? 56 * u : Math.min(h - 24 * u, 72 * u);
+            float hx = hideAtLeft ? l + 12 * u : rr - 12 * u - hs;
+            hideBox.set(hx, t + 12 * u, hx + hs, t + 12 * u + hs);
+            drawHideButton(c, hideBox, u);
+            if (hideAtLeft) l = hideBox.right - 6 * u; else rr = hideBox.left - 6 * u;
+        } else hideBox.setEmpty();
         {                              // the book, top right: Pixel Guide on this screen
             float s = (nar ? 72 * u : h) - 24 * u, bw = s * 1.25f;
             bookBox.set(rr - 14 * u - bw, t + 12 * u, rr - 14 * u, t + 12 * u + s);
@@ -405,10 +418,10 @@ public class CompanionView extends View {
             String where = state.optString("loc");
             fitLabel(c, where.isEmpty() ? "-" : where, l + 24 * u, t + 56 * u, 40 * u, bookBox.left - l - 40 * u, WHITE, Paint.Align.LEFT);
             float y = t + h - 26 * u;
-            label(c, "Time", l + 24 * u, y, 24 * u, LABEL, Paint.Align.LEFT);
-            label(c, time, l + 24 * u + measure("Time ", 24 * u), y, 34 * u, WHITE, Paint.Align.LEFT);
-            label(c, gil, rr - 24 * u, y, 34 * u, GOLD, Paint.Align.RIGHT);
-            label(c, "Gil", rr - 24 * u - measure(gil + " ", 34 * u), y, 24 * u, LABEL, Paint.Align.RIGHT);
+            label(c, "Time", l0 + 24 * u, y, 24 * u, LABEL, Paint.Align.LEFT);
+            label(c, time, l0 + 24 * u + measure("Time ", 24 * u), y, 34 * u, WHITE, Paint.Align.LEFT);
+            label(c, gil, r0 - 24 * u, y, 34 * u, GOLD, Paint.Align.RIGHT);
+            label(c, "Gil", r0 - 24 * u - measure(gil + " ", 34 * u), y, 24 * u, LABEL, Paint.Align.RIGHT);
             return;
         }
         float gx = bookBox.left - 34 * u, gw = Math.max(measure(gil, 36 * u), measure("Gil", 24 * u));
@@ -943,6 +956,25 @@ public class CompanionView extends View {
         regions = state.optJSONArray("layout");
     }
 
+    /** The hide button: a small window with a chevron pointing toward the panels' outer edge. */
+    private void drawHideButton(Canvas c, RectF b, float u) {
+        window(c, b.left, b.top, b.right, b.bottom);
+        if (hidePressed) {
+            fill.setShader(null);
+            fill.setColor(0x55FFFFFF);
+            c.drawRoundRect(b, 14 * u, 14 * u, fill);
+        }
+        stroke.setColor(WHITE);
+        stroke.setStrokeWidth(5 * u);
+        stroke.setStrokeCap(Paint.Cap.ROUND);
+        float cx = b.centerX(), cy = b.centerY(), dx = b.width() * 0.13f, dy = b.height() * 0.22f;
+        // panels at the game's right hide to the right: the chevron points right (away from the game)
+        float tip = hideAtLeft ? cx + dx : cx - dx, back = hideAtLeft ? cx - dx : cx + dx;
+        c.drawLine(back, cy - dy, tip, cy, stroke);
+        c.drawLine(tip, cy, back, cy + dy, stroke);
+        stroke.setStrokeCap(Paint.Cap.BUTT);
+    }
+
     /** An open book: two pages with a few lines, on the window's colours. */
     private void drawBook(Canvas c, RectF b, float u) {
         float cx = b.centerX(), w = b.width() * 0.42f, top = b.top + b.height() * 0.2f, bot = b.bottom - b.height() * 0.16f;
@@ -1004,6 +1036,8 @@ public class CompanionView extends View {
             dragging = false;
             bookPressed = !legacyBattle() && !bookBox.isEmpty() && bookBox.contains(x, y);
             if (bookPressed) { invalidate(); return true; }
+            hidePressed = onHide != null && !legacyBattle() && !hideBox.isEmpty() && hideBox.contains(x, y);
+            if (hidePressed) { invalidate(); return true; }
             for (Button b : buttons) if (b.box.contains(x, y)) pressed = b;
             if (pressed == null && legacyBattle()) {
                 if (y >= areaTop && y < areaBottom) battleTap(x, y);
@@ -1026,6 +1060,15 @@ public class CompanionView extends View {
             }
             return true;
         case MotionEvent.ACTION_UP:
+            if (hidePressed) {
+                hidePressed = false;
+                invalidate();
+                if (hideBox.contains(x, y) && onHide != null) {
+                    performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+                    onHide.run();
+                }
+                return true;
+            }
             if (bookPressed) {
                 bookPressed = false;
                 if (bookBox.contains(x, y)) {
@@ -1065,6 +1108,7 @@ public class CompanionView extends View {
             pressed = null;
             pressedTab = -1;
             bookPressed = false;
+            hidePressed = false;
             dragging = false;
             invalidate();
             return true;

@@ -319,6 +319,12 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
      *  the game's right instead of below it (one larger handheld screen: the game and the second
      *  screen's panels beside each other). Held upright it is Split. */
     private boolean side, arrangedSide;
+    /** Side by side: the panels at the game's left instead of its right (Settings > Screen). */
+    private boolean sideLeft;
+    /** Side by side: the panels hidden (their hide button), the game on the whole screen; a small
+     *  tab at the screen's edge brings them back. Kept between games ("companion" prefs). */
+    private boolean panelsHidden;
+    private android.view.View showTab;
     private android.widget.FrameLayout bottom;      // split: the panels, the on-screen pad over them
 
     private android.widget.FrameLayout gameFrame;   // the game's SurfaceView and the booster icons
@@ -332,10 +338,15 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         boolean fill = true;
         /** Side by side: as tall as the window allows at the game's aspect ratio, leaving at least
          *  a quarter of the width to the panels (a 4:3 picture on a 16:9 screen fills the height). */
-        boolean side;
+        boolean side, sideFull;   // sideFull: the panels hidden, the whole window
         AspectFrame(Context c, float ratio) { super(c); this.ratio = ratio; }
         @Override protected void onMeasure(int w, int h) {
             if (fill) { super.onMeasure(w, h); return; }
+            if (side && sideFull) {
+                super.onMeasure(MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(w), MeasureSpec.EXACTLY),
+                                MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(h), MeasureSpec.EXACTLY));
+                return;
+            }
             if (side) {
                 int maxW = Math.round(MeasureSpec.getSize(w) * 0.75f), maxH = MeasureSpec.getSize(h);
                 int width = Math.min(maxW, Math.round(maxH / ratio));
@@ -392,6 +403,9 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         if (bottom != null && bottom.getParent() != null) ((android.view.ViewGroup) bottom.getParent()).removeView(bottom);
         ((AspectFrame) gameFrame).fill = !tall;
         ((AspectFrame) gameFrame).side = false;
+        if (showTab != null && showTab.getParent() != null) ((android.view.ViewGroup) showTab.getParent()).removeView(showTab);
+        if (bottom != null) bottom.setVisibility(android.view.View.VISIBLE);
+        if (panel != null) panel.setOnHide(null, false);
         arrangedSide = tall && side && isWide();
         if (arrangedSide) { arrangeSide(); return; }
         if (tall && split) { arrangeSplit(); return; }
@@ -446,11 +460,13 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     /**
-     * Side by side: the game at the left at its aspect ratio, as tall as the window (centred
-     * when the picture is wider than three quarters of the window); at its right the panels the
-     * AYN Thor shows on its second screen (CompanionView, which lays itself out for a tall, narrow
-     * area). The on-screen pad, when it shows, lies over the whole window; touches it does not
-     * use go through to the panels.
+     * Side by side: the game at its aspect ratio, as tall as the window (centred when the picture
+     * is wider than three quarters of the window); beside it, at its right or (sideLeft) its left,
+     * the panels the AYN Thor shows on its second screen (CompanionView, which lays itself out for
+     * a tall, narrow area). The panels' hide button gives the game the whole window and shows a
+     * small tab at that edge to bring them back; only visibility and sizes change, so the game's
+     * surface stays where it is. The on-screen pad, when it shows, lies over the whole window;
+     * touches it does not use go through to the panels.
      */
     private void arrangeSide() {
         ((AspectFrame) gameFrame).side = true;
@@ -460,7 +476,6 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         android.widget.LinearLayout.LayoutParams glp = new android.widget.LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
         glp.gravity = android.view.Gravity.CENTER_VERTICAL;
-        row.addView(gameFrame, glp);
         if (bottom == null) {
             bottom = new android.widget.FrameLayout(this);
             bottom.addView(panel, new android.widget.FrameLayout.LayoutParams(
@@ -472,16 +487,78 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         android.widget.FrameLayout.LayoutParams plp = (android.widget.FrameLayout.LayoutParams) panel.getLayoutParams();
         plp.leftMargin = plp.rightMargin = plp.bottomMargin = 0;
         panel.setLayoutParams(plp);
-        row.addView(bottom, new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1f));
-        if (touch == null) { setContentView(row); return; }
+        android.widget.LinearLayout.LayoutParams blp = new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+        if (sideLeft) { row.addView(bottom, blp); row.addView(gameFrame, glp); }
+        else { row.addView(gameFrame, glp); row.addView(bottom, blp); }
+        // the hide button sits on the panels' edge next to the game
+        panel.setOnHide(() -> setPanelsHidden(true), !sideLeft);
         android.widget.FrameLayout root = new android.widget.FrameLayout(this);
         root.addView(row, new android.widget.FrameLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-        touch.setPassThrough(true);
-        touch.setOnPlaced(this::fitPanels);
-        root.addView(touch, new android.widget.FrameLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        if (showTab == null) {
+            showTab = new ShowTab(this, sideLeft);
+            showTab.setOnClickListener(v -> setPanelsHidden(false));
+        } else if (showTab.getParent() != null) {
+            ((android.view.ViewGroup) showTab.getParent()).removeView(showTab);
+        }
+        float d = getResources().getDisplayMetrics().density;
+        root.addView(showTab, new android.widget.FrameLayout.LayoutParams(Math.round(30 * d), Math.round(76 * d),
+                android.view.Gravity.CENTER_VERTICAL | (sideLeft ? android.view.Gravity.LEFT : android.view.Gravity.RIGHT)));
+        if (touch != null) {
+            touch.setPassThrough(true);
+            touch.setOnPlaced(this::fitPanels);
+            root.addView(touch, new android.widget.FrameLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        applyPanelsHidden();
         setContentView(root);
+    }
+
+    /** Side by side: hide the panels (the game takes the whole window) or bring them back. */
+    private void setPanelsHidden(boolean hidden) {
+        if (panelsHidden == hidden) return;
+        panelsHidden = hidden;
+        getSharedPreferences("companion", Context.MODE_PRIVATE).edit().putBoolean("side_hidden", hidden).apply();
+        applyPanelsHidden();
+    }
+
+    private void applyPanelsHidden() {
+        if (bottom == null || showTab == null) return;
+        ((AspectFrame) gameFrame).sideFull = panelsHidden;
+        bottom.setVisibility(panelsHidden ? android.view.View.GONE : android.view.View.VISIBLE);
+        showTab.setVisibility(panelsHidden ? android.view.View.VISIBLE : android.view.View.GONE);
+        gameFrame.requestLayout();
+    }
+
+    /** The tab at the screen's edge that brings the hidden panels back: a chevron pointing in. */
+    private static final class ShowTab extends android.view.View {
+        private final boolean left;
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.RectF box = new android.graphics.RectF();
+        ShowTab(Context c, boolean left) {
+            super(c);
+            this.left = left;
+            setContentDescription("Show the panels");
+        }
+        @Override protected void onDraw(android.graphics.Canvas c) {
+            float w = getWidth(), h = getHeight(), r = w * 0.45f;
+            // rounded on the inner side only: a tab sticking out of the screen's edge
+            box.set(left ? -r : 0, 0, left ? w : w + r, h);
+            paint.setStyle(android.graphics.Paint.Style.FILL);
+            paint.setColor(0xB01A2A6A);
+            c.drawRoundRect(box, r, r, paint);
+            paint.setStyle(android.graphics.Paint.Style.STROKE);
+            paint.setStrokeWidth(w * 0.07f);
+            paint.setColor(0xD0DCDCF0);
+            c.drawRoundRect(box, r, r, paint);
+            paint.setStrokeWidth(w * 0.1f);
+            paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
+            paint.setColor(0xFFFFFFFF);
+            float cx = w / 2, cy = h / 2, dx = w * 0.16f, dy = h * 0.14f;
+            float tip = left ? cx + dx : cx - dx, back = left ? cx - dx : cx + dx;   // pointing into the screen
+            c.drawLine(back, cy - dy, tip, cy, paint);
+            c.drawLine(tip, cy, back, cy + dy, paint);
+        }
     }
 
     /** Split: the panels between the pad's two sides while it shows, the whole width otherwise. */
@@ -791,6 +868,8 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         // The screen stays on while the game runs (it timed out and the device slept mid-game).
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         side = getIntent().getBooleanExtra("side", false);
+        sideLeft = getIntent().getBooleanExtra("side_left", false);
+        panelsHidden = side && getSharedPreferences("companion", Context.MODE_PRIVATE).getBoolean("side_hidden", false);
         split = side || getIntent().getBooleanExtra("split", false);
         portrait = !split && getIntent().getBooleanExtra("portrait", false);
         if (portrait) setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
