@@ -527,14 +527,15 @@ final class GameInstall {
 
     /** files/boosters.txt for src/ffnx_port/boosters.cpp: the game boosters a game starts with. */
     void writeBoosters(int speed, boolean noEncounters, boolean battlePlus, boolean frameSkip, boolean saveAnywhere, int gil,
-                       int exp, int ap, boolean autofire, int rumble) throws IOException {
+                       int exp, int ap, boolean autofire, int rumble, boolean alwaysRun) throws IOException {
         String s = "speed=" + speed + "\nencounters=" + (noEncounters ? "off" : "on") + "\nbattle=" + (battlePlus ? "on" : "off")
                 + "\nframeskip=" + (frameSkip ? "on" : "off") + "\n"
                 + "saveanywhere=" + (saveAnywhere ? "on" : "off") + "\n"   // src/host/ff7_hext.cpp, at boot
                 + "gil=" + gil + "\n"                                       // gil from battles times this
                 + "exp=" + exp + "\n" + "ap=" + ap + "\n"               // EXP and AP too (src/ffnx_port/boosters.cpp)
                 + "autofire=" + (autofire ? "on" : "off") + "\n"          // battles: confirm held repeats (#33)
-                + "rumble=" + rumble + "\n";                              // 0 off, 1 light, 2 strong (rumble.cpp)
+                + "rumble=" + rumble + "\n"                               // 0 off, 1 light, 2 strong (rumble.cpp)
+                + "alwaysrun=" + (alwaysRun ? "on" : "off") + "\n";      // field: moving runs, run button walks (#72)
         try (OutputStream o = new FileOutputStream(new File(files, "boosters.txt"))) { o.write(s.getBytes(StandardCharsets.UTF_8)); }
     }
 

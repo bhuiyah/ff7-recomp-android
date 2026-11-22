@@ -23,6 +23,8 @@
 
 extern "C" {
 int ff7_booster_battle = 0;     // battle enhancement on
+int ff7r_always_run = 0;        // field: moving runs, holding run walks (boosters.txt alwaysrun=on, GitHub #72;
+                                // read by FFNx ff7/field/model.cpp, tools/ffnx_edit_android.py)
 void ff7_platform_pad_autofire(int on);   // src/android: confirm held repeats (GitHub #33)
 void ff7_rumble_set_level(int level);     // rumble.cpp: 0 off, 1 light, 2 strong
 void ff7_rumble_frame(int mode);
@@ -109,6 +111,8 @@ void read_defaults() {
             if (g >= 1 && g <= 100) g_ap_mult = g;
         } else if (!std::strcmp(key, "autofire")) {
             g_autofire = !std::strcmp(val, "on");
+        } else if (!std::strcmp(key, "alwaysrun")) {
+            ff7r_always_run = !std::strcmp(val, "on");   // Settings > Controller > Always run (#72)
         } else if (!std::strcmp(key, "rumble")) {
             ff7_rumble_set_level(std::atoi(val));   // Settings > Controller > Rumble
         }

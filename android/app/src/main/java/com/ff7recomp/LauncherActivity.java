@@ -1763,6 +1763,14 @@ public class LauncherActivity extends Activity {
         analog.setChecked(prefs.getBoolean("analog_controls", false));
         analog.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("analog_controls", on).apply());
         col.addView(analog);
+        CheckBox run = new CheckBox(this);   // GitHub #72
+        run.setText("Always run\nMoving runs on its own; hold the run button to walk instead. "
+                + "With the analog stick, a slight tilt still walks");
+        run.setTextColor(TEXT);
+        run.setTextSize(16);
+        run.setChecked(prefs.getBoolean("always_run", false));
+        run.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("always_run", on).apply());
+        col.addView(run);
         CheckBox fire = new CheckBox(this);   // GitHub #33
         fire.setText("Hold confirm to repeat in battles\nHolding the confirm button keeps picking, about five times a "
                 + "second, like auto-fire. Outside battles it presses once, as in the original");
@@ -2616,7 +2624,8 @@ public class LauncherActivity extends Activity {
             install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false),
                                   prefs.getInt("perf", 1) != 2, prefs.getBoolean("save_anywhere", false),
                                   prefs.getInt("gil", 1), prefs.getInt("exp", 1), prefs.getInt("ap", 1),
-                                  prefs.getBoolean("autofire", false), prefs.getInt("rumble", 0));
+                                  prefs.getBoolean("autofire", false), prefs.getInt("rumble", 0),
+                                  prefs.getBoolean("always_run", false));
             install.writeCompanion("off");   // battle windows stay on the top screen
             runOnUiThread(() -> startActivity(new Intent(this, GameActivity.class)
                     .putExtra("touch_controls", prefs.getInt("touch_controls", 0))

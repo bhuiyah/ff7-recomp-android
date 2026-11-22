@@ -1873,6 +1873,55 @@ EDITS = [
      '        patch_code_dword((uint32_t)&common_externals.execute_opcode_table[WAIT], ffnx_guest_va(&opcode_script_WAIT));\n'
      '        patch_code_dword((uint32_t)&common_externals.execute_opcode_table[SETBYTE], ffnx_guest_va(&opcode_script_SETBYTE));   // FF7Recomp (#69)\n'
      '        patch_code_dword((uint32_t)&common_externals.execute_opcode_table[BGSCR], ffnx_guest_va(&opcode_script_BGSCR));       // FF7Recomp (#69)\n'),
+    # GitHub #72: Settings > Controller > Always run (boosters.txt alwaysrun=on, read by
+    # src/ffnx_port/boosters.cpp). The field's movement update sees the run button (0x40)
+    # pressed while it is not held and released while it is: moving runs, holding run walks.
+    # The analogue stick's slight tilt (INTENT_WALK) still walks. Only the movement update
+    # changes; scripts that read the button (IFKEY) see the real one.
+    ('ff7/field/model.cpp',
+     '    void ff7_field_update_models_position(int key_input_status)\n'
+     '    {\n'
+     '        bool emulate_run = !(ff7_externals.modules_global_object->current_key_input_status & 0x40) && gamepad_analogue_intent == INTENT_RUN;\n',
+     '    void ff7_field_update_models_position(int key_input_status)\n'
+     '    {\n'
+     '        // FF7Recomp (#72): Always run inverts the run button for the movement update\n'
+     '        const uint32_t always_run_saved = ff7_externals.modules_global_object->current_key_input_status & 0x40;\n'
+     '        if (ff7r_always_run)\n'
+     '        {\n'
+     '            const bool run = !always_run_saved && gamepad_analogue_intent != INTENT_WALK;\n'
+     '            key_input_status = run ? (key_input_status | 0x40) : (key_input_status & ~0x40);\n'
+     '            if (run) ff7_externals.modules_global_object->current_key_input_status |= 0x40;\n'
+     '            else ff7_externals.modules_global_object->current_key_input_status &= ~0x40;\n'
+     '        }\n'
+     '        bool emulate_run = !ff7r_always_run && !(ff7_externals.modules_global_object->current_key_input_status & 0x40) && gamepad_analogue_intent == INTENT_RUN;\n'),
+    ('ff7/field/model.cpp',
+     '            key_input_status &= ~0x40;\n'
+     '            ff7_externals.modules_global_object->current_key_input_status &= ~0x40;\n'
+     '        }\n'
+     '\n'
+     '        for(int model_idx = 0;',
+     '            key_input_status &= ~0x40;\n'
+     '            ff7_externals.modules_global_object->current_key_input_status &= ~0x40;\n'
+     '        }\n'
+     '        if (ff7r_always_run)   // FF7Recomp (#72): the real run button again\n'
+     '        {\n'
+     '            ff7_externals.modules_global_object->current_key_input_status =\n'
+     '                (ff7_externals.modules_global_object->current_key_input_status & ~0x40) | always_run_saved;\n'
+     '        }\n'
+     '\n'
+     '        for(int model_idx = 0;'),
+    ('ff7/field/model.cpp',
+     'namespace ff7::field\n{\n    bool ff7_field_do_draw_3d_model(',
+     'extern "C" int ff7r_always_run;   // FF7Recomp (#72): src/ffnx_port/boosters.cpp\n\n'
+     'namespace ff7::field\n{\n    bool ff7_field_do_draw_3d_model('),
+    # Footsteps (ff7_footsteps) keep the running pace while Always run runs (#72)
+    ('sfx.cpp',
+     '\t\tif (*ff7_externals.input_run_button_status != 0 || gamepad_analogue_intent == INTENT_RUN) pace = 0.30f;\n',
+     '\t\tif (ff7r_always_run ? (*ff7_externals.input_run_button_status == 0 && gamepad_analogue_intent != INTENT_WALK)   // FF7Recomp (#72)\n'
+     '\t\t                    : (*ff7_externals.input_run_button_status != 0 || gamepad_analogue_intent == INTENT_RUN)) pace = 0.30f;\n'),
+    ('sfx.cpp',
+     '\t\tfloat pace = 0.5f;\n\n\t\t// If running change the pace\n',
+     '\t\tfloat pace = 0.5f;\n\t\textern int ff7r_always_run;   // FF7Recomp (#72): src/ffnx_port/boosters.cpp\n\n\t\t// If running change the pace\n'),
 ]
 
 
