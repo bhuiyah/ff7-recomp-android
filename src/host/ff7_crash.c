@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/mman.h>
 #include "recomp_types.h"
 #include "win32hle.h"
 
@@ -40,6 +41,36 @@ static _Unwind_Reason_Code bt_frame(struct _Unwind_Context *ctx, void *arg) {
     return _URC_NO_REASON;
 }
 
+/* True when the 4 guest bytes at va are mapped (mincore fails with ENOMEM on unmapped pages). */
+static int guest_mapped(uint32_t va) {
+    long pg = sysconf(_SC_PAGESIZE);
+    unsigned char v[2];
+    uintptr_t a = ADDR(va), b = ADDR(va + 3u);
+    uintptr_t lo = a & ~(uintptr_t)(pg - 1), hi = b & ~(uintptr_t)(pg - 1);
+    return va <= 0xFFFFFFFCu && mincore((void *)lo, (size_t)(hi - lo + pg), v) == 0;
+}
+static int guest_text(uint32_t v) { return v >= 0x00401000u && v < 0x007BA000u; }
+
+/* The guest call chain: the ebp frame links, then return-address-like values on the top of the guest stack. */
+static void guest_stack_dump(void) {
+    fprintf(stderr, "  guest ebp chain (return addr <- frame):\n");
+    uint32_t bp = g_ebp;
+    for (int i = 0; i < 16 && bp && !(bp & 3) && guest_mapped(bp) && guest_mapped(bp + 4); i++) {
+        uint32_t ret = MEM32(bp + 4), next = MEM32(bp);
+        fprintf(stderr, "    0x%08X <- ebp 0x%08X%s\n", ret, bp, guest_text(ret) ? "" : "  (not code)");
+        if (next <= bp) break;
+        bp = next;
+    }
+    fprintf(stderr, "  guest stack code pointers (esp+off: value):\n");
+    int n = 0;
+    for (uint32_t off = 0; off < 0x400 && n < 24; off += 4) {
+        uint32_t a = g_esp + off;
+        if (!guest_mapped(a)) break;
+        uint32_t v = MEM32(a);
+        if (guest_text(v)) { fprintf(stderr, "    +0x%03X: 0x%08X\n", off, v); n++; }
+    }
+}
+
 __attribute__((weak)) void ff7_interp_dump(void);    /* src/interp/x86_interp.c */
 static void on_fault(int sig, siginfo_t *si, void *uc) {
 #if defined(__aarch64__)
@@ -59,6 +90,7 @@ static void on_fault(int sig, siginfo_t *si, void *uc) {
     fprintf(stderr, "\n  in lifted func 0x%08X, last import %s\n", g_cur_func, g_cur_import ? g_cur_import : "(none)");
     fprintf(stderr, "  eax=%08X ebx=%08X ecx=%08X edx=%08X esi=%08X edi=%08X ebp=%08X esp=%08X\n",
             g_eax, g_ebx, g_ecx, g_edx, g_esi, g_edi, g_ebp, g_esp);
+    guest_stack_dump();
     if (ff7_interp_dump) ff7_interp_dump();          /* the x86 interpreter's last steps, if it ran */
     fprintf(stderr, "  recent indirect calls (target <- from):\n");
     for (uint32_t i = 0; i < 8 && i < g_icall_count; i++) {
