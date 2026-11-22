@@ -1731,6 +1731,30 @@ public class LauncherActivity extends Activity {
         sideLeftBox.setChecked(prefs.getBoolean("side_left", false));
         sideLeftBox.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("side_left", on).apply());
         col.addView(sideLeftBox);
+        // Lock rotation (#73): a phone held flat can turn the game by itself
+        TextView lockLabel = new TextView(this);
+        lockLabel.setText("Lock rotation\nKeeps the game the way it is set here when the phone is turned or held flat. "
+                + "Portrait applies to Portrait, Split and Side by side");
+        lockLabel.setTextColor(TEXT);
+        lockLabel.setTextSize(16);
+        lockLabel.setPadding(0, Math.round(8 * getResources().getDisplayMetrics().density), 0, 0);
+        col.addView(lockLabel);
+        RadioGroup lockGroup = new RadioGroup(this);
+        lockGroup.setOrientation(RadioGroup.HORIZONTAL);
+        String[] locks = { "Off", "Landscape", "Portrait" };
+        int curLock = prefs.getInt("rotation_lock", 0);
+        for (int i = 0; i < locks.length; i++) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(locks[i]);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            final int v = i;
+            rb.setOnClickListener(x -> prefs.edit().putInt("rotation_lock", v).apply());
+            lockGroup.addView(rb);
+            if (v == curLock) rb.setChecked(true);
+        }
+        col.addView(lockGroup);
         col.addView(space(16));
         col.addView(heading("On-screen controls"));
         RadioGroup tc = new RadioGroup(this);
@@ -2636,6 +2660,7 @@ public class LauncherActivity extends Activity {
                     .putExtra("split", prefs.getBoolean("split", false))
                     .putExtra("side", prefs.getBoolean("side", false))
                     .putExtra("side_left", prefs.getBoolean("side_left", false))
+                    .putExtra("rotation_lock", prefs.getInt("rotation_lock", 0))
                     .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
                     .putExtra("bottom_buttons", prefs.getBoolean("bottom_buttons", true))
                     .putExtra("crt_filter", prefs.getBoolean("crt_filter", false))

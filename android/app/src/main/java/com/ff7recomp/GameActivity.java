@@ -598,13 +598,19 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         return main;
     }
 
-    /** Portrait chosen: follow the window's shape until the game starts (its renderer is made at
-     *  the first size). */
+    /** Portrait, Split, Side by side: follow the window's shape, also while the game runs (#73: a
+     *  phone turned in Side by side kept the layout it started with, so turned upright the game sat
+     *  in a corner beside the panels, and started upright then turned it overflowed the screen).
+     *  The renderer follows its surface's new size (FFNx: "picture recalculated"). */
     @Override
     public void onConfigurationChanged(android.content.res.Configuration c) {
         super.onConfigurationChanged(c);
-        if ((portrait || split) && !started
-                && (wantStacked() != arrangedTall || (side && wantStacked() && isWide() != arrangedSide))) arrange(wantStacked());
+        if ((portrait || split)
+                && (wantStacked() != arrangedTall || (side && wantStacked() && isWide() != arrangedSide))) {
+            if (started) Log.i(TAG, "window now " + c.screenWidthDp + "x" + c.screenHeightDp + " dp: layout arranged again");
+            arrange(wantStacked());
+            updateTouch();
+        }
         // folded or unfolded (#66): the on-screen controls' layout for the screen now in use
         if (touch != null && !TouchControls.layoutKey(this).equals(touchLayoutKey)) {
             touchLayoutKey = TouchControls.layoutKey(this);
@@ -878,6 +884,12 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         // split: any way the device is held (the manifest's sensorLandscape would turn a
         // foldable's inner screen sideways)
         if (split) setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_USER);
+        // Settings > Screen > Lock rotation (#73): a phone held flat can flip between landscape and
+        // portrait by itself. Landscape: either landscape way up. Portrait: only the layouts with a
+        // portrait arrangement (Portrait, Split, Side by side); the plain landscape layout stays as it is.
+        int lock = getIntent().getIntExtra("rotation_lock", 0);
+        if (lock == 1) setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        else if (lock == 2 && (portrait || split)) setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT);
         SurfaceView view = new SurfaceView(this);
         view.getHolder().addCallback(this);
         // the game, and the game boosters' icons over its top-right corner (BoosterIcons)
