@@ -34,6 +34,11 @@ extern uint32_t num_sorted_deferred;
 extern "C" uint32_t universal_buttons_ss_count();          // ff7/universal_buttons.cpp
 extern "C" void universal_buttons_ss_get(uint32_t *out);
 extern "C" void universal_buttons_ss_set(const uint32_t *in);
+namespace ff7::field {                                        // ff7/field/kawai_eyetx.cpp (FF7Recomp)
+void ff7r_facial_owned_textures(void (*fn)(uint32_t va, void *ctx), void *ctx);
+void ff7r_facial_forget();
+void ff7r_facial_unload(uint32_t va);
+}
 
 namespace {
 std::set<uint32_t> g_sets;                 // live texture sets (guest addresses)
@@ -119,6 +124,42 @@ void ss_after_load(void *) {
 }
 
 const ff7_savestate_hook g_hook = { "ffnx-textures", nullptr, ss_save, ss_before_load, ss_restore, ss_after_load };
+
+// ---- facial textures (ff7/field/kawai_eyetx.cpp): expression eyes and mouths a mod ships ----
+// FFNx loads them through the game and keeps the pointers in a host cache, which it unloads at
+// the next field change. After a load those pointers name memory of another moment: unloading
+// them freed garbage (GitHub #68: a crash at the next area change; #74: a crash right at the
+// load, when it changes the field). The state carries the cache's textures; a load forgets
+// the running session's (their memory is gone) and unloads the saved session's, which only
+// that cache held. Registered before the scene hook: its KAWAI reset may clear the cache.
+std::vector<uint32_t> g_facial;
+bool g_facial_have;
+int facial_save(void *, ff7_ss_writer put, void *buf) {
+    std::vector<uint32_t> v;
+    ff7::field::ff7r_facial_owned_textures([](uint32_t va, void *ctx) { static_cast<std::vector<uint32_t> *>(ctx)->push_back(va); }, &v);
+    const uint32_t n = (uint32_t)v.size();
+    if (put(buf, &n, 4)) return -1;
+    return v.empty() ? 0 : put(buf, v.data(), v.size() * 4);
+}
+void facial_restore(void *, const void *data, size_t n) {
+    g_facial.clear();
+    uint32_t count = 0;
+    if (n >= 4) std::memcpy(&count, data, 4);
+    g_facial_have = n >= 4 && n == 4 + 4ull * count;
+    if (g_facial_have && count) {
+        g_facial.resize(count);
+        std::memcpy(g_facial.data(), (const uint8_t *)data + 4, 4ull * count);
+    }
+}
+void facial_after_load(void *) {
+    ff7::field::ff7r_facial_forget();
+    // a state from before this record: its session's textures stay allocated (a few KB)
+    for (uint32_t va : g_facial) ff7::field::ff7r_facial_unload(va);
+    if (!g_facial.empty()) ffnx_info("savestate: %u facial textures of the saved moment unloaded\n", (unsigned)g_facial.size());
+    g_facial.clear();
+    g_facial_have = false;
+}
+const ff7_savestate_hook g_facial_hook = { "ffnx-facial", nullptr, facial_save, nullptr, facial_restore, facial_after_load };
 
 // ---- the scene around the state: music, and FFNx's per-field host state ------------------
 // FFNx sets these up when a scene is entered (the game's own calls), which a load skips: the
@@ -214,7 +255,7 @@ void deferred_after_load(void *) {
 const ff7_savestate_hook g_deferred_hook = { "ffnx-deferred", nullptr, deferred_save, nullptr, deferred_restore, deferred_after_load };
 
 struct Register {
-    Register() { ff7_savestate_register(&g_hook); ff7_savestate_register(&g_scene_hook); ff7_savestate_register(&g_prompts_hook);
+    Register() { ff7_savestate_register(&g_hook); ff7_savestate_register(&g_facial_hook); ff7_savestate_register(&g_scene_hook); ff7_savestate_register(&g_prompts_hook);
                  ff7_savestate_register(&g_deferred_hook); }
 } g_register;
 

@@ -1922,6 +1922,44 @@ EDITS = [
     ('sfx.cpp',
      '\t\tfloat pace = 0.5f;\n\n\t\t// If running change the pace\n',
      '\t\tfloat pace = 0.5f;\n\t\textern int ff7r_always_run;   // FF7Recomp (#72): src/ffnx_port/boosters.cpp\n\n\t\t// If running change the pace\n'),
+    # Save states (GitHub #68, #74): the facial texture cache (expression eyes and mouths that
+    # mods such as Shinra Archaeology Cut ship) holds guest pointers of one moment. A load
+    # replaces that memory, and the next field change (or the load itself, when it changes the
+    # field) "unloaded" the old pointers through the game: free_polygon_data on whatever the
+    # restored heap had there, a crash. src/ffnx_port/savestate_ffnx.cpp saves the cache's
+    # textures with the state, forgets the running session's at a load, and unloads the
+    # saved session's (nothing else holds them).
+    ('ff7/field/kawai_eyetx.cpp',
+     '    bool ff7_field_is_facial_primitive(const polygon_data *polygon, const indexed_primitive *primitive)\n',
+     '    // FF7Recomp: save states (src/ffnx_port/savestate_ffnx.cpp, GitHub #68/#74)\n'
+     '    void ff7r_facial_owned_textures(void (*fn)(uint32_t va, void *ctx), void *ctx)\n'
+     '    {\n'
+     '        for (auto &cache : facial_textures)\n'
+     '            for (const auto &[filename, texture] : cache.owned_textures)\n'
+     '                if (texture) fn(guest::to_va(texture), ctx);\n'
+     '    }\n'
+     '\n'
+     '    void ff7r_facial_forget()\n'
+     '    {\n'
+     '        for (int i = 0; i < FF7_MAX_NUM_MODEL_ENTITIES; ++i)\n'
+     '        {\n'
+     '            auto &custom = ff7_model_data[i];\n'
+     '            custom.left_eye_tex = nullptr;\n'
+     '            custom.right_eye_tex = nullptr;\n'
+     '            custom.mouth_tex = nullptr;\n'
+     '            custom.has_mouth = 0;\n'
+     '            custom.current_mouth_idx = 0;\n'
+     '            facial_textures[i] = {};   // the pointers are another moment\'s: drop them, never unload them\n'
+     '        }\n'
+     '        facial_field_initialized = false;\n'
+     '    }\n'
+     '\n'
+     '    void ff7r_facial_unload(uint32_t va)\n'
+     '    {\n'
+     '        ff7_externals.field_unload_model_tex(guest::ptr_of<p_hundred>(va));\n'
+     '    }\n'
+     '\n'
+     '    bool ff7_field_is_facial_primitive(const polygon_data *polygon, const indexed_primitive *primitive)\n'),
 ]
 
 
