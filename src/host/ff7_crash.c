@@ -57,7 +57,8 @@ static void guest_stack_dump(void) {
     uint32_t bp = g_ebp;
     for (int i = 0; i < 16 && bp && !(bp & 3) && guest_mapped(bp) && guest_mapped(bp + 4); i++) {
         uint32_t ret = MEM32(bp + 4), next = MEM32(bp);
-        fprintf(stderr, "    0x%08X <- ebp 0x%08X%s\n", ret, bp, guest_text(ret) ? "" : "  (not code)");
+        uint32_t a1 = guest_mapped(bp + 8) ? MEM32(bp + 8) : 0, a2 = guest_mapped(bp + 12) ? MEM32(bp + 12) : 0;
+        fprintf(stderr, "    0x%08X <- ebp 0x%08X  args %08X %08X%s\n", ret, bp, a1, a2, guest_text(ret) ? "" : "  (not code)");
         if (next <= bp) break;
         bp = next;
     }
