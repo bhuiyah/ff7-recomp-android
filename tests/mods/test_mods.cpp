@@ -272,6 +272,80 @@ int main(int argc, char **argv) {
         CHECK(redirect("data/kernel/big.bin").size() == 2600 && exists(td + "/raw.bin") && exists(td + "/abc.bin"));
     }
 
+    // ---- animations with their own in-between frames, and the frame counts kept between launches (#76)
+    {
+        const std::string ad = dir + "/anim", prof = ad + "/mods/profile.xml", cache = dir + "/animcache";
+        const std::string known = ad + "/modanims.bin";
+        auto name = [](int k) { return std::string{ (char)(97 + k / 676 % 26), (char)(97 + k / 26 % 26), (char)(97 + k % 26) }; };
+        auto mine = [&](const std::string &rel) {                // replaced by the archive's copy?
+            char buf[1024];
+            const char *r = ff7_mods_redirect(rel.c_str(), buf, sizeof buf);
+            return r && std::string(r).find("anims.iro") != std::string::npos;
+        };
+        auto picture = [&] {
+            std::string s;
+            for (int k = 0; k < 1500; k++) s += mine("direct/char/" + name(k) + "a.a") ? '1' : '0';
+            for (int k = 0; k < 200; k++) s += mine("direct/battle/" + name(k).substr(1) + "da") ? '1' : '0';
+            return s;
+        };
+        std::string want;
+        for (int k = 0; k < 1500; k++) want += k % 3 ? '1' : '0';
+        for (int k = 0; k < 200; k++) want += k % 3 ? '1' : '0';
+        auto load = [&] { return ff7_mods_load(prof.c_str(), cache.c_str()) == 0 ? picture() : std::string(); };
+
+        CHECK(load() == want);                                   // nothing known yet
+        CHECK(redirect("data/field/texture_with_a_long_enough_name_04999.dds") == "t04999");
+        const std::string kept = slurp(known);
+        CHECK(kept.size() > 10000);
+        CHECK(load() == want);                                   // all known
+        CHECK(slurp(known) == kept);                             // nothing new: not written again
+
+        // with the game's archive gone there is nothing to compare with: the animations stay
+        namespace fs = std::filesystem;
+        const std::string lgp = ad + "/game/data/field/char.lgp";
+        fs::rename(lgp, lgp + "x");
+        const std::string no_lgp = load();
+        CHECK(no_lgp.substr(0, 1500) == std::string(1500, '1') && no_lgp.substr(1500) == want.substr(1500));
+        fs::rename(lgp + "x", lgp);
+        CHECK(load() == want);                                   // and the missing file was not remembered
+
+        // a changed mod file is read again: the folder mod's is now half the archive's
+        const std::string low = ad + "/mods/low/char/" + name(4) + "a.a";
+        const std::string short5 = slurp(low).substr(0, 4) + std::string("\x05\0\0\0", 4) + slurp(low).substr(8, 28 + 5 * 48);
+        { std::ofstream f(low, std::ios::binary); f.write(short5.data(), (std::streamsize)short5.size()); }
+        std::string want2 = want;
+        want2[4] = '0';                                          // the archive's 9 = (5 - 1) * 2 + 1
+        CHECK(load() == want2);
+        CHECK(load() == want2);
+
+        // a damaged or cut-off file is made anew
+        for (int kind = 0; kind < 4; kind++) {
+            std::string d = slurp(known);
+            const size_t full = d.size();
+            if (kind == 0) d[full / 2] = (char)(d[full / 2] ^ 1);
+            else if (kind == 1) d.resize(full / 2);
+            else if (kind == 2) d.resize(5);
+            else d.clear();
+            { std::ofstream f(known, std::ios::binary); f.write(d.data(), (std::streamsize)d.size()); }
+            CHECK(load() == want2);
+            CHECK(slurp(known).size() == full);
+        }
+        // a mod switched off keeps its counts while its file is the same
+        {
+            std::ofstream f(ad + "/mods/other.xml");
+            f << "<Profile Language=\"en\"><Mod Path=\"low\"/></Profile>";
+        }
+        { std::ofstream f(low, std::ios::binary | std::ios::app); f.put(0); }   // something new to write
+        CHECK(ff7_mods_load((ad + "/mods/other.xml").c_str(), cache.c_str()) == 0);
+        CHECK(slurp(known).find("anims.iro|") != std::string::npos);
+        CHECK(load() == want2);
+        CHECK(ff7_mods_load((ad + "/mods/other.xml").c_str(), cache.c_str()) == 0);   // closes the archive
+        fs::remove(ad + "/mods/anims.iro");                      // deleted: its counts go with the next write
+        { std::ofstream f(low, std::ios::binary | std::ios::app); f.put(0); }
+        CHECK(ff7_mods_load((ad + "/mods/other.xml").c_str(), cache.c_str()) == 0);
+        CHECK(slurp(known).find("anims.iro|") == std::string::npos);
+    }
+
     // ---- no profile: nothing redirected
     CHECK(ff7_mods_load((dir + "/missing.xml").c_str(), cache.c_str()) == 0);
     CHECK(ff7_mods_count() == 0 && redirect("data/field/raw.bin") == "<none>");

@@ -1,5 +1,6 @@
 // iro.cpp - see iro.hpp.
 #include "iro.hpp"
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
@@ -51,13 +52,15 @@ std::string IroArchive::key(const std::string &name) {
     return k;
 }
 
-bool IroArchive::read_at(uint64_t off, void *buf, size_t n) const {
+bool IroArchive::read_at(uint64_t off, void *buf, size_t n) const { return read_upto(off, buf, n) == n; }
+
+size_t IroArchive::read_upto(uint64_t off, void *buf, size_t n) const {
 #if defined(_WIN32)
-    if (_fseeki64(f_, (long long)off, SEEK_SET) != 0) return false;
+    if (_fseeki64(f_, (long long)off, SEEK_SET) != 0) return 0;
 #else
-    if (fseeko(f_, (off_t)off, SEEK_SET) != 0) return false;
+    if (fseeko(f_, (off_t)off, SEEK_SET) != 0) return 0;
 #endif
-    return std::fread(buf, 1, n, f_) == n;
+    return std::fread(buf, 1, n, f_);
 }
 
 bool IroArchive::open(const std::string &path) {
@@ -79,14 +82,31 @@ bool IroArchive::open(const std::string &path) {
     }
     if (count < 0) { err_ = "bad directory count"; return false; }
     pos += 4;
-    entries_.reserve((size_t)count);
-    std::vector<uint8_t> rec;
+    // The directory is read in blocks, not two small reads per entry: an archive lists tens of
+    // thousands of files, and each small read is a round trip to the SD card (issue #76).
+    std::vector<uint8_t> dir;                           // [dir_at, dir_at + dir.size()) of the file
+    uint64_t dir_at = pos;
+    auto need = [&](uint64_t off, size_t n) -> const uint8_t * {
+        if (off < dir_at || off + n > dir_at + dir.size()) {
+            constexpr size_t kBlock = 256 * 1024;
+            dir.resize(std::max(n, kBlock));
+            dir_at = off;
+            dir.resize(read_upto(off, dir.data(), dir.size()));
+            if (dir.size() < n) return nullptr;
+        }
+        return dir.data() + (off - dir_at);
+    };
+    entries_.reserve(std::min<size_t>((size_t)count, 1u << 20));
+    // after the name: flags, offset (4 or 8 bytes), length
+    const uint32_t fixed = version < 0x10001u ? 12u : 16u;
     for (int32_t i = 0; i < count; i++) {
-        uint16_t sz[2];
-        if (!read_at(pos, sz, 4) || sz[0] < 4 + sz[1]) { err_ = "bad directory entry"; return false; }
-        rec.resize(sz[0]);
-        if (!read_at(pos, rec.data(), sz[0])) { err_ = "truncated directory"; return false; }
-        const uint8_t *p = rec.data() + 4;
+        uint16_t sz[2] = { 0, 0 };
+        const uint8_t *p = need(pos, 4);
+        if (p) std::memcpy(sz, p, 4);
+        if (!p || sz[0] < 4u + sz[1] + fixed) { err_ = "bad directory entry"; return false; }
+        p = need(pos, sz[0]);
+        if (!p) { err_ = "truncated directory"; return false; }
+        p += 4;
         Entry e;
         e.name = utf16le_to_utf8(p, sz[1]);
         p += sz[1];

@@ -68,8 +68,65 @@ def write_iro(path, files):
     open(path, "wb").write(data)
 
 
+def field_anim(frames, bones=2):
+    return struct.pack("<9I", 1, frames, bones, 1, 0, 0, 0, 0, 0) + b"\0" * (frames * (24 + bones * 12))
+
+
+def battle_anims(frames):
+    out = struct.pack("<I", len(frames))
+    for n in frames:
+        out += struct.pack("<III", 2, n, 20 + n) + bytes([n & 0xFF]) * (20 + n)
+    return out
+
+
+def write_lgp(path, files):
+    data = bytearray(b"\0\0SQUARESOFT" + struct.pack("<I", len(files)))
+    at = len(data) + 27 * len(files)
+    body = bytearray()
+    for name, blob in files:
+        data += name.encode().ljust(20, b"\0") + struct.pack("<IBH", at + len(body), 14, 0)
+        body += name.encode().ljust(20, b"\0") + struct.pack("<I", len(blob)) + blob
+    open(path, "wb").write(data + body)
+
+
+def make_animation_mods(root):
+    """anim/game: the game's LGPs; anim/mods: an archive of 60 FPS animations (stored and LZMA)
+    over a folder mod. File number k: k % 3 == 0 has in-between frames (x2), 1 is the same length,
+    2 is another animation altogether. Enough of them that the directory is more than one block."""
+    for d in ("data/field", "data/battle"):
+        os.makedirs(os.path.join(root, "game", d), exist_ok=True)
+    mods = os.path.join(root, "mods")
+    os.makedirs(os.path.join(mods, "low", "char"), exist_ok=True)
+
+    def name(k):
+        return "".join(chr(97 + (k // 26 ** i) % 26) for i in (2, 1, 0))
+    def mod_frames(k, n):
+        return (n - 1) * 2 + 1 if k % 3 == 0 else n if k % 3 == 1 else n + 2
+    char, btl, files = [], [], []
+    for k in range(1500):
+        n = 5 + k % 11
+        char.append((name(k) + "a.a", field_anim(n)))
+        blob = field_anim(mod_frames(k, n))
+        files.append(("char\\" + name(k) + "a.a", 2 if k % 50 == 0 else 0, lzma_entry(blob) if k % 50 == 0 else blob))
+    for k in range(200):
+        ns = [5 + (k + i) % 9 for i in range(12)]
+        btl.append((name(k)[1:] + "da", battle_anims(ns)))
+        files.append(("battle\\" + name(k)[1:] + "da", 0, battle_anims([mod_frames(k, n) for n in ns])))
+    for k in range(5000):
+        files.append(("field\\texture_with_a_long_enough_name_%05d.dds" % k, 0, b"t%05d" % k))
+    write_lgp(os.path.join(root, "game/data/field/char.lgp"), char)
+    write_lgp(os.path.join(root, "game/data/battle/battle.lgp"), btl)
+    write_lgp(os.path.join(root, "game/data/battle/magic.lgp"), [("x.a00", battle_anims([4]))])
+    write_iro(os.path.join(mods, "anims.iro"), files)
+    # the folder mod under it replaces one of the archive's animations (test_mods.cpp changes it later)
+    open(os.path.join(mods, "low", "char", name(4) + "a.a"), "wb").write(field_anim(40))
+    open(os.path.join(mods, "profile.xml"), "w").write(
+        '<Profile Language="en">\n  <Mod Path="anims.iro"/>\n  <Mod Path="low"/>\n</Profile>\n')
+
+
 def main():
     out = sys.argv[1]
+    make_animation_mods(os.path.join(out, "anim"))
     os.makedirs(out, exist_ok=True)
     write_iro(os.path.join(out, "test.iro"), [
         ("mod.xml", 0, MOD_XML.encode("utf-8")),

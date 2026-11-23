@@ -4,6 +4,7 @@
 #include "mods.h"
 #include <sys/stat.h>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -82,7 +83,9 @@ void list_files(const std::string &dir, const std::string &rel, std::vector<std:
         if (!std::strcmp(e->d_name, ".") || !std::strcmp(e->d_name, "..")) continue;
         std::string r = rel.empty() ? e->d_name : rel + "/" + e->d_name;
         std::string full = dir + "/" + e->d_name;
-        if (is_dir(full)) list_files(full, r, out); else out.push_back(r);
+        // the directory says which names are folders: no stat per file (slow on an SD card)
+        const bool sub = e->d_type == DT_DIR || (e->d_type != DT_REG && is_dir(full));
+        if (sub) list_files(full, r, out); else out.push_back(r);
     }
     closedir(d);
 #endif
@@ -613,70 +616,263 @@ struct Lgp {
     }
 };
 
+// The frame counts read before, kept in <files>/modanims.bin: the mods' thousands of animations
+// were otherwise read again at every launch, a seek each, which takes long with the mods on an SD
+// card (issue #76). Each file they come from (an archive, a game LGP, a folder mod's file) is known
+// by its path, size and time; a changed file's counts are read anew.
+// Only what was really read is kept, never the result of a read error.
+struct AnimCache {
+    static constexpr uint32_t kMagic = 0x31414637u;      // "7FA1": bump on a change of what is kept
+    using Counts = std::unordered_map<std::string, std::vector<uint32_t>>;
+    std::string path;
+    std::unordered_map<std::string, Counts> files;       // file signature -> entry -> counts
+    std::unordered_map<std::string, std::string> sigs;   // host path -> signature, this load
+    std::set<std::string> used;
+    size_t reads = 0;
+
+    const std::string &sig(const std::string &p) {
+        auto it = sigs.find(p);
+        if (it != sigs.end()) return it->second;
+        std::string v;
+        struct stat st;
+        if (stat(p.c_str(), &st) == 0) {
+            unsigned long long size = (unsigned long long)st.st_size;
+#if defined(_WIN32)
+            struct _stati64 s64;                          // stat's size is 32-bit on Windows
+            if (_stati64(p.c_str(), &s64) == 0) size = (unsigned long long)s64.st_size;
+#endif
+            v = p + "|" + std::to_string(size) + "|" + std::to_string((long long)st.st_mtime);
+            used.insert(v);
+        }
+        return sigs.emplace(p, v).first->second;
+    }
+    const std::vector<uint32_t> *find(const std::string &s, const std::string &entry) const {
+        auto f = files.find(s);
+        if (f == files.end()) return nullptr;
+        auto e = f->second.find(entry);
+        return e == f->second.end() ? nullptr : &e->second;
+    }
+    void put(const std::string &s, const std::string &entry, const std::vector<uint32_t> &v) {
+        reads++;
+        if (!s.empty()) files[s][entry] = v;
+    }
+    void load(const std::string &p) {
+        path = p;
+        std::vector<uint8_t> d;
+        std::FILE *f = std::fopen(p.c_str(), "rb");
+        if (!f) return;
+        std::vector<uint8_t> buf(65536);
+        size_t n;
+        while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0) d.insert(d.end(), buf.data(), buf.data() + n);
+        std::fclose(f);
+        // the last 4 bytes: a checksum, so a damaged file is made anew instead of believed
+        if (d.size() < 12) return;
+        uint32_t sum;
+        std::memcpy(&sum, d.data() + d.size() - 4, 4);
+        d.resize(d.size() - 4);
+        if (checksum(d) != sum) return;
+        size_t at = 0;
+        bool ok = true;
+        auto u32 = [&]() -> uint32_t {
+            uint32_t v = 0;
+            if (d.size() - at < 4) { ok = false; return 0; }
+            std::memcpy(&v, d.data() + at, 4);
+            at += 4;
+            return v;
+        };
+        auto str = [&]() -> std::string {
+            const uint32_t len = u32();
+            if (!ok || d.size() - at < len) { ok = false; return std::string(); }
+            std::string v((const char *)d.data() + at, len);
+            at += len;
+            return v;
+        };
+        if (u32() != kMagic) return;
+        const uint32_t nf = u32();
+        for (uint32_t i = 0; ok && i < nf; i++) {
+            const std::string s = str();
+            const uint32_t ne = u32();
+            for (uint32_t k = 0; ok && k < ne; k++) {
+                const std::string e = str();
+                const uint32_t nc = u32();
+                if (!ok || (d.size() - at) / 4 < nc) { ok = false; break; }
+                std::vector<uint32_t> v(nc);
+                if (nc) std::memcpy(v.data(), d.data() + at, (size_t)nc * 4);
+                at += (size_t)nc * 4;
+                files[s][e] = std::move(v);
+            }
+        }
+        if (!ok) files.clear();
+    }
+    void save() {
+        if (!reads) return;                               // nothing new
+        // mods that are off for now keep theirs while the file is the same
+        for (auto it = files.begin(); it != files.end();) {
+            const std::string s = it->first;
+            size_t b = s.rfind('|');
+            b = b == std::string::npos || b == 0 ? std::string::npos : s.rfind('|', b - 1);
+            const bool keep = used.count(s) || (b != std::string::npos && sig(s.substr(0, b)) == s);
+            it = keep ? std::next(it) : files.erase(it);
+        }
+        std::vector<uint8_t> d;
+        auto u32 = [&](uint32_t v) {
+            uint8_t w[4];
+            std::memcpy(w, &v, 4);
+            d.insert(d.end(), w, w + 4);
+        };
+        auto str = [&](const std::string &v) { u32((uint32_t)v.size()); d.insert(d.end(), v.begin(), v.end()); };
+        u32(kMagic);
+        u32((uint32_t)files.size());
+        for (const auto &f : files) {
+            str(f.first);
+            u32((uint32_t)f.second.size());
+            for (const auto &e : f.second) {
+                str(e.first);
+                u32((uint32_t)e.second.size());
+                for (uint32_t c : e.second) u32(c);
+            }
+        }
+        u32(checksum(d));
+        // the launcher and the game may both be loading: each writes its own file, then renames
+#if defined(_WIN32)
+        const std::string tmp = path + ".part";
+#else
+        const std::string tmp = path + "." + std::to_string((long)getpid()) + ".part";
+#endif
+        std::FILE *f = std::fopen(tmp.c_str(), "wb");
+        if (!f) return;
+        bool ok = std::fwrite(d.data(), 1, d.size(), f) == d.size();
+        ok = std::fclose(f) == 0 && ok;
+#if defined(_WIN32)
+        if (ok) std::remove(path.c_str());
+#endif
+        if (!ok || std::rename(tmp.c_str(), path.c_str()) != 0) std::remove(tmp.c_str());
+    }
+    static uint32_t checksum(const std::vector<uint8_t> &d) {
+        uint32_t h = 2166136261u;
+        for (uint8_t c : d) h = (h ^ c) * 16777619u;
+        return h;
+    }
+};
+
+// Frame counts through a reader; `ok` false when a read inside the file failed.
+std::vector<uint32_t> checked_counts(const ByteReader &rd, uint64_t size, bool field, bool &ok) {
+    ok = true;
+    return anim_frame_counts([&](uint64_t off, void *buf, size_t n) {
+        if (rd(off, buf, n)) return true;
+        ok = false;
+        return false;
+    }, size, field);
+}
+
 // Frame counts of one override (an archive entry read in place, or a folder mod's file).
-std::vector<uint32_t> override_frames(const Override &o, bool field) {
+std::vector<uint32_t> override_frames(const Override &o, bool field, AnimCache &ac) {
     const Mod &m = *g.mods[o.mod];
+    const std::string sig = ac.sig(m.iro ? m.path : o.file), key = m.iro ? o.file : std::string();
+    if (const std::vector<uint32_t> *c = ac.find(sig, key)) return *c;
+    std::vector<uint32_t> r;
+    bool ok = true;
     if (m.iro) {
         const IroArchive::Entry *e = m.iro->find(o.file);
         if (!e) return {};
         if ((e->flags & 0xFu) == 0) {
             const IroArchive *iro = m.iro.get();
-            return anim_frame_counts([iro, e](uint64_t off, void *buf, size_t n) { return iro->read_stored(*e, off, buf, n); },
-                                     e->length, field);
+            r = checked_counts([iro, e](uint64_t off, void *buf, size_t n) { return iro->read_stored(*e, off, buf, n); },
+                               e->length, field, ok);
+        } else {
+            std::vector<uint8_t> d;                      // compressed: unpacked whole
+            if (!m.iro->read(o.file, d)) return {};
+            r = checked_counts([&d](uint64_t off, void *buf, size_t n) {
+                if (off + n > d.size()) return false;
+                std::memcpy(buf, d.data() + off, n);
+                return true;
+            }, d.size(), field, ok);
         }
-        std::vector<uint8_t> d;                          // compressed: unpacked whole
-        if (!m.iro->read(o.file, d)) return {};
-        return anim_frame_counts([&d](uint64_t off, void *buf, size_t n) {
-            if (off + n > d.size()) return false;
-            std::memcpy(buf, d.data() + off, n);
-            return true;
-        }, d.size(), field);
+    } else {
+        std::FILE *f = std::fopen(o.file.c_str(), "rb");
+        if (!f) return {};
+        std::fseek(f, 0, SEEK_END);
+        const long size = std::ftell(f);
+        if (size > 0)
+            r = checked_counts([f](uint64_t off, void *buf, size_t n) {
+                return std::fseek(f, (long)off, SEEK_SET) == 0 && std::fread(buf, 1, n, f) == n;
+            }, (uint64_t)size, field, ok);
+        std::fclose(f);
     }
-    std::FILE *f = std::fopen(o.file.c_str(), "rb");
-    if (!f) return {};
-    std::fseek(f, 0, SEEK_END);
-    const long size = std::ftell(f);
-    std::vector<uint32_t> r = size > 0 ? anim_frame_counts([f](uint64_t off, void *buf, size_t n) {
-        return std::fseek(f, (long)off, SEEK_SET) == 0 && std::fread(buf, 1, n, f) == n;
-    }, (uint64_t)size, field) : std::vector<uint32_t>();
-    std::fclose(f);
+    if (ok) ac.put(sig, key, r);
     return r;
 }
 
 // Leave out every mod animation that is the file below it with in-between frames (see above).
 // `game`: the game folder (data/field/char.lgp, data/battle/battle.lgp, data/battle/magic.lgp).
-void drop_interpolated_animations(const std::string &game) {
-    Lgp chr, btl, mag;
-    bool have_chr = chr.open(join(game, "data/field/char.lgp"));
-    bool have_btl = btl.open(join(game, "data/battle/battle.lgp"));
-    bool have_mag = mag.open(join(game, "data/battle/magic.lgp"));
+void drop_interpolated_animations(const std::string &game, const std::string &cache_file) {
+    AnimCache ac;
+    ac.load(cache_file);
+    // the game's archives, opened only for counts not known yet
+    struct GameLgp { std::string path; Lgp lgp; bool tried = false, have = false; };
+    GameLgp chr, btl, mag;
+    chr.path = join(game, "data/field/char.lgp");
+    btl.path = join(game, "data/battle/battle.lgp");
+    mag.path = join(game, "data/battle/magic.lgp");
+    struct Anim { std::string key, name; GameLgp *lgp; bool field; };
+    std::vector<Anim> anims;
     std::map<int, std::pair<int, int>> dropped;          // mod -> (files, m)
-    for (auto &kv : g.map) {
+    for (const auto &kv : g.map) {
         std::string k = kv.first;
         if (k.compare(0, 7, "direct/") == 0) k = k.substr(7);
         size_t slash = k.find('/');
         if (slash == std::string::npos || k.find('/', slash + 1) != std::string::npos) continue;
         const std::string dir = k.substr(0, slash), name = k.substr(slash + 1);
-        Lgp *lgp = nullptr;
+        GameLgp *lgp = nullptr;
         bool field = false;
-        if (dir == "char" && name.size() > 2 && name.compare(name.size() - 2, 2, ".a") == 0) { lgp = have_chr ? &chr : nullptr; field = true; }
-        else if (dir == "battle" && name.size() == 4 && name.compare(2, 2, "da") == 0) lgp = have_btl ? &btl : nullptr;
-        else if (dir == "magic" && name.size() > 4 && name.compare(name.size() - 4, 3, ".a0") == 0) lgp = have_mag ? &mag : nullptr;
+        if (dir == "char" && name.size() > 2 && name.compare(name.size() - 2, 2, ".a") == 0) { lgp = &chr; field = true; }
+        else if (dir == "battle" && name.size() == 4 && name.compare(2, 2, "da") == 0) lgp = &btl;
+        else if (dir == "magic" && name.size() > 4 && name.compare(name.size() - 4, 3, ".a0") == 0) lgp = &mag;
         else continue;
-        std::vector<Override> &chain = kv.second;
+        anims.push_back({ kv.first, name, lgp, field });
+    }
+    // What is not known yet is read in the archives' own order, not the map's: an SD card reads a
+    // run of small pieces far faster than the same ones scattered over gigabytes.
+    {
+        struct Entry { int mod; uint64_t off; const Override *o; bool field; };
+        std::vector<Entry> in_order;
+        for (const Anim &a : anims)
+            for (const Override &o : g.map[a.key]) {
+                const Mod &m = *g.mods[o.mod];
+                const IroArchive::Entry *e = m.iro ? m.iro->find(o.file) : nullptr;
+                if (e) in_order.push_back({ o.mod, e->offset, &o, a.field });
+            }
+        std::sort(in_order.begin(), in_order.end(), [](const Entry &a, const Entry &b) { return a.mod != b.mod ? a.mod < b.mod : a.off < b.off; });
+        for (const Entry &u : in_order) override_frames(*u.o, u.field, ac);
+    }
+    for (const Anim &a : anims) {
+        const std::string &name = a.name;
+        const bool field = a.field;
+        GameLgp *lgp = a.lgp;
+        std::vector<Override> &chain = g.map[a.key];
         std::vector<uint32_t> base;
         bool base_read = false;
         // bottom up, so a file is compared with what is really below it once the others are out
         for (size_t i = chain.size(); i-- > 0;) {
-            std::vector<uint32_t> mine = override_frames(chain[i], field);
+            std::vector<uint32_t> mine = override_frames(chain[i], field, ac);
             if (mine.empty()) continue;
             int m = 0;
-            if (i + 1 < chain.size()) m = interpolated_by(mine, override_frames(chain[i + 1], field));
-            if (!m && lgp) {
+            if (i + 1 < chain.size()) m = interpolated_by(mine, override_frames(chain[i + 1], field, ac));
+            if (!m) {
                 if (!base_read) {
-                    ByteReader rd;
-                    uint64_t size = 0;
-                    if (lgp->entry(name, rd, size)) base = anim_frame_counts(rd, size, field);
+                    const std::string sig = ac.sig(lgp->path);
+                    if (const std::vector<uint32_t> *c = ac.find(sig, name)) base = *c;
+                    else {
+                        if (!lgp->tried) { lgp->tried = true; lgp->have = lgp->lgp.open(lgp->path); }
+                        ByteReader rd;
+                        uint64_t size = 0;
+                        bool ok = lgp->have;
+                        if (ok && lgp->lgp.at.count(name)) {
+                            if (lgp->lgp.entry(name, rd, size)) base = checked_counts(rd, size, field, ok);
+                            else ok = false;
+                        }
+                        if (ok) ac.put(sig, name, base);
+                    }
                     base_read = true;
                 }
                 m = interpolated_by(mine, base);
@@ -688,6 +884,9 @@ void drop_interpolated_animations(const std::string &game) {
             chain.erase(chain.begin() + (long)i);
         }
     }
+    ac.save();
+    if (!anims.empty())
+        std::fprintf(stderr, "[mods] %zu mod animation(s), %zu frame count(s) read from the files\n", anims.size(), ac.reads);
     for (auto it = g.map.begin(); it != g.map.end();) it = it->second.empty() ? g.map.erase(it) : std::next(it);
     for (const auto &d : dropped)
         std::fprintf(stderr, "[mods] %s: %d animation(s) with their own in-between frames (x%d) left out; the game adds them itself at every frame rate\n",
@@ -695,6 +894,7 @@ void drop_interpolated_animations(const std::string &game) {
 }
 
 extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
+    const auto t_begin = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lk(g.lock);
     g.mods.clear();
     g.map.clear();
@@ -954,8 +1154,12 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
     }
     // The mod.xml at a mod's root is metadata, never a game file.
     g.map.erase("mod.xml");
-    drop_interpolated_animations(join(base, "../game"));
-    std::fprintf(stderr, "[mods] %zu mod(s), %zu game paths replaced\n", g.mods.size(), g.map.size());
+    const auto t_listed = std::chrono::steady_clock::now();
+    drop_interpolated_animations(join(base, "../game"), join(base, "../modanims.bin"));
+    const auto t_end = std::chrono::steady_clock::now();
+    auto ms = [](auto d) { return (long long)std::chrono::duration_cast<std::chrono::milliseconds>(d).count(); };
+    std::fprintf(stderr, "[mods] %zu mod(s), %zu game paths replaced (file lists %lld ms, animations %lld ms)\n",
+                 g.mods.size(), g.map.size(), ms(t_listed - t_begin), ms(t_end - t_listed));
     prune_cache(g.cache, keep);
     start_cache_limit(join(base, ".."), g.cache, keep);
     return 0;

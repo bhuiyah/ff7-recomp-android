@@ -46,6 +46,7 @@ public:
 
 private:
     bool read_at(uint64_t off, void *buf, size_t n) const;
+    size_t read_upto(uint64_t off, void *buf, size_t n) const;   // less at the end of the file
     std::FILE *f_ = nullptr;
     std::string path_, err_;
     std::vector<Entry> entries_;
