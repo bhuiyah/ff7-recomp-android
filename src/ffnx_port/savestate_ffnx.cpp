@@ -117,6 +117,10 @@ void ss_after_load(void *) {
         const uint32_t keep = th->palette_index;
         std::vector<uint32_t> had;
         for (uint32_t i = 0; i < gl->textures; i++) if (handles[i]) { had.push_back(i); handles[i] = 0; }
+        // a mod's image, at the mod's size: the upload below sets this again when the mod is here.
+        // Without it (the mod was turned off since) that size would be read from the game's own,
+        // smaller image.
+        if (!had.empty()) ts->ogl.external = 0;
         for (uint32_t i : had) {
             th->palette_index = i;
             common_load_texture((struct texture_set *)ts, generic, ts->texture_format);
