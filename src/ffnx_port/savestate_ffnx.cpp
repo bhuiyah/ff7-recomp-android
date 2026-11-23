@@ -30,6 +30,8 @@ void stop_music_for_channel(int channel);   // music.cpp
 extern struct deferred_draw *deferred_draws;
 extern uint32_t num_deferred;
 extern struct deferred_sorted_draw *deferred_sorted_draws;
+extern char *kernel2_sections[20];                          // ff7/kernel.cpp
+extern uint32_t kernel2_section_counter;
 extern uint32_t num_sorted_deferred;
 extern "C" uint32_t universal_buttons_ss_count();          // ff7/universal_buttons.cpp
 extern "C" void universal_buttons_ss_get(uint32_t *out);
@@ -63,6 +65,7 @@ int ss_save(void *, ff7_ss_writer put, void *buf) {
 // default_texture_id, saveload.cpp), and destroying a bgfx handle twice frees whatever got it
 // next.
 void ss_before_load(void *) {
+    ffnx_ss_loads++;                    // ffnx_guest.h: blocks FFNx keeps in the game heap are gone
     std::set<uint32_t> gone;
     for (uint32_t a : g_sets) {
         struct ff7_texture_set *ts = (struct ff7_texture_set *)(uintptr_t)a;
@@ -254,9 +257,26 @@ void deferred_after_load(void *) {
 }
 const ff7_savestate_hook g_deferred_hook = { "ffnx-deferred", nullptr, deferred_save, nullptr, deferred_restore, deferred_after_load };
 
+// ---- the kernel texts (ff7/kernel.cpp): FFNx keeps pointers to the sections it read from
+// kernel2.bin into the game heap. Where they are depends on what was allocated before them.
+int kernel2_save(void *, ff7_ss_writer put, void *buf) {
+    uint32_t v[21] = { kernel2_section_counter };
+    for (int i = 0; i < 20; i++) v[1 + i] = (uint32_t)(uintptr_t)kernel2_sections[i];
+    return put(buf, v, sizeof v);
+}
+void kernel2_restore(void *, const void *data, size_t n) {
+    uint32_t v[21];
+    if (n != sizeof v) return;
+    std::memcpy(v, data, sizeof v);
+    if (v[0] > 20) return;
+    kernel2_section_counter = v[0];
+    for (int i = 0; i < 20; i++) kernel2_sections[i] = (char *)(uintptr_t)v[1 + i];
+}
+const ff7_savestate_hook g_kernel2_hook = { "ffnx-kernel2", nullptr, kernel2_save, nullptr, kernel2_restore, nullptr };
+
 struct Register {
     Register() { ff7_savestate_register(&g_hook); ff7_savestate_register(&g_facial_hook); ff7_savestate_register(&g_scene_hook); ff7_savestate_register(&g_prompts_hook);
-                 ff7_savestate_register(&g_deferred_hook); }
+                 ff7_savestate_register(&g_deferred_hook); ff7_savestate_register(&g_kernel2_hook); }
 } g_register;
 
 }  // namespace

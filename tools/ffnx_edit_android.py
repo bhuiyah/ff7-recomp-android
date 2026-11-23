@@ -660,8 +660,16 @@ EDITS = [
     ('common.cpp', '// called by the game to retrieve blend mode parameters\n',
      '#ifdef FFNX_ANDROID\n'
      'static struct blend_mode *ffnx_guest_blend_modes()\n{\n'
-     '\tstatic struct blend_mode *copy = [] { auto *p = (struct blend_mode *)guest_calloc(1, sizeof(blend_modes)); memcpy(p, blend_modes, sizeof(blend_modes)); return p; }();\n'
-     '\treturn copy;\n}\n'
+     '\tstatic struct blend_mode *copy;   // FF7Recomp: made again after a save state replaced the game\'s heap\n'
+     '\tstatic unsigned loads;\n'
+     '\tif (!copy || loads != ffnx_ss_loads)\n'
+     '\t{\n'
+     '\t\tcopy = (struct blend_mode *)guest_calloc(1, sizeof(blend_modes));\n'
+     '\t\tmemcpy(copy, blend_modes, sizeof(blend_modes));\n'
+     '\t\tloads = ffnx_ss_loads;\n'
+     '\t}\n'
+     '\treturn copy;\n'
+     '}\n'
      '#define blend_modes ffnx_guest_blend_modes()\n'
      '#endif\n'
      '// called by the game to retrieve blend mode parameters\n'),
@@ -759,6 +767,12 @@ EDITS = [
      'extern "C" void ffnx_ss_texture_set_created(uint32_t ts);     // FF7Recomp: src/ffnx_port/savestate_ffnx.cpp\n'
      'extern "C" void ffnx_ss_texture_set_destroyed(uint32_t ts);\n\n'
      'void common_unload_texture(struct texture_set *texture_set)\n{\n'),
+    # A load replaces the whole game heap, so nothing FFNx keeps a host pointer to across frames
+    # may live there: the scratch picture every texture is decoded into did, and a load's own
+    # uploads then wrote pixels over the restored field (GitHub #77). Host memory.
+    ('common.cpp', '\t\t\t\t\tdriver_free(image_data_cache);\n\t\t\t\t}\n\t\t\t\timage_data_cache = (uint32_t*)driver_malloc(image_data_size);\n',
+     '\t\t\t\t\tfree(image_data_cache);   // FF7Recomp: host memory, a save state load replaces the game heap\n\t\t\t\t}\n'
+     '\t\t\t\timage_data_cache = (uint32_t*)malloc(image_data_size);\n'),
     # Save states (src/host/ff7_savestate.c): taken and applied as the driver flips a frame --
     # once per frame, after the mode's loop has returned, so no game-mode code is on the host
     # stack (ff7_savestate.c also checks the host stack depth).
@@ -1109,7 +1123,13 @@ EDITS = [
     # memory (allocated on first use; the guest heap exists only once the game boots).
     ('input.cpp', 'byte keys[256];\n',
      '#ifdef FFNX_ANDROID\n'
-     'static byte *ffnx_guest_keys() { static byte *k = (byte *)guest_calloc(1, 256); return k; }\n'
+     'static byte *ffnx_guest_keys()   // FF7Recomp: made again after a save state replaced the game\'s heap\n'
+     '{\n'
+     '    static byte *k;\n'
+     '    static unsigned loads;\n'
+     '    if (!k || loads != ffnx_ss_loads) { k = (byte *)guest_calloc(1, 256); loads = ffnx_ss_loads; }\n'
+     '    return k;\n'
+     '}\n'
      '#define keys ffnx_guest_keys()\n'
      '#else\n'
      'byte keys[256];\n'
