@@ -26,6 +26,7 @@
 #include "ff7_savestate.h"
 
 void stop_music_for_channel(int channel);   // music.cpp
+void ff7r_lgp_files_forget();               // ff7/file.cpp (FF7Recomp)
 // gl/deferred.cpp: queues allocated once from the game heap, kept across frames
 extern struct deferred_draw *deferred_draws;
 extern uint32_t num_deferred;
@@ -65,7 +66,8 @@ int ss_save(void *, ff7_ss_writer put, void *buf) {
 // default_texture_id, saveload.cpp), and destroying a bgfx handle twice frees whatever got it
 // next.
 void ss_before_load(void *) {
-    ffnx_ss_loads++;                    // ffnx_guest.h: blocks FFNx keeps in the game heap are gone
+    ff7r_lgp_files_forget();            // still the running game's heap: its blocks can be read
+    ffnx_ss_loads++;                    // guest_abi.h: blocks FFNx keeps in the game heap are gone
     std::set<uint32_t> gone;
     for (uint32_t a : g_sets) {
         struct ff7_texture_set *ts = (struct ff7_texture_set *)(uintptr_t)a;
@@ -93,6 +95,7 @@ void ss_restore(void *, const void *data, size_t n) {
 }
 
 void ss_after_load(void *) {
+    ffnx_ss_loads++;                    // and whatever was made again before the heap was replaced
     int sets = 0, uploads = 0;
     for (uint32_t a : g_restored) {
         struct ff7_texture_set *ts = (struct ff7_texture_set *)(uintptr_t)a;

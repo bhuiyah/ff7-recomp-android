@@ -19,11 +19,6 @@ template <typename T> inline uint32_t ffnx_guest_va(T *p) {
     else return guest::to_va(p);
 }
 
-// How many save states were loaded. A load replaces the whole game heap: a block FFNx keeps
-// across frames there is gone (its address now belongs to the restored game), so whatever
-// keeps one compares this and allocates it again.
-inline unsigned ffnx_ss_loads = 0;
-
 // A guest-memory copy of n elements in a per-call-site scratch buffer that grows as needed
 // and is reused (single game thread). For FFNx's temporary copies of game data that end up
 // behind gptr members of a native struct copy (gl.cpp's facial vertices, ...).

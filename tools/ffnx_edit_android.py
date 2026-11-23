@@ -767,6 +767,19 @@ EDITS = [
      'extern "C" void ffnx_ss_texture_set_created(uint32_t ts);     // FF7Recomp: src/ffnx_port/savestate_ffnx.cpp\n'
      'extern "C" void ffnx_ss_texture_set_destroyed(uint32_t ts);\n\n'
      'void common_unload_texture(struct texture_set *texture_set)\n{\n'),
+    # FFNx keeps the last 64 mod files it opened (and the last one, for lgp_read) as game-heap
+    # blocks: after a load it would fclose and free whatever the restored game has there.
+    ('ff7/file.cpp', 'int lgp_lookup_value(unsigned char c)\n{\n',
+     '// FF7Recomp: save states (src/ffnx_port/savestate_ffnx.cpp, GitHub #68)\n'
+     'void ff7r_lgp_files_forget()\n{\n'
+     '\tstatic struct lgp_file none = { true };\n'
+     '\tfor (auto &f : lgp_files)\n\t{\n'
+     '\t\tif (f && f->fd) fclose(f->fd);\n'
+     '\t\tf = nullptr;\n\t}\n'
+     '\tlgp_files_index = 0;\n'
+     '\tlast = &none;\n'
+     '}\n\n'
+     'int lgp_lookup_value(unsigned char c)\n{\n'),
     # A load replaces the whole game heap, so nothing FFNx keeps a host pointer to across frames
     # may live there: the scratch picture every texture is decoded into did, and a load's own
     # uploads then wrote pixels over the restored field (GitHub #77). Host memory.

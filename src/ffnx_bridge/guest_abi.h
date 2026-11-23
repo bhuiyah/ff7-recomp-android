@@ -26,6 +26,11 @@
 #include <tuple>
 #include <utility>
 
+// How many save states were loaded. A load replaces the whole game heap: a block FFNx keeps
+// across frames there is gone (its address now belongs to the restored game), so whatever
+// keeps one compares this and allocates it again.
+inline unsigned ffnx_ss_loads = 0;
+
 extern "C" {
 #include "recomp_types.h"
 #include "win32hle.h"
@@ -168,11 +173,15 @@ template <typename R, typename... A> struct guest_safe_sig<R(A...)> {
     static constexpr bool value = !is_raw_ptr_ptr<R>::value && !(is_raw_ptr_ptr<A>::value || ...);
 };
 
-// A guest copy of a host string, one per distinct text, kept for the run.
+// A guest copy of a host string, one per distinct text, kept until a save state load replaces
+// the heap it is in: handing out the old address then gave the game whatever is there now as a
+// file name (GitHub #68: an eye texture that is not there).
 inline uint32_t guest_string(const char *s) {
     static std::mutex lock;
     static std::unordered_map<std::string, uint32_t> copies;
+    static unsigned loads = 0;
     std::lock_guard<std::mutex> lk(lock);
+    if (loads != ffnx_ss_loads) { copies.clear(); loads = ffnx_ss_loads; }
     auto it = copies.find(s);
     if (it != copies.end()) return it->second;
     size_t n = std::strlen(s) + 1;
