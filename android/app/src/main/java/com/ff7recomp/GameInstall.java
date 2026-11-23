@@ -539,6 +539,12 @@ final class GameInstall {
         try (OutputStream o = new FileOutputStream(new File(files, "boosters.txt"))) { o.write(s.getBytes(StandardCharsets.UTF_8)); }
     }
 
+    /** files/modcache.txt for src/mods/mods.cpp: the mod cache's size limit in MB, 0 = none (#75). */
+    void writeModCacheLimit(int mb) throws IOException {
+        String s = "limit_mb=" + Math.max(0, mb) + "\n";
+        try (OutputStream o = new FileOutputStream(new File(files, "modcache.txt"))) { o.write(s.getBytes(StandardCharsets.UTF_8)); }
+    }
+
     /** files/quickboot.txt for src/ffnx_port/quickboot.cpp: "newgame", "continue", or none. */
     void writeQuickboot(String mode) throws IOException {
         File f = new File(files, "quickboot.txt");

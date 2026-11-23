@@ -8,6 +8,7 @@
 #include <cstring>
 #include <algorithm>
 #include <cstdlib>
+#include <ctime>
 #include <functional>
 #include <map>
 #include <memory>
@@ -282,6 +283,122 @@ void prune_cache(const std::string &cache, const std::set<std::string> &keep) {
     std::thread([gone] { for (const std::string &p : gone) remove_tree(p); }).detach();
 }
 
+// The mod cache's size limit (issue #75): <files>/modcache.txt "limit_mb=N", written by the
+// launcher (Settings > Mod cache > Size limit; 0 or no file = no limit). Over the limit, the
+// files used longest ago are deleted until it is 90% full; a file used in the last minute is
+// never deleted, nor the one used last (the game may be about to open it; a file it has open
+// stays readable anyway).
+// Files used this run count from that use, the others from when they were unpacked.
+struct CacheEntry { uint64_t size; int64_t use_s; uint64_t seq; };
+struct CacheLimit {
+    std::mutex lock;                        // taken inside g.lock (materialize), never the other way
+    uint64_t limit = 0, total = 0, seq = 0;
+    unsigned gen = 0;
+    bool evicting = false;
+    std::unordered_map<std::string, CacheEntry> files;
+} cl;
+
+bool cache_sync() { const char *e = std::getenv("FF7_MODS_PRUNE_SYNC"); return e && *e == '1'; }
+int64_t cache_guard_s() { const char *e = std::getenv("FF7_MODCACHE_GUARD_S"); return e && *e ? std::atoll(e) : 60; }
+
+void scan_cache_tree(const std::string &dir, std::vector<std::pair<std::string, CacheEntry>> &out) {
+    std::vector<std::string> names;
+    list_names(dir, names);
+    for (const std::string &n : names) {
+        std::string p = join(dir, n);
+        struct stat st;
+        if (stat(p.c_str(), &st) != 0) continue;
+        if (st.st_mode & S_IFDIR) scan_cache_tree(p, out);
+        else if ((st.st_mode & S_IFREG) && !(n.size() > 5 && n.compare(n.size() - 5, 5, ".part") == 0))
+            out.push_back({ p, { (uint64_t)st.st_size, (int64_t)st.st_mtime, 0 } });
+    }
+}
+
+// Deletes the files used longest ago until the cache is 90% of its limit. cl.evicting is set.
+void evict_cache() {
+    std::vector<std::pair<std::string, CacheEntry>> v;
+    int64_t guard = (int64_t)std::time(nullptr) - cache_guard_s();
+    {
+        std::lock_guard<std::mutex> lk(cl.lock);
+        for (const auto &f : cl.files) if (f.second.use_s <= guard) v.push_back(f);
+    }
+    std::sort(v.begin(), v.end(), [](const auto &a, const auto &b) {
+        return a.second.use_s != b.second.use_s ? a.second.use_s < b.second.use_s : a.second.seq < b.second.seq;
+    });
+    size_t removed = 0;
+    uint64_t freed = 0;
+    for (const auto &c : v) {
+        // one file at a time under the lock: materialize checks a file and records its use under
+        // it too, so a file it has just handed out is never deleted under it
+        std::lock_guard<std::mutex> lk(cl.lock);
+        if (cl.limit == 0 || cl.total <= cl.limit / 10 * 9) break;
+        auto it = cl.files.find(c.first);
+        if (it == cl.files.end() || it->second.use_s > guard || it->second.seq == cl.seq) continue;   // never the newest
+        std::remove(c.first.c_str());
+        cl.total -= std::min(cl.total, it->second.size);
+        freed += it->second.size;
+        cl.files.erase(it);
+        removed++;
+    }
+    std::lock_guard<std::mutex> lk(cl.lock);
+    if (removed)
+        std::fprintf(stderr, "[mods] mod cache over its %llu MB limit: %zu file(s) used longest ago deleted (%llu KB), %llu MB left\n",
+                     (unsigned long long)(cl.limit >> 20), removed, (unsigned long long)(freed >> 10),
+                     (unsigned long long)(cl.total >> 20));
+    cl.evicting = false;
+}
+
+// With cl.lock held: starts an eviction if the cache is over its limit and none is running.
+void check_cache_limit_locked(std::unique_lock<std::mutex> &lk) {
+    if (!cl.limit || cl.total <= cl.limit || cl.evicting) return;
+    cl.evicting = true;
+    if (cache_sync()) { lk.unlock(); evict_cache(); lk.lock(); return; }
+    std::thread(evict_cache).detach();
+}
+
+// With cl.lock held: records a use of a cache file, counting it if it is new to the index.
+void note_cache_use_locked(const std::string &path, uint64_t size) {
+    auto it = cl.files.find(path);
+    if (it != cl.files.end()) cl.total -= std::min(cl.total, it->second.size);
+    cl.files[path] = { size, (int64_t)std::time(nullptr), ++cl.seq };
+    cl.total += size;
+}
+
+// At ff7_mods_load: reads the limit and counts the cache folders of the profile's mods.
+void start_cache_limit(const std::string &files_dir, const std::string &cache, const std::set<std::string> &keep) {
+    uint64_t limit = 0;
+    // the game's <files>/modcache only: not the launcher's own small cache (Sfx.java's modfiles)
+    bool game_cache = cache.size() >= 9 && cache.compare(cache.size() - 9, 9, "/modcache") == 0;
+    if (std::FILE *f = game_cache ? std::fopen(join(files_dir, "modcache.txt").c_str(), "rb") : nullptr) {
+        char line[128];
+        while (std::fgets(line, sizeof line, f))
+            if (!std::strncmp(line, "limit_mb=", 9)) limit = (uint64_t)std::strtoull(line + 9, nullptr, 10) << 20;
+        std::fclose(f);
+    }
+    if (const char *e = std::getenv("FF7_MODCACHE_LIMIT_BYTES"); e && *e) limit = std::strtoull(e, nullptr, 10);   // tests
+    unsigned gen;
+    {
+        std::lock_guard<std::mutex> lk(cl.lock);
+        cl.files.clear();
+        cl.total = 0;
+        cl.limit = limit;
+        gen = ++cl.gen;
+    }
+    if (!limit || cache.empty()) return;
+    std::fprintf(stderr, "[mods] mod cache limit %llu MB\n", (unsigned long long)(limit >> 20));
+    auto scan = [gen, cache, keep] {
+        std::vector<std::pair<std::string, CacheEntry>> found;
+        for (const std::string &k : keep) scan_cache_tree(join(cache, k), found);
+        std::unique_lock<std::mutex> lk(cl.lock);
+        if (gen != cl.gen) return;
+        for (auto &f : found)
+            if (cl.files.emplace(f.first, f.second).second) cl.total += f.second.size;
+        std::fprintf(stderr, "[mods] mod cache: %zu file(s), %llu MB\n", cl.files.size(), (unsigned long long)(cl.total >> 20));
+        check_cache_limit_locked(lk);
+    };
+    if (cache_sync()) scan(); else std::thread(scan).detach();
+}
+
 // The cached host copy of an archive entry (extracted if missing or older than the archive).
 std::string materialize(const Mod &m, int mi, const std::string &entry) {
     std::string rel = entry;
@@ -289,7 +406,14 @@ std::string materialize(const Mod &m, int mi, const std::string &entry) {
     (void)mi;
     std::string out = join(join(g.cache, m.cache_dir), rel);
     struct stat st;
-    if (stat(out.c_str(), &st) == 0 && (int64_t)st.st_mtime >= m.mtime) return out;
+    {
+        // under cl.lock, so the size limit's eviction cannot delete it between this check and its use
+        std::unique_lock<std::mutex> lk(cl.lock);
+        if (stat(out.c_str(), &st) == 0 && (int64_t)st.st_mtime >= m.mtime) {
+            if (cl.limit) note_cache_use_locked(out, (uint64_t)st.st_size);
+            return out;
+        }
+    }
     std::vector<uint8_t> data;
     if (!m.iro->read(entry, data)) {
         std::fprintf(stderr, "[mods] %s: cannot read %s\n", m.name.c_str(), entry.c_str());
@@ -306,6 +430,10 @@ std::string materialize(const Mod &m, int mi, const std::string &entry) {
     if (std::rename(tmp.c_str(), out.c_str()) != 0) {      // Windows will not rename over a file
         std::remove(out.c_str());
         if (std::rename(tmp.c_str(), out.c_str()) != 0) { std::remove(tmp.c_str()); return std::string(); }
+    }
+    {
+        std::unique_lock<std::mutex> lk(cl.lock);
+        if (cl.limit) { note_cache_use_locked(out, data.size()); check_cache_limit_locked(lk); }
     }
     return out;
 }
@@ -829,7 +957,13 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
     drop_interpolated_animations(join(base, "../game"));
     std::fprintf(stderr, "[mods] %zu mod(s), %zu game paths replaced\n", g.mods.size(), g.map.size());
     prune_cache(g.cache, keep);
+    start_cache_limit(join(base, ".."), g.cache, keep);
     return 0;
+}
+
+extern "C" unsigned long long ff7_mods_cache_bytes(void) {
+    std::lock_guard<std::mutex> lk(cl.lock);
+    return cl.total;
 }
 
 namespace {

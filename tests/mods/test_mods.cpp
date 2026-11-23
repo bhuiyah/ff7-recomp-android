@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -34,6 +35,13 @@ static void mkdir_p(const std::string &p) {
     for (size_t i = 1; i <= p.size(); i++) if (i == p.size() || p[i] == '/') mkdir_one(p.substr(0, i));
 }
 static bool exists(const std::string &p) { struct stat st; return stat(p.c_str(), &st) == 0; }
+static void setenv_(const char *k, const char *v) {
+#if defined(_WIN32)
+    _putenv_s(k, v);
+#else
+    setenv(k, v, 1);
+#endif
+}
 
 static std::string redirect(const char *rel) {
     char buf[1024];
@@ -231,6 +239,37 @@ int main(int argc, char **argv) {
         CHECK(!exists(old_dir) && !exists(gone_dir));
         CHECK(exists(fdir) && exists(cache + "/test.iro"));
         CHECK(redirect("data/field/raw.bin") == "alt contents");
+    }
+
+    // ---- the mod cache's size limit (issue #75): over it, the files used longest ago go, down to
+    // 90%, never the one used last; they are unpacked again when used. No one-minute guard here.
+    {
+        const std::string td = cache + "/test.iro/base/field", big = cache + "/test.iro/base/kernel/big.bin";
+        std::filesystem::remove_all(cache + "/test.iro");
+        std::filesystem::remove_all(cache + "/folder_mod");      // its x.bin from above
+        setenv_("FF7_MODCACHE_GUARD_S", "0");
+        setenv_("FF7_MODCACHE_LIMIT_BYTES", "2620");
+        CHECK(ff7_mods_load((dir + "/profile_default.xml").c_str(), cache.c_str()) == 0);
+        CHECK(ff7_mods_cache_bytes() == 0);
+        CHECK(redirect("data/field/raw.bin") == "raw contents");             // 12 bytes
+        CHECK(redirect("data/field/abc.bin") == "ABCABCABC");                // 9: 21 in all
+        CHECK(ff7_mods_cache_bytes() == 21 && exists(td + "/raw.bin") && exists(td + "/abc.bin"));
+        CHECK(redirect("data/kernel/big.bin").size() == 2600);              // 2621 > 2620
+        CHECK(!exists(td + "/raw.bin") && !exists(td + "/abc.bin") && exists(big));   // oldest gone, newest kept
+        CHECK(ff7_mods_cache_bytes() == 2600);
+        CHECK(redirect("data/field/raw.bin") == "raw contents" && exists(td + "/raw.bin"));   // unpacked again
+        CHECK(ff7_mods_cache_bytes() == 2612);
+        // a new run counts what is there (2612); the next file over the limit evicts big.bin, used longest ago
+        CHECK(ff7_mods_load((dir + "/profile_default.xml").c_str(), cache.c_str()) == 0);
+        CHECK(ff7_mods_cache_bytes() == 2612);
+        CHECK(redirect("data/field/raw.bin") == "raw contents");             // reused: now the newest use
+        CHECK(redirect("data/field/abc.bin") == "ABCABCABC");                // 2621 > 2620
+        CHECK(!exists(big) && exists(td + "/raw.bin") && exists(td + "/abc.bin"));
+        CHECK(ff7_mods_cache_bytes() == 21);
+        setenv_("FF7_MODCACHE_LIMIT_BYTES", "");
+        CHECK(ff7_mods_load((dir + "/profile_default.xml").c_str(), cache.c_str()) == 0);
+        CHECK(ff7_mods_cache_bytes() == 0);                                  // no limit: not counted
+        CHECK(redirect("data/kernel/big.bin").size() == 2600 && exists(td + "/raw.bin") && exists(td + "/abc.bin"));
     }
 
     // ---- no profile: nothing redirected

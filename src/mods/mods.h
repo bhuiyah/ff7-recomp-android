@@ -34,6 +34,10 @@ int ff7_mods_load(const char *profile_path, const char *cache_dir);
  * replaces it, write the host path of the replacement into buf and return buf; else NULL. */
 const char *ff7_mods_redirect(const char *rel, char *buf, unsigned n);
 
+/* The mod cache's counted size in bytes while a size limit is set (<files>/modcache.txt
+ * "limit_mb=N", issue #75), else 0. */
+unsigned long long ff7_mods_cache_bytes(void);
+
 /* Load the profile and report, as JSON (malloc'd; free it), the game files two enabled mods
  * both replace (the one earlier in the profile wins) and the mods' <Compatibility> Forbid /
  * Require entries: {"mods":[{file,id,name}], "overlaps":[{winner,loser,files,conditional,

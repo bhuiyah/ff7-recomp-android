@@ -388,6 +388,7 @@ public class LauncherActivity extends Activity {
         ticker.removeCallbacks(buildTick);
         ticker.post(buildTick);
         testPlay(getIntent(), 0);
+        clearModCacheAfterGame();
         if (cloudAfterGame && !busy && cloudSaves() && TestControl.gamePid(this) <= 0) {
             cloudAfterGame = false;
             new Thread(() -> {
@@ -1900,7 +1901,47 @@ public class LauncherActivity extends Activity {
                     .setNegativeButton("Cancel", null)
                     .show());
         }));
+        // Issue #75: keep it small on phones low on storage
+        col.addView(space(12));
+        col.addView(text("Size limit", 16, TEXT));
+        col.addView(text("While you play, the files used longest ago are deleted to stay under it.", 14, DIM));
+        RadioGroup limits = new RadioGroup(this);
+        int curLimit = prefs.getInt("modcache_limit_mb", 0);
+        for (int mb : new int[] { 0, 500, 1024, 2048, 4096 }) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(mb == 0 ? "No limit" : mb < 1024 ? mb + " MB" : (mb / 1024) + " GB");
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            rb.setOnClickListener(x -> prefs.edit().putInt("modcache_limit_mb", mb).apply());
+            limits.addView(rb);
+            if (mb == curLimit) rb.setChecked(true);
+        }
+        col.addView(limits);
+        CheckBox onClose = new CheckBox(this);
+        onClose.setText("Clear it when the game closes\nEach time you leave the game, the mod cache is emptied. "
+                + "Places load a little slower the first time in each session");
+        onClose.setTextColor(TEXT);
+        onClose.setTextSize(16);
+        onClose.setChecked(prefs.getBoolean("modcache_clear_on_close", false));
+        onClose.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("modcache_clear_on_close", on).apply());
+        col.addView(onClose);
         return col;
+    }
+
+    /** Issue #75: empties the mod cache after a game, when "Clear it when the game closes" is on.
+     *  The flag is saved, so a launcher restarted while the game ran still clears it. */
+    private void clearModCacheAfterGame() {
+        if (!prefs.getBoolean("modcache_used", false) || TestControl.gamePid(this) > 0) return;
+        prefs.edit().putBoolean("modcache_used", false).apply();
+        if (!prefs.getBoolean("modcache_clear_on_close", false) || install == null) return;
+        File dir = modCache();
+        new Thread(() -> {
+            long n = dir.exists() ? Storage.size(dir) : 0;
+            if (TestControl.gamePid(this) > 0) return;     // started again meanwhile
+            ModDownloader.deleteTree(dir);
+            android.util.Log.i("FF7Launcher", "mod cache cleared after the game (" + ModDownloader.human(n) + ")");
+        }, "modcache-clear").start();
     }
 
     private static String fpsName(int mode) {
@@ -2644,6 +2685,8 @@ public class LauncherActivity extends Activity {
             int aspect = prefs.getInt("aspect", 2);   // 3: 16:9 stretched by Android (GameActivity), FFNx renders 16:9
             install.writeFfnxToml(prefs.getInt("fps", 3) == 5 ? 3 : prefs.getInt("fps", 3), boosterSpeed() > 1, aspect == 3 ? 2 : aspect, prefs.getBoolean("show_fps", false), library.mods,
                                   renderScaleCap());
+            install.writeModCacheLimit(prefs.getInt("modcache_limit_mb", 0));   // #75
+            prefs.edit().putBoolean("modcache_used", true).apply();
             install.writeQuickboot(quickbootOverride != null ? quickbootOverride : prefs.getString("quickboot", ""));
             install.writeBoosters(boosterSpeed(), prefs.getBoolean("no_encounters", false), prefs.getBoolean("battle_plus", false),
                                   prefs.getInt("perf", 1) != 2, prefs.getBoolean("save_anywhere", false),
