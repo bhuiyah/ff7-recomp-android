@@ -324,9 +324,90 @@ static int cpu_record(const uint8_t *p, size_t n, ss_cpu *out) {
     return 0;
 }
 
+/* ---- host functions in game memory ---------------------------------------------------------
+ * The game's imports and FFNx's own functions (the driver table, COM vtables, callbacks) sit in
+ * game memory as made-up addresses, 0x7F000000 + 16 * the order they were first used in. Another
+ * build, or other mods, have other numbers, so a state from there called the wrong function on
+ * its first frame (GitHub #74: begin_scene reached load_group). Both moments hold most of them at
+ * the same places: pair the state's with the running game's, take each one's usual
+ * partner, and renumber the state's. */
+#define SHIM_LO 0x7F000000u
+#define SHIM_N  2048u                    /* MAX_SHIMS, win32hle/host_lite.c */
+#define SHIM_CAND 4
+extern const char *hle_name(uint32_t va);
+static int shim_index(uint32_t v) {
+    return v > SHIM_LO && v < SHIM_LO + 16 * SHIM_N && !(v & 15) ? (int)((v - SHIM_LO) >> 4) : -1;
+}
+static uint16_t g_shim_to[SHIM_N];       /* the state's number -> the running game's (0 = unknown) */
+static uint32_t g_shim_fixed;            /* cells renumbered */
+
+static int shims_pair(const uint8_t *p, size_t n) {   /* before anything is overwritten; 1 = they differ */
+    struct cand { uint16_t to; uint32_t votes; };
+    struct cand (*c)[SHIM_CAND] = calloc(SHIM_N, sizeof *c);
+    memset(g_shim_to, 0, sizeof g_shim_to);
+    g_shim_fixed = 0;
+    if (!c) return 0;
+    for (size_t at = 0; at + 8 <= n;) {
+        uint32_t id, len;
+        memcpy(&id, p + at, 4); memcpy(&len, p + at + 4, 4);
+        if (id == R_END) break;
+        if (id == R_MEM && len >= 8) {
+            uint32_t va, s, now;
+            memcpy(&va, p + at + 8, 4);
+            for (uint32_t o = (4 - (va & 3)) & 3; o + 8 <= len; o += 4) {
+                memcpy(&s, p + at + 12 + o, 4);
+                int from = shim_index(s);
+                if (from < 0) continue;
+                memcpy(&now, (const void *)(uintptr_t)(va + o), 4);
+                int to = shim_index(now);
+                if (to < 0 || !hle_name(now)) continue;
+                for (int k = 0; k < SHIM_CAND; k++) {
+                    if (c[from][k].votes && c[from][k].to != to) continue;
+                    c[from][k].to = (uint16_t)to;
+                    c[from][k].votes++;
+                    break;
+                }
+            }
+        }
+        at += 8 + len;
+    }
+    int differ = 0;
+    for (uint32_t i = 0; i < SHIM_N; i++) {
+        uint32_t best = 0;
+        for (int k = 0; k < SHIM_CAND; k++) if (c[i][k].votes > best) { best = c[i][k].votes; g_shim_to[i] = c[i][k].to; }
+    }
+    free(c);
+    /* a number seen only where the running game has something else: what its neighbours say */
+    for (uint32_t i = 1; i < SHIM_N; i++) {
+        if (g_shim_to[i]) continue;
+        uint32_t lo = i - 1, hi = i + 1;
+        while (lo && !g_shim_to[lo]) lo--;
+        while (hi < SHIM_N && !g_shim_to[hi]) hi++;
+        if (!lo || hi >= SHIM_N) continue;
+        int dl = (int)g_shim_to[lo] - (int)lo, dh = (int)g_shim_to[hi] - (int)hi;
+        int to = (int)i + dl;
+        if (dl == dh && to > 0 && hle_name(SHIM_LO + 16u * (uint32_t)to)) g_shim_to[i] = (uint16_t)to;
+    }
+    for (uint32_t i = 0; i < SHIM_N; i++) if (g_shim_to[i] && g_shim_to[i] != i) differ = 1;
+    return differ;
+}
+
+static void shims_renumber(uint32_t va, uint32_t size) {
+    for (uint32_t a = (va + 3) & ~3u; a + 4 <= va + size; a += 4) {
+        uint32_t v;
+        memcpy(&v, (const void *)(uintptr_t)a, 4);
+        int from = shim_index(v);
+        if (from < 0 || !g_shim_to[from] || g_shim_to[from] == from) continue;
+        v = SHIM_LO + 16u * g_shim_to[from];
+        memcpy((void *)(uintptr_t)a, &v, 4);
+        g_shim_fixed++;
+    }
+}
+
 static void apply(const uint8_t *p, size_t n) {
     for (int i = 0; i < g_nhooks; i++) if (g_hooks[i]->before_load) g_hooks[i]->before_load(g_hooks[i]->ctx);
     guest_alloc_lock();
+    const int renumber = shims_pair(p, n);
     size_t at = 0;
     while (at + 8 <= n) {
         uint32_t id, len;
@@ -346,6 +427,7 @@ static void apply(const uint8_t *p, size_t n) {
             uint32_t va;
             memcpy(&va, d, 4);
             memcpy((void *)(uintptr_t)va, d + 4, len - 4);
+            if (renumber) shims_renumber(va, len - 4);
             break;
         }
         case R_FREE: {
@@ -412,6 +494,7 @@ static void apply(const uint8_t *p, size_t n) {
         if (id == R_END) break;
         at += 8 + len;
     }
+    if (g_shim_fixed) fprintf(stderr, "[savestate] %u host function pointers renumbered (another build or other mods)\n", g_shim_fixed);
     guest_alloc_unlock();
     for (int i = 0; i < g_nhooks; i++) if (g_hooks[i]->after_load) g_hooks[i]->after_load(g_hooks[i]->ctx);
 }
