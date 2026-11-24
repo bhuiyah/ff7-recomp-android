@@ -824,3 +824,10 @@
 - Thor, 2026-11-24 (frame generation with the user's Lossless.dll at Original): field 30 + 30 a second, 42 ms; battle 15 + 45, 95 ms;
   movie 30 + 30, 59 ms. Not started at 60 or 120. Button swap (X as Y opens the menu), aspect 1, Slow 1/4, live buggy marker, mod pictures
   (DDS), save and load state. Full build 458 s; the next one with another lift version 150 s, 0 MB compiled. 1.1.44 -> this: relink only.
+
+## 2026-11-24: frame generation timing (1.1.46; FF9Recomp's findings)
+Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView (BLAST) layer, not the log.
+- 1.1.45: after a hiccup (menu, state load) frames stayed 90-110 ms behind for good while the log said 42. One made frame is left
+  out while they are late: field 64-70 ms, battle 118-121 ms (from drawn to due).
+- With that, the 4 ms lead showed 40-48 new frames a second for stretches; 9 and 15 ms: a steady 59.7. Kept 15 (g_lead).
+- Made frames are capped by the rate the game means to draw (ff7_framegen_target). Env FF7_FG_LEAD, FF7_FG_TRACE for tests.

@@ -28,10 +28,12 @@
 #undef fopen   // ffnx_prelude.h's guest-path fopen: host paths here
 
 bool ff7_framegen_movie_playing();   // framegen_game.cpp
+int ff7_framegen_target();           // frames a second the game means to draw, 0: unknown
 namespace {
 bool movie_playing() { return ff7_framegen_movie_playing(); }
 constexpr uint32_t k_between = 3;      // made per pair of frames at most: 15 to 60
 constexpr double k_display = 60.0;
+double g_lead = 0.015;                 // before a refresh, the time the compositor wants a frame
 
 bool g_on, g_failed, g_engine, g_half = true;
 float g_flow = 0.6f;
@@ -169,6 +171,7 @@ uint64_t g_frames;              // captured since the context was made
 int64_t g_last_ns, g_due_ns;
 int g_cap = k_between + 1, g_over;   // frames shown for one drawn, at most
 int64_t g_cap_since;
+int g_target = -1;
 double g_delay = 1.0 / 30, g_work = 0.016, g_work_most = 0.016, g_dts[5];
 
 int64_t now_ns() { timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1000000000ll + t.tv_nsec; }
@@ -367,7 +370,12 @@ int present(const ff7_fg_frame *pf, VkResult *result) {
         std::copy(g_dts, g_dts + 5, s);
         std::sort(s, s + 5);
         const double usual = std::clamp(s[2], 1 / k_display, (k_between + 1) / k_display);
-        const int n_usual = std::min((int)(usual * k_display + 0.5), g_cap);
+        // No more than fit the game's own rate: a slow moment (a load) would have three made where one
+        // belongs, and making them would keep the game slow.
+        const int target = movie_playing() ? 0 : ff7_framegen_target();
+        if (target != g_target) { g_target = target; g_cap = k_between + 1; g_over = 0; }
+        const int fit = target > 0 ? std::clamp((int)(k_display / target + 0.5), 1, g_cap) : g_cap;
+        const int n_usual = std::min((int)(usual * k_display + 0.5), fit);
         double wait = n_usual > 1 ? g_work + (n_usual - 1) / k_display : 0;
         // A movie's frames come unevenly (its 15 a second over a loop of 30) and nobody is steering:
         // shown as long after they come as the longest recent one took, they are even.
@@ -383,7 +391,10 @@ int present(const ff7_fg_frame *pf, VkResult *result) {
         const bool behind = g_refresh_ns > 0 && g_last_vsync - now > (int64_t)(wait * 1e9) + g_refresh_ns * 5 / 2;
         const bool still = g_frames == 0 || dt > 0.25 || behind || g_due_ns == 0;
         const double gap = still ? 0 : (drawn_due - g_due_ns) * 1e-9;
-        const int steps = std::clamp((int)(gap * k_display + 0.5), 1, g_cap);
+        int steps = std::clamp((int)(gap * k_display + 0.5), 1, fit);
+        // One refresh each: after a hiccup the frames would stay that much later for good (felt as the
+        // controls' delay). One is left out until they are back where they should be.
+        if (steps > 1 && g_refresh_ns > 0 && g_last_vsync + steps * g_refresh_ns > drawn_due + g_refresh_ns * 3 / 2) steps--;
 
         // 1. the frame, to the input buffer the engine reads next
         Shared &in = g_in[g_frames % 2];
@@ -412,12 +423,12 @@ int present(const ff7_fg_frame *pf, VkResult *result) {
         if (mask) LSFG_3_1P::waitIdle();
         g_frames++;
         if (mask) { s_render += (t_r - now) * 1e-6; s_gen += (now_ns() - t_r) * 1e-6; s_n++; }
-        const double work = (now_ns() - now) * 1e-9 + 0.004;
+        const double work = (now_ns() - now) * 1e-9 + g_lead;
         // Too slow for the time there is (a weak GPU): the game would wait for it, its frames would come
         // further apart, more would be made between them, and slower still. Fewer are made, down to
         // none; after a while one more is tried.
         if (dt > 0.004 && dt < 0.25) {
-            const double part = (work - 0.004) / dt;
+            const double part = (work - g_lead) / dt;
             g_over = part > 0.85 ? g_over + 1 : 0;
             if (g_over >= 8 && g_cap > 1) {
                 g_cap--; g_over = 0; g_cap_since = now;
@@ -427,7 +438,7 @@ int present(const ff7_fg_frame *pf, VkResult *result) {
             }
         }
         g_work_most = std::max(work, g_work_most - (g_work_most - work) * 0.02);
-        if (mask) g_work += (std::min(work, 0.045) - g_work) * 0.1;
+        if (mask) g_work += (std::min(work, 0.056) - g_work) * 0.1;
 
         // 3. shown in order, each when it is due. A due time is half a refresh before the refresh it is
         // for: the compositor shows the newest frame that is due and drops the others, so two must
@@ -460,6 +471,8 @@ int present(const ff7_fg_frame *pf, VkResult *result) {
         }
         *result = show(f, f.image, a.done, when(n));
         g_due_ns = drawn_due;
+        static double s_late, s_late_most; static int s_late_n;
+        if (g_last_vsync) { const double l = (g_last_vsync - now) * 1e-6; s_late += l; s_late_most = std::max(s_late_most, l); s_late_n++; }
         static const bool trace = getenv("FF7_FG_TRACE") != nullptr;
         static int traced;
         if (trace && traced++ % 600 < 60)
@@ -473,6 +486,8 @@ int present(const ff7_fg_frame *pf, VkResult *result) {
             const double s = (now - t0) * 1e-9;
             fprintf(stderr, "[framegen] %.1f drawn + %.1f made a second, shown %.0f ms after, refresh %.2f ms%s\n", drawn / s, made / s, wait * 1e3, g_refresh_ns * 1e-6, f.display_timing ? "" : " (untimed)");
             if (s_n) fprintf(stderr, "[framegen] of that: the game's drawing %.1f ms, making %.1f ms", s_render / s_n, s_gen / s_n), fputc(10, stderr);
+            if (s_late_n) fprintf(stderr, "[framegen] frames due %.0f ms after they were drawn, %.0f at most", s_late / s_late_n, s_late_most), fputc(10, stderr);
+            s_late = s_late_most = 0; s_late_n = 0;
             s_render = s_gen = 0; s_n = 0;
             t0 = now; drawn = made = 0;
         }
@@ -497,6 +512,7 @@ void framegen_init() {
         if (!strncmp(line, "flow=", 5)) g_flow = std::clamp((float)atof(line + 5), 0.5f, 1.0f);
     }
     fclose(f);
+    if (const char *l = getenv("FF7_FG_LEAD")) g_lead = atof(l) * 1e-3;   // test
     if (!g_on) return;
     if (!read_dll("../framegen/Lossless.dll")) { fprintf(stderr, "[framegen] off: no readable Lossless.dll\n"); return; }
     bool half = true, full = true;
