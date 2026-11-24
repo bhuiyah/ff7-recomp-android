@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <cctype>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -70,9 +71,7 @@ void mkdirs(const std::string &path) {
 // was thousands of them, 48 s of a start with Enhanced Stock UI and Finishing Touch (issue #76).
 struct DirEnt { std::string name; bool dir; };
 std::unordered_map<std::string, std::vector<DirEnt>> g_dirs;
-const std::vector<DirEnt> &dir_entries(const std::string &dir) {
-    auto it = g_dirs.find(dir);
-    if (it != g_dirs.end()) return it->second;
+std::vector<DirEnt> read_dir(const std::string &dir) {
     std::vector<DirEnt> out;
 #if defined(_WIN32)
     _finddata_t fd;
@@ -95,7 +94,54 @@ const std::vector<DirEnt> &dir_entries(const std::string &dir) {
         closedir(d);
     }
 #endif
-    return g_dirs.emplace(dir, std::move(out)).first->second;
+    return out;
+}
+const std::vector<DirEnt> &dir_entries(const std::string &dir) {
+    auto it = g_dirs.find(dir);
+    if (it != g_dirs.end()) return it->second;
+    return g_dirs.emplace(dir, read_dir(dir)).first->second;
+}
+// Puts the listings of these folders and all below them into g_dirs, several folders at a time:
+// one after the other they were 8.4 of the 11 s before the first frame with Enhanced Stock UI and
+// Idle Animations unpacked on an SD card (issue #76). Only reads ahead; what is found and its
+// order are as without it.
+void read_dirs_ahead(std::vector<std::string> queue) {
+    std::mutex m;
+    std::condition_variable cv;
+    std::set<std::string> seen(queue.begin(), queue.end());
+    queue.assign(seen.begin(), seen.end());
+    size_t busy = 0;
+    auto work = [&] {
+        std::unique_lock<std::mutex> lk(m);
+        for (;;) {
+            cv.wait(lk, [&] { return !queue.empty() || busy == 0; });
+            if (queue.empty()) return;                   // and nobody is listing: done
+            const std::string dir = std::move(queue.back());
+            queue.pop_back();
+            auto known = g_dirs.find(dir);
+            const bool have = known != g_dirs.end();
+            std::vector<DirEnt> out;
+            if (have) out = known->second;
+            else {
+                busy++;
+                lk.unlock();
+                out = read_dir(dir);
+                lk.lock();
+                busy--;
+            }
+            for (const DirEnt &e : out) {
+                std::string sub = e.dir ? dir + "/" + e.name : std::string();
+                if (e.dir && seen.insert(sub).second) queue.push_back(std::move(sub));
+            }
+            if (!have) g_dirs.emplace(dir, std::move(out));
+            cv.notify_all();
+        }
+    };
+    if (queue.empty()) return;
+    std::vector<std::thread> pool;
+    for (int i = 0; i < 7; i++) pool.emplace_back(work);
+    work();
+    for (std::thread &t : pool) t.join();
 }
 // Every file under dir (recursive), relative, '/' separators, real case.
 void list_files(const std::string &dir, const std::string &rel, std::vector<std::string> &out) {
@@ -1142,6 +1188,30 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
             std::fprintf(stderr, "[mods] %s: option %s set to %d to match the frame rate in Settings (ff7_fps_limiter %d)\n",
                          pm.mod->name.c_str(), opt.c_str(), pick, lim->second);
         }
+    }
+
+    {   // the folders add_folder will list below
+        std::vector<std::string> dirs;
+        for (const Pending &pm : pending) {
+            const Mod &mod = *pm.mod;
+            if (mod.iro) continue;
+            OptionValues opts = mod.info.values(pm.chosen);
+            for (const auto &kv : ffnx) opts.emplace(kv.first, kv.second);
+            auto want = [&](const std::string &folder) {
+                std::string dir = norm_key(folder).empty() ? mod.path : resolve_ci(mod.path, folder);
+                if (!dir.empty()) dirs.push_back(std::move(dir));
+            };
+            for (const ConditionalFolder &c : mod.info.conditionals)
+                if (is_active(c.active_when.get(), opts, g.language)) want(c.folder);
+            for (const ModFolder &f : mod.info.mod_folders)
+                if (is_active(f.active_when.get(), opts, g.language)) want(f.folder);
+            if (mod.info.conditionals.empty() && mod.info.mod_folders.empty()) want("");
+        }
+        const auto t_ahead = std::chrono::steady_clock::now();
+        const size_t before = g_dirs.size();
+        read_dirs_ahead(std::move(dirs));
+        if (g_dirs.size() > before)
+            std::fprintf(stderr, "[mods] %zu folder(s) of unpacked mods listed in %lld ms\n", g_dirs.size() - before, since_ms(t_ahead));
     }
 
     for (Pending &pm : pending) {

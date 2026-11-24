@@ -831,3 +831,9 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
   out while they are late: field 64-70 ms, battle 118-121 ms (from drawn to due).
 - With that, the 4 ms lead showed 40-48 new frames a second for stretches; 9 and 15 ms: a steady 59.7. Kept 15 (g_lead).
 - Made frames are capped by the rate the game means to draw (ff7_framegen_target). Env FF7_FG_LEAD, FF7_FG_TRACE for tests.
+
+## 2026-11-24: unpacked mods' folders listed several at a time (1.1.47; issue #76)
+- The reporter's 1.1.45 log (mods on an SD card): 8.4 of 8.9 s of "file lists" was three unpacked mods, Enhanced Stock UI 6.8 s.
+- read_dirs_ahead: 8 threads list the active folders of all unpacked mods into g_dirs; add_folder then reads memory as before.
+- Thor, real SD card (empty files named as Enhanced Stock UI's and Finishing Touch's folders): whole load 1287-1977 -> 312-361 ms;
+  internal storage 411-424 -> 442-450 ms (20 mods, all enabled). Same overrides in the same order (both).
