@@ -1953,6 +1953,19 @@ EDITS = [
      'namespace ff7::field\n{\n    bool ff7_field_do_draw_3d_model(',
      'extern "C" int ff7r_always_run;   // FF7Recomp (#72): src/ffnx_port/boosters.cpp\n\n'
      'namespace ff7::field\n{\n    bool ff7_field_do_draw_3d_model('),
+    # Sound effects (and movies) above 100% (Settings > Sound, GitHub #80): the part above 100
+    # is a boost the game's own 0..100 volume knows nothing of (src/hle/ff7_dsound.c for the
+    # game's sounds, here for mods' sounds, which play through FFNx's engine)
+    ('cfg.cpp', '\tif (external_sfx_volume > 100) external_sfx_volume = 100;\n',
+     '\tff7r_sfx_boost = external_sfx_volume > 100 ? (external_sfx_volume < 400 ? external_sfx_volume : 400) / 100.0f : 1.0f;   // FF7Recomp (#80)\n'
+     '\tif (external_sfx_volume > 100) external_sfx_volume = 100;\n'),
+    ('cfg.cpp', 'long external_sfx_volume;\n',
+     'long external_sfx_volume;\nfloat ff7r_sfx_boost = 1.0f;   // FF7Recomp (#80)\n'),
+    ('cfg.cpp', '\tif (ffmpeg_video_volume > 100) ffmpeg_video_volume = 100;\n',
+     '\tif (ffmpeg_video_volume > 400) ffmpeg_video_volume = 400;   // FF7Recomp (#80)\n'),
+    ('audio.cpp', '\treturn _sfxMasterVolume < 0.0f ? 1.0f : _sfxMasterVolume;\n',
+     '\textern float ff7r_sfx_boost;   // FF7Recomp (#80): cfg.cpp\n'
+     '\treturn (_sfxMasterVolume < 0.0f ? 1.0f : _sfxMasterVolume) * ff7r_sfx_boost;\n'),
     # Footsteps (ff7_footsteps) keep the running pace while Always run runs (#72)
     ('sfx.cpp',
      '\t\tif (*ff7_externals.input_run_button_status != 0 || gamepad_analogue_intent == INTENT_RUN) pace = 0.30f;\n',

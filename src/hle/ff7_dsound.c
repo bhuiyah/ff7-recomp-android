@@ -92,6 +92,27 @@ static inline float sample_interp(const voice *v, uint32_t fi, float t, int ch, 
     return ((c3 * t + c2) * t + c1) * t + x1;
 }
 
+/* Settings > Sound > Sound effects above 100% (FFNx's cfg.cpp, GitHub #80). Weak, for builds
+ * without FFNx linked. */
+extern float ff7r_sfx_boost __attribute__((weak));
+
+/* The boosted mix, brought down where it would pass full scale: at once for a peak, then back
+ * up over about 100 ms. Quiet sounds get the whole boost, loud ones stop at full scale without
+ * the crackle of plain clipping. */
+static void boost_and_limit(float *out, int32_t frames, float boost) {
+    static float env = 1.0f;
+    const float release = 0.9998f;   /* per frame at 48 kHz */
+    for (int32_t f = 0; f < frames; f++) {
+        const float l = out[2 * f] * boost, r = out[2 * f + 1] * boost;
+        const float peak = fabsf(l) > fabsf(r) ? fabsf(l) : fabsf(r);
+        env *= release;
+        if (env < 1.0f) env = 1.0f;
+        if (env < peak) env = peak;
+        out[2 * f] = l / env;
+        out[2 * f + 1] = r / env;
+    }
+}
+
 static aaudio_data_callback_result_t mix_cb(AAudioStream *s, void *user, void *audio, int32_t frames) {
     (void)s; (void)user;
     float *out = (float *)audio;
@@ -116,7 +137,18 @@ static aaudio_data_callback_result_t mix_cb(AAudioStream *s, void *user, void *a
         }
     }
     pthread_mutex_unlock(&g_lock);
+    const float boost = &ff7r_sfx_boost ? ff7r_sfx_boost : 1.0f;
+    static float tin, tout; static int tn;   /* FF7_TRACE_DSOUND: the peak before and after, each second */
+    if (g_trace) for (int32_t i = 0; i < 2 * frames; i++) if (fabsf(out[i]) > tin) tin = fabsf(out[i]);
+    if (boost > 1.0f) boost_and_limit(out, frames, boost);
     for (int32_t i = 0; i < 2 * frames; i++) out[i] = out[i] > 1.0f ? 1.0f : out[i] < -1.0f ? -1.0f : out[i];
+    if (g_trace) {
+        for (int32_t i = 0; i < 2 * frames; i++) if (fabsf(out[i]) > tout) tout = fabsf(out[i]);
+        if ((tn += frames) >= MIX_RATE) {
+            if (tin > 0.0f) fprintf(stderr, "[dsound] peak %.3f -> %.3f\n", tin, tout);
+            tn = 0; tin = tout = 0.0f;
+        }
+    }
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -134,7 +166,7 @@ static int mixer_start(void) {
     AAudioStreamBuilder_delete(b);
     if (r != AAUDIO_OK) { fprintf(stderr, "[dsound] AAudio open failed: %s\n", AAudio_convertResultToText(r)); g_stream = NULL; return -1; }
     AAudioStream_requestStart(g_stream);
-    fprintf(stderr, "[dsound] mixer: AAudio %d Hz stereo float\n", AAudioStream_getSampleRate(g_stream));
+    fprintf(stderr, "[dsound] mixer: AAudio %d Hz stereo float, effects x%.2f\n", AAudioStream_getSampleRate(g_stream), &ff7r_sfx_boost ? ff7r_sfx_boost : 1.0f);
     return 0;
 }
 

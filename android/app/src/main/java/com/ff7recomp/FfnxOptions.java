@@ -31,12 +31,17 @@ final class FfnxOptions {
     private static final String[] VOL = { "-1", "100", "90", "80", "70", "60", "50", "40", "30", "20", "10", "0" };
     private static final String[] VOL_NAMES = { "Default", "100%", "90%", "80%", "70%", "60%", "50%", "40%", "30%", "20%", "10%", "Off" };
 
+    // above 100%: a boost (src/hle/ff7_dsound.c and FFNx's engine; GitHub #80)
+    private static final String[] BOOST = { "-1", "400", "300", "250", "200", "175", "150", "125", "100", "90", "80", "70", "60", "50", "40", "30", "20", "10", "0" };
+    private static final String[] BOOST_NAMES = { "Default", "400%", "300%", "250%", "200%", "175%", "150%", "125%", "100%", "90%", "80%", "70%", "60%", "50%", "40%", "30%", "20%", "10%", "Off" };
+
+    private static Opt boostable(String key, String label, String help) { return new Opt(key, label, help, BOOST, BOOST_NAMES); }
     private static Opt volume(String key, String label, String help) { return new Opt(key, label, help, VOL, VOL_NAMES); }
 
     static final Opt[] SOUND = {
         volume("external_music_volume", "Music", null),
-        volume("external_sfx_volume", "Sound effects", null),
-        volume("ffmpeg_video_volume", "Movies", null),
+        boostable("external_sfx_volume", "Sound effects", "Up to 400%: raise it if the music drowns out the effects"),
+        boostable("ffmpeg_video_volume", "Movies", null),
         volume("external_voice_volume", "Voices", "With a voice-acting mod"),
         volume("external_ambient_volume", "Ambient sounds", "With an ambient-sound mod"),
         new Opt("ff7_footsteps", "Footsteps", "A footstep sound as you walk in fields", false),

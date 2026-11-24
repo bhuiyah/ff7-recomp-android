@@ -2970,16 +2970,17 @@ public class LauncherActivity extends Activity {
         }
         // a volume: - and + step it, the middle button puts it back to Default
         final int[] at = { FfnxOptions.index(o, prefs.getString(key, null)) };
+        final int full = FfnxOptions.index(o, "100");   // where Default stands
         ViewGroup r = buttonRow();
         final Button mid = small(o.label + ": " + o.names[at[0]], null);
         Runnable store = () -> {
             if (at[0] == 0) prefs.edit().remove(key).apply(); else prefs.edit().putString(key, o.values[at[0]]).apply();
             mid.setText(o.label + ": " + o.names[at[0]]);
         };
-        r.addView(compact(small("−", v -> { at[0] = Math.min(o.values.length - 1, Math.max(at[0], 1) + 1); store.run(); })));
+        r.addView(compact(small("−", v -> { at[0] = Math.min(o.values.length - 1, (at[0] == 0 ? full : at[0]) + 1); store.run(); })));
         mid.setOnClickListener(v -> { at[0] = 0; store.run(); });
         r.addView(mid);
-        r.addView(compact(small("+", v -> { at[0] = Math.max(1, at[0] - 1); store.run(); })));
+        r.addView(compact(small("+", v -> { at[0] = Math.max(1, (at[0] == 0 ? full : at[0]) - 1); store.run(); })));
         if (o.help != null) r.addView(text(o.help, 13, DIM));
         col.addView(r);
     }
