@@ -89,7 +89,7 @@ extern "C" bool ff7_companion_art_pixels(const char *path, std::vector<int> &out
         if (!bimg::imageConvert(&alloc, px.data(), bimg::TextureFormat::RGBA8, m.m_data, m.m_format, dw, dh, 1)) break;
         out.resize((size_t)dw * dh);
         for (size_t i = 0; i < out.size(); i++)
-            out[i] = (int)(0xFF000000u | (uint32_t)px[i * 4] << 16 | (uint32_t)px[i * 4 + 1] << 8 | px[i * 4 + 2]);
+            out[i] = (int)((uint32_t)px[i * 4 + 3] << 24 | (uint32_t)px[i * 4] << 16 | (uint32_t)px[i * 4 + 1] << 8 | px[i * 4 + 2]);
         *w = (int)dw; *h = (int)dh;
         ok = true;
         break;

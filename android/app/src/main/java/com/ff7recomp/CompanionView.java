@@ -132,6 +132,7 @@ public class CompanionView extends View {
             b = android.graphics.BitmapFactory.decodeFile(p, o);
         } else {
             int[] px = nativeArtPixels(p);
+            if (px != null && !name.startsWith("menu/")) for (int i = 2; i < px.length; i++) px[i] |= 0xFF000000;   // the map fills its box
             b = px == null ? null : android.graphics.Bitmap.createBitmap(px, 2, px[0], px[0], px[1], android.graphics.Bitmap.Config.ARGB_8888);
         }
         android.util.Log.i("FF7Companion", name + ": " + p + (b == null ? " (unreadable)" : " " + b.getWidth() + "x" + b.getHeight()));
@@ -537,7 +538,7 @@ public class CompanionView extends View {
             android.graphics.Bitmap face = modded != null && id >= 0 && id < modded.length && modded[id] != null ? modded[id] : faces != null && id >= 0 && id < faces.length ? faces[id] : null;
             // the game's own face (84 x 96) where the files have it, else a letter tile
             float ph = Math.min(cardH - 36 * u, 120 * u);
-            float ps = face != null ? ph * Portraits.FACE_W / Portraits.FACE_H : Math.min(92 * u, ph);
+            float ps = face != null ? Math.min(ph, ph * face.getWidth() / face.getHeight()) : Math.min(92 * u, ph);
             float px = l + 18 * u, py = ct + (cardH - (face != null ? ph : ps)) / 2;
             fill.setShader(null);
             r.set(px, py, px + ps, py + (face != null ? ph : ps));
@@ -546,6 +547,8 @@ public class CompanionView extends View {
                 android.graphics.Path clip = new android.graphics.Path();
                 clip.addRoundRect(r, 8 * u, 8 * u, android.graphics.Path.Direction.CW);
                 c.clipPath(clip);
+                fill.setColor(0xFF101830);   // behind a picture with see-through parts
+                c.drawRect(r, fill);
                 c.drawBitmap(face, null, r, mapPaint);
                 c.restore();
             } else {

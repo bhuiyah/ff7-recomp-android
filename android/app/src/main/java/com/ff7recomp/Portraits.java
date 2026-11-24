@@ -58,7 +58,19 @@ final class Portraits {
     static Bitmap face(Bitmap tex) {
         if (tex == null) return null;
         int w = Math.round(tex.getWidth() * (float) FACE_W / 128), h = Math.round(tex.getHeight() * (float) FACE_H / 128);
-        return w < 1 || h < 1 ? null : Bitmap.createBitmap(tex, 0, 0, w, h);
+        if (w < 1 || h < 1) return null;
+        // without the empty margins some mods leave around the picture
+        int[] px = new int[w * h];
+        tex.getPixels(px, 0, w, 0, 0, w, h);
+        int x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) if (px[y * w + x] >>> 24 > 16) {
+            if (x < x0) x0 = x;
+            if (x > x1) x1 = x;
+            if (y < y0) y0 = y;
+            y1 = y;
+        }
+        if (x1 - x0 < w / 3 || y1 - y0 < h / 3) return Bitmap.createBitmap(tex, 0, 0, w, h);
+        return Bitmap.createBitmap(tex, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
     }
 
     /** A .tex file of an LGP archive, its top-left w x h; null when it is not there. */

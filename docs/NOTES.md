@@ -810,7 +810,7 @@
   gateway): log "counter 16 set to 32 / 8 set to 16"; an 8 s recording at 60 FPS shows the wave
   sweep the whole screen right to left in about 1.5 s per cycle, the same as at Original.
 
-## 2026-11-24: FF8Recomp's features in FF7 (branch feature/ff8-parity, not released, not run on a device)
+## 2026-11-24: FF8Recomp's features in FF7 (branch feature/ff8-parity, not released)
 - Frame generation (src/ffnx_port/framegen*.cpp, patches/bgfx/0007, patches/lsfg-vk-android; the player's own
   Lossless.dll). Not started at frame rates 60 and 120 (FrameGen.useful): it fits frames to 60 a second.
 - DDS mod textures (include/DirectXTex.h on bimg), button swaps (ButtonMap: FF7's xinputBit bits, controller and keyboard),
@@ -821,3 +821,6 @@
 - Android 16's Java heap at 0x02000000 does not touch FF7: the image ends below 0x01000000, and FFNx's block, the
   arena and VM_MOVED are placed at run time in free space from 0x33000000 up (ff7_boot.c, ffnx_guest_static.cpp).
 - Not taken: Steam stats (FF7's achievements are bits of stats already), safe_read (FF7's enemies are a fixed array).
+- Thor, 2026-11-24 (frame generation with the user's Lossless.dll at Original): field 30 + 30 a second, 42 ms; battle 15 + 45, 95 ms;
+  movie 30 + 30, 59 ms. Not started at 60 or 120. Button swap (X as Y opens the menu), aspect 1, Slow 1/4, live buggy marker, mod pictures
+  (DDS), save and load state. Full build 458 s; the next one with another lift version 150 s, 0 MB compiled. 1.1.44 -> this: relink only.

@@ -1820,6 +1820,7 @@ public class LauncherActivity extends Activity {
         maps.setOrientation(LinearLayout.VERTICAL);
         fillButtonMap(maps);
         col.addView(maps);
+        col.addView(space(16));
         // Rumble (src/ffnx_port/rumble.cpp): FF7 has none of its own, so it follows the game
         RadioGroup rumbleGroup = new RadioGroup(this);
         String[][] rumbles = {
