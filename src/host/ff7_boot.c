@@ -10,6 +10,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #ifndef MAP_FIXED_NOREPLACE
@@ -81,7 +82,16 @@ static int ff7_pick_layout(uint32_t *alo, uint32_t *ahi, uint32_t *vlo, uint32_t
     return 0;
 }
 
+/* How long each part of the start took, in ff7.log (issue #76: slow starts with mods on an SD card). */
+long long ff7_boot_t0;      /* when the start began; quickboot.cpp logs the first screens against it */
+static long long boot_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
 int ff7_boot_and_run(const char *game_dir) {
+    const long long t0 = ff7_boot_t0 = boot_ms();
     if (chdir(game_dir) != 0) {
         perror("[ff7] chdir to game dir");
         return 66;
@@ -100,6 +110,7 @@ int ff7_boot_and_run(const char *game_dir) {
             ff7_mods_load(profile, cache);
         }
     }
+    const long long t_mods = boot_ms();
     uint32_t arena_lo, arena_hi, vm_lo, vm_hi;
     /* Test: FF7_SIMULATE_HEAP_MB=1024 occupies what a device with that Java heap size has
      * mapped (0x12C00000 + size), as on phones whose heap reaches into the arena. */
@@ -125,7 +136,9 @@ int ff7_boot_and_run(const char *game_dir) {
     }
     /* The mods' hext patches: after the image is mapped, before FFNx (7th Heaven patches the
      * process before the driver loads). */
+    const long long t_image = boot_ms();
     ff7_hext_apply_mods();
+    const long long t_hext = boot_ms();
 #ifdef FF7_WITH_FFNX
     /* FFNx's DllMain: version check on the mapped image, FFNx.toml, hooks. As AF3DN.P on
      * Windows it runs before WinMain, so here it runs before the entry. */
@@ -134,6 +147,8 @@ int ff7_boot_and_run(const char *game_dir) {
         return 72;
     }
 #endif
+    fprintf(stderr, "[ff7] start: mods %lld ms, game image %lld ms, mod patches %lld ms, FFNx %lld ms\n",
+            t_mods - t0, t_image - t_mods, t_hext - t_image, boot_ms() - t_hext);
     fprintf(stderr, "[ff7] calling lifted entry 0x%08X\n", recomp_host_entry());
     uint32_t rc = recomp_host_run();
     fprintf(stderr, "[ff7] entry returned 0x%08X\n", rc);

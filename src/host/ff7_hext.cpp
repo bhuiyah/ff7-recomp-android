@@ -143,9 +143,13 @@ struct Row { std::string mod, file, state; int data, lifted, interpreted, none; 
 std::mutex g_rows_lock;
 std::vector<Row> g_rows;
 std::string g_status_path;
+// While the mods' files are applied at the start, the rows are written once, after the last: the
+// file used to be made again and renamed after every hext file, 60 and more of them with the large
+// mods, each several round trips to an SD card (issue #76).
+bool g_status_batch;
 
 void write_status() {
-    if (g_status_path.empty()) return;
+    if (g_status_path.empty() || g_status_batch) return;
     std::string tmp = g_status_path + ".part";
     std::FILE *f = std::fopen(tmp.c_str(), "wb");
     if (!f) return;
@@ -230,6 +234,7 @@ extern "C" void ff7_hext_apply_mods(void) {
         std::lock_guard<std::mutex> lk(g_rows_lock);
         g_rows.clear();
         write_status();                              // an empty file: no hext this run
+        g_status_batch = true;
     }
     ff7_mods_hext([](const char *mod, const char *file, const char *text, unsigned len, void *ctx) {
         apply_one(mod, file, std::string(text, len), true, *static_cast<Ctx *>(ctx));
@@ -244,6 +249,11 @@ extern "C" void ff7_hext_apply_mods(void) {
         while (std::fgets(line, sizeof line, f)) on |= !std::strncmp(line, "saveanywhere=on", 15);
         std::fclose(f);
         if (on) apply_one("FF7Recomp", "Save anywhere", "FF7Recomp: Save anywhere\n6CA3F9 = F9\n", false, c);
+    }
+    {
+        std::lock_guard<std::mutex> lk(g_rows_lock);
+        g_status_batch = false;
+        if (!g_rows.empty()) write_status();
     }
     if (c.files || c.delayed)
         std::fprintf(stderr, "[hext] %d file(s) applied, %d delayed: %d writes (%d data; code: %d lifted, %d interpreted, %d without effect), %d error(s)\n",

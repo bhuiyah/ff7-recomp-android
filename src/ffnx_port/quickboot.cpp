@@ -27,6 +27,8 @@
 extern "C" void ff7_platform_pad_inject(unsigned short buttons);   // src/android (the pad the game reads)
 extern "C" int ff7_platform_pad_buttons(void);                    // the player's own buttons
 
+extern "C" long long ff7_boot_t0;                                 // src/host/ff7_boot.c (CLOCK_MONOTONIC ms)
+
 namespace {
 
 constexpr unsigned short PAD_UP = 0x0001, PAD_START = 0x0010, PAD_OK = 0x2000;   // XInput (OK = Circle = B)
@@ -133,7 +135,22 @@ void press(unsigned short b, int64_t t, int gap) {
 
 namespace ffnx_recomp {
 
+// ff7.log: when the first frame and the first screens came, from pressing Play (issue #76).
+void log_start_times() {
+    static int logged;
+    static uint32_t last = ~0u;
+    if (logged >= 6) return;
+    struct game_mode *m = getmode_cached();
+    const uint32_t mode = m ? m->driver_mode : ~0u;
+    if (logged && mode == last) return;
+    last = mode;
+    std::fprintf(stderr, "[ff7] start: %s %d after %lld ms\n", logged ? "screen" : "first frame, screen", (int)mode,
+                 (long long)now_ms() - ff7_boot_t0);
+    logged++;
+}
+
 void quickboot_frame() {
+    log_start_times();
     if (g_target == -2) {
         g_target = read_target();
         g_started = now_ms();
