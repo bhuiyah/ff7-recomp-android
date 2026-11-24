@@ -53,6 +53,12 @@ and I would rather you know before you install it.
   controls**: Automatic, Always or Off.
 - On screens wider than 16:9 (most phones), **Settings** → **Display** → **16:9, stretched to fill** removes the
   black bars at the sides.
+- **Everything stretched to fill** (**Settings** → **Display**) stretches the whole 4:3 picture to the screen,
+  fields and movies too.
+- Frame generation (**Settings** → **Frame generation**): up to 60 frames a second shown while the game
+  keeps its own speed, with your own copy of Lossless Scaling (not included). Off by default; it adds
+  some delay.
+- Button swaps (**Settings** → **Controller**): any controller or keyboard button can work as any other.
 - A CRT filter (**Settings** → **Display**): scanlines and a phosphor mask, like an old TV.
 - Renderer (**Settings** → **Display**): Vulkan (default) or OpenGL ES, for GPUs whose Vulkan driver
   has trouble with the game.

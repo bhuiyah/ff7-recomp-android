@@ -810,7 +810,7 @@
   gateway): log "counter 16 set to 32 / 8 set to 16"; an 8 s recording at 60 FPS shows the wave
   sweep the whole screen right to left in about 1.5 s per cycle, the same as at Original.
 
-## 2026-11-24: FF8Recomp's features in FF7 (branch feature/ff8-parity, not released)
+## 2026-11-24: FF8Recomp's features in FF7 (v1.1.45)
 - Frame generation (src/ffnx_port/framegen*.cpp, patches/bgfx/0007, patches/lsfg-vk-android; the player's own
   Lossless.dll). Not started at frame rates 60 and 120 (FrameGen.useful): it fits frames to 60 a second.
 - DDS mod textures (include/DirectXTex.h on bimg), button swaps (ButtonMap: FF7's xinputBit bits, controller and keyboard),
