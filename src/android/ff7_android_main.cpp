@@ -70,12 +70,15 @@ void *log_pump(void *arg) {
         for (ssize_t i = 0; i < n; i++) {
             if (buf[i] == '\n') {
                 __android_log_write(ANDROID_LOG_INFO, "FF7Recomp", line.c_str());
-                if (g_logfile) { std::fputs(line.c_str(), g_logfile); std::fputc('\n', g_logfile); std::fflush(g_logfile); }
+                if (g_logfile) { std::fputs(line.c_str(), g_logfile); std::fputc('\n', g_logfile); }
                 line.clear();
             } else {
                 line.push_back(buf[i]);
             }
         }
+        // once per read, not per line: nearly two thousand lines come at once with some mods' hext
+        // files, and each write is a round trip to an SD card (issue #76)
+        if (g_logfile) std::fflush(g_logfile);
     }
     return nullptr;
 }
@@ -415,4 +418,33 @@ Java_com_ff7recomp_CompanionView_nativeBattleTap(JNIEnv *, jclass, jfloat x, jfl
 extern "C" JNIEXPORT void JNICALL
 Java_com_ff7recomp_CompanionView_nativeBattleBack(JNIEnv *, jclass) {
     if (ff7_companion_battle_back) ff7_companion_battle_back();
+}
+
+// the game's pictures as the mods replace them (src/ffnx_port/companion_render.cpp, #79)
+extern "C" int ff7_companion_art_path(const char *name, char *out, unsigned n) __attribute__((weak));
+extern "C" bool ff7_companion_art_pixels(const char *path, std::vector<int> &out, int *w, int *h) __attribute__((weak));
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_ff7recomp_CompanionView_nativeArtPath(JNIEnv *env, jclass, jstring name) {
+    const char *n = env->GetStringUTFChars(name, nullptr);
+    char buf[2048] = "";
+    const bool hit = n && ff7_companion_art_path && ff7_companion_art_path(n, buf, sizeof buf);
+    if (n) env->ReleaseStringUTFChars(name, n);
+    return hit ? env->NewStringUTF(buf) : nullptr;
+}
+
+// width, height, then the pixels; null when it cannot be read
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_ff7recomp_CompanionView_nativeArtPixels(JNIEnv *env, jclass, jstring path) {
+    const char *p = env->GetStringUTFChars(path, nullptr);
+    std::vector<int> px;
+    int wh[2] = { 0, 0 };
+    const bool ok = p && ff7_companion_art_pixels && ff7_companion_art_pixels(p, px, &wh[0], &wh[1]);
+    if (p) env->ReleaseStringUTFChars(path, p);
+    if (!ok) return nullptr;
+    jintArray a = env->NewIntArray((jsize)px.size() + 2);
+    if (!a) return nullptr;
+    env->SetIntArrayRegion(a, 0, 2, wh);
+    env->SetIntArrayRegion(a, 2, (jsize)px.size(), px.data());
+    return a;
 }

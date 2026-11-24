@@ -56,7 +56,7 @@ public class TestControl extends BroadcastReceiver {
             TYPES.put(k, Integer.class);
         for (String k : new String[] { "crt_filter", "show_fps", "no_encounters", "battle_plus", "bottom_screen", "portrait", "split", "side", "side_left",
                                        "menu_sounds", "quiet_build", "turbo", "analog_controls", "save_anywhere", "bottom_buttons", "autofire", "always_run", "swap_screens",
-                                       "touch_extra", "modcache_clear_on_close" })
+                                       "touch_extra", "game_art", "modcache_clear_on_close" })
             TYPES.put(k, Boolean.class);
         TYPES.put("quickboot", String.class);
         TYPES.put("touch_layout", String.class);

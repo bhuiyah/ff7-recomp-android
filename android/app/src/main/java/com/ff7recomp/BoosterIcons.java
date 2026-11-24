@@ -24,7 +24,7 @@ final class BoosterIcons extends View {
     private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF r = new RectF();
     private final Path path = new Path();
-    private int speed = 1;
+    private int speed = 1, slow;                 // slow: slow motion in percent, 0 off (#79)
     private boolean noBattles, battlePlus;
     // achievement banner (src/ffnx_port/achievements.cpp): shown for a few seconds per unlock
     private long achSeq = -1, achUntil;
@@ -40,10 +40,10 @@ final class BoosterIcons extends View {
         @Override public void run() {
             try {
                 JSONObject s = new JSONObject(CompanionView.snapshot());
-                int sp = Math.max(1, s.optInt("speed", 1));
+                int sp = Math.max(1, s.optInt("speed", 1)), sl = s.optInt("slow");
                 boolean nb = s.optInt("noenc") == 1, bp = s.optInt("bplus") == 1;
-                if (sp != speed || nb != noBattles || bp != battlePlus) {
-                    speed = sp; noBattles = nb; battlePlus = bp;
+                if (sp != speed || sl != slow || nb != noBattles || bp != battlePlus) {
+                    speed = sp; slow = sl; noBattles = nb; battlePlus = bp;
                     invalidate();
                 }
                 long seq = s.optLong("achseq", 0);
@@ -98,7 +98,8 @@ final class BoosterIcons extends View {
         float right = getWidth() - 22 * s;
         if (battlePlus) { badge(c, right - size, top, size, 0xCCB0304A); heartPlus(c, right - size, top, size); right -= size + gap; }
         if (noBattles) { badge(c, right - size, top, size, 0xCC2D5FA8); noEncounter(c, right - size, top, size); right -= size + gap; }
-        if (speed > 1) { badge(c, right - size, top, size, 0xCC2E8A57); speedMark(c, right - size, top, size, speed); }
+        if (speed > 1) { badge(c, right - size, top, size, 0xCC2E8A57); speedMark(c, right - size, top, size, speed + "×", false); }
+        else if (slow > 0) { badge(c, right - size, top, size, 0xCC8A6A2E); speedMark(c, right - size, top, size, slow == 50 ? "½×" : slow == 25 ? "¼×" : slow + "%", true); }
         if (System.currentTimeMillis() < achUntil) achievementBanner(c, s);
     }
 
@@ -150,19 +151,20 @@ final class BoosterIcons extends View {
         c.drawRoundRect(r, size * 0.22f, size * 0.22f, fill);
     }
 
-    /** ">>" over the multiplier. */
-    private void speedMark(Canvas c, float x, float y, float size, int n) {
+    /** ">>" (slow motion: "<<") over the multiplier. */
+    private void speedMark(Canvas c, float x, float y, float size, String mult, boolean back) {
         ink.setStyle(Paint.Style.STROKE);
         ink.setStrokeWidth(size * 0.08f);
         float cy = y + size * 0.36f, h = size * 0.13f;
         for (int k = 0; k < 2; k++) {
             float cx = x + size * (0.36f + 0.2f * k);
-            c.drawLine(cx - h, cy - h, cx, cy, ink);
-            c.drawLine(cx, cy, cx - h, cy + h, ink);
+            float d = back ? -h : h;
+            c.drawLine(cx - d, cy - h, cx, cy, ink);
+            c.drawLine(cx, cy, cx - d, cy + h, ink);
         }
         ink.setStyle(Paint.Style.FILL);
         ink.setTextSize(size * 0.36f);
-        c.drawText(n + "×", x + size / 2, y + size * 0.88f, ink);
+        c.drawText(mult, x + size / 2, y + size * 0.88f, ink);
     }
 
     /** "!" in a ring, struck through: no random battles. */

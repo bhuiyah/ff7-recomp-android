@@ -29,6 +29,23 @@ final class WorldMap {
 
     private WorldMap() {}
 
+    // The game's own world map picture (world_us.lgp midlmap.tex, what Select shows): the top-left
+    // 216 x 168 of 256 x 256, the same 9 x 7 blocks as the map above.
+    private static final int GAME_W = 216, GAME_H = 168;
+
+    /** The game's picture from its files; null without it. */
+    static Bitmap fromGame(File gameDir) {
+        File lgp = new File(gameDir, "data/wm/world_us.lgp");
+        return lgp.isFile() ? Portraits.tex(lgp, "midlmap.tex", 256, 256) : null;
+    }
+
+    /** The map in the game's picture or in a mod's texture for it (any size). */
+    static Bitmap gamePart(Bitmap tex) {
+        if (tex == null) return null;
+        int w = Math.round(tex.getWidth() * GAME_W / 256f), h = Math.round(tex.getHeight() * GAME_H / 256f);
+        return w < 1 || h < 1 ? null : Bitmap.createBitmap(tex, 0, 0, w, h);
+    }
+
     /** The map, drawn on first use (a second or two) and kept in files/worldmap-<v>.png. Null
      *  when the game files have no world map. Call off the UI thread. */
     static Bitmap get(File filesDir, File gameDir) {

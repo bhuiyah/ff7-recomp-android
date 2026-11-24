@@ -12,6 +12,10 @@
 // The bottom screen is an Android Presentation: this SurfaceView with CompanionView over it,
 // transparent over the windows' area (layout below; CompanionView gets it in its snapshot).
 #include <bgfx/bgfx.h>
+#include <bimg/decode.h>
+#include <bx/allocator.h>
+#include <sys/stat.h>
+#include <vector>
 #include <bx/math.h>
 #include <cstdio>
 #include <unistd.h>
@@ -46,6 +50,53 @@ bool g_enabled = true;
 
 }  // namespace
 
+
+// ---- the game's pictures as the mods replace them (Settings > Screen > Game pictures, #79) ----
+// CompanionView asks off the UI thread: where a mod's texture for a game picture is (FFNx's
+// mods/Textures/<name>_00.<ext>), and a .dds one's pixels (a .png is read in Java).
+extern "C" const char *ff7_mods_redirect(const char *rel, char *buf, unsigned n);   // src/mods/mods.h
+
+extern "C" int ff7_companion_art_path(const char *name, char *out, unsigned n) {
+    for (const char *ext : { "dds", "png" }) {
+        const std::string rel = std::string("mods/Textures/") + name + "_00." + ext;
+        if (ff7_mods_redirect(rel.c_str(), out, n)) return 1;
+    }
+    return 0;
+}
+
+// The first level no wider or higher than 2048, as 0xFFRRGGBB (opaque, as the menu draws them).
+extern "C" bool ff7_companion_art_pixels(const char *path, std::vector<int> &out, int *w, int *h) {
+    struct stat st;
+    if (stat(path, &st) != 0 || st.st_size < 128 || st.st_size > (96 << 20)) return false;
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    std::vector<uint8_t> file((size_t)st.st_size);
+    const bool got = fread(file.data(), 1, file.size(), f) == file.size();
+    fclose(f);
+    if (!got) return false;
+    bx::DefaultAllocator alloc;
+    bimg::ImageContainer *img = bimg::imageParse(&alloc, file.data(), (uint32_t)file.size());
+    if (!img) return false;
+    bool ok = false;
+    for (uint8_t lod = 0; lod < img->m_numMips; lod++) {
+        bimg::ImageMip m;
+        if (!bimg::imageGetRawData(*img, 0, lod, img->m_data, img->m_size, m)) break;
+        if (m.m_width > 2048 || m.m_height > 2048) continue;
+        // BC blocks: whole blocks only (the small last levels are not asked for)
+        const uint32_t dw = m.m_width, dh = m.m_height;
+        if (dw < 16 || dh < 16 || dw % 4 || dh % 4) break;
+        std::vector<uint8_t> px((size_t)dw * dh * 4);
+        if (!bimg::imageConvert(&alloc, px.data(), bimg::TextureFormat::RGBA8, m.m_data, m.m_format, dw, dh, 1)) break;
+        out.resize((size_t)dw * dh);
+        for (size_t i = 0; i < out.size(); i++)
+            out[i] = (int)(0xFF000000u | (uint32_t)px[i * 4] << 16 | (uint32_t)px[i * 4 + 1] << 8 | px[i * 4 + 2]);
+        *w = (int)dw; *h = (int)dh;
+        ok = true;
+        break;
+    }
+    bimg::imageFree(img);
+    return ok;
+}
 
 // ---- touch on the battle windows ----------------------------------------------------------
 // A tap on the bottom screen's windows steers the game's own hand cursor: each frame the hand

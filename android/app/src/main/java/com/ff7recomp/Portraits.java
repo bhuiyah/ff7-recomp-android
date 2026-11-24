@@ -23,7 +23,7 @@ final class Portraits {
     private static final String TAG = "FF7Portraits";
     /** By savemap character id: Cloud, Barret, Tifa, Aerith, Red XIII, Yuffie, Cait Sith,
      *  Vincent, Cid. */
-    private static final String[] FILES = { "cloud", "barre", "tifa", "earith", "red", "yufi", "ketc", "bins", "cido" };
+    static final String[] FILES = { "cloud", "barre", "tifa", "earith", "red", "yufi", "ketc", "bins", "cido" };
     static final int FACE_W = 84, FACE_H = 96;
 
     private Portraits() {}
@@ -54,12 +54,38 @@ final class Portraits {
         return out;
     }
 
-    private static Bitmap decode(ByteBuffer t) {
+    /** The face in a mod's texture: the same part of it, at whatever size it is. */
+    static Bitmap face(Bitmap tex) {
+        if (tex == null) return null;
+        int w = Math.round(tex.getWidth() * (float) FACE_W / 128), h = Math.round(tex.getHeight() * (float) FACE_H / 128);
+        return w < 1 || h < 1 ? null : Bitmap.createBitmap(tex, 0, 0, w, h);
+    }
+
+    /** A .tex file of an LGP archive, its top-left w x h; null when it is not there. */
+    static Bitmap tex(File lgp, String name, int w, int h) {
+        try (RandomAccessFile f = new RandomAccessFile(lgp, "r")) {
+            int count = read(f, 0, 16).getInt(12);
+            if (count <= 0 || count > 100000) return null;
+            ByteBuffer toc = read(f, 16, count * 27);
+            for (int i = 0; i < count; i++) {
+                if (!cString(toc, i * 27, 20).equalsIgnoreCase(name)) continue;
+                int off = toc.getInt(i * 27 + 20), size = read(f, off + 20, 4).getInt(0);
+                return size < 0xEC || size > 4 << 20 ? null : decode(read(f, off + 24, size), w, h);
+            }
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, name + ": " + e);
+        }
+        return null;
+    }
+
+    private static Bitmap decode(ByteBuffer t) { return decode(t, FACE_W, FACE_H); }
+
+    private static Bitmap decode(ByteBuffer t, int maxW, int maxH) {
         int w = t.getInt(0x3C), h = t.getInt(0x40), pal = t.getInt(0x58);
         if (w <= 0 || h <= 0 || w > 1024 || h > 1024 || pal <= 0 || pal > 256) return null;
         int px = 0xEC + pal * 4;
         if (t.capacity() < px + w * h) return null;
-        int cw = Math.min(FACE_W, w), ch = Math.min(FACE_H, h);
+        int cw = Math.min(maxW, w), ch = Math.min(maxH, h);
         int[] argb = new int[cw * ch];
         for (int y = 0; y < ch; y++) {
             for (int x = 0; x < cw; x++) {

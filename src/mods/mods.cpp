@@ -64,31 +64,45 @@ void mkdirs(const std::string &path) {
         }
     }
 }
-// Every file under dir (recursive), relative, '/' separators, real case.
-void list_files(const std::string &dir, const std::string &rel, std::vector<std::string> &out) {
+// The folders of unpacked mods as listed on disk, each read once while the mods load and their
+// hext files are applied (under g.lock; dropped after). On an SD card every stat or opendir is a
+// round trip of several ms: looking for each hext file name in each of a mod's folders on disk
+// was thousands of them, 48 s of a start with Enhanced Stock UI and Finishing Touch (issue #76).
+struct DirEnt { std::string name; bool dir; };
+std::unordered_map<std::string, std::vector<DirEnt>> g_dirs;
+const std::vector<DirEnt> &dir_entries(const std::string &dir) {
+    auto it = g_dirs.find(dir);
+    if (it != g_dirs.end()) return it->second;
+    std::vector<DirEnt> out;
 #if defined(_WIN32)
     _finddata_t fd;
     intptr_t h = _findfirst((dir + "/*").c_str(), &fd);
-    if (h == -1) return;
-    do {
-        if (!std::strcmp(fd.name, ".") || !std::strcmp(fd.name, "..")) continue;
-        std::string r = rel.empty() ? fd.name : rel + "/" + fd.name;
-        if (fd.attrib & _A_SUBDIR) list_files(dir + "/" + fd.name, r, out); else out.push_back(r);
-    } while (_findnext(h, &fd) == 0);
-    _findclose(h);
-#else
-    DIR *d = opendir(dir.c_str());
-    if (!d) return;
-    while (dirent *e = readdir(d)) {
-        if (!std::strcmp(e->d_name, ".") || !std::strcmp(e->d_name, "..")) continue;
-        std::string r = rel.empty() ? e->d_name : rel + "/" + e->d_name;
-        std::string full = dir + "/" + e->d_name;
-        // the directory says which names are folders: no stat per file (slow on an SD card)
-        const bool sub = e->d_type == DT_DIR || (e->d_type != DT_REG && is_dir(full));
-        if (sub) list_files(full, r, out); else out.push_back(r);
+    if (h != -1) {
+        do {
+            if (!std::strcmp(fd.name, ".") || !std::strcmp(fd.name, "..")) continue;
+            out.push_back({ fd.name, (fd.attrib & _A_SUBDIR) != 0 });
+        } while (_findnext(h, &fd) == 0);
+        _findclose(h);
     }
-    closedir(d);
+#else
+    if (DIR *d = opendir(dir.c_str())) {
+        while (dirent *e = readdir(d)) {
+            if (!std::strcmp(e->d_name, ".") || !std::strcmp(e->d_name, "..")) continue;
+            // the directory says which names are folders: no stat per file (slow on an SD card)
+            const bool sub = e->d_type == DT_DIR || (e->d_type != DT_REG && is_dir(dir + "/" + e->d_name));
+            out.push_back({ e->d_name, sub });
+        }
+        closedir(d);
+    }
 #endif
+    return g_dirs.emplace(dir, std::move(out)).first->second;
+}
+// Every file under dir (recursive), relative, '/' separators, real case.
+void list_files(const std::string &dir, const std::string &rel, std::vector<std::string> &out) {
+    for (const DirEnt &e : dir_entries(dir)) {       // a reference into an unordered_map stays valid as it grows
+        std::string r = rel.empty() ? e.name : rel + "/" + e.name;
+        if (e.dir) list_files(dir + "/" + e.name, r, out); else out.push_back(r);
+    }
 }
 // The names in a folder (not recursive), as on disk.
 void list_names(const std::string &dir, std::vector<std::string> &out) {
@@ -119,19 +133,15 @@ std::string resolve_ci(const std::string &base, const std::string &rel) {
         std::string part = r.substr(i, j == std::string::npos ? std::string::npos : j - i);
         i = j == std::string::npos ? r.size() : j + 1;
         if (part.empty() || part == ".") continue;
-        std::string exact = join(cur, part);
-        if (is_dir(exact) || is_file(exact)) { cur = exact; continue; }
-        std::vector<std::string> kids;
-        bool found = false;
-#if defined(_WIN32)
-        cur = exact; found = true;   // Windows: case-insensitive anyway
-#else
-        if (DIR *d = opendir(cur.c_str())) {
-            while (dirent *e = readdir(d)) if (lower(e->d_name) == lower(part)) { cur = join(cur, e->d_name); found = true; break; }
-            closedir(d);
+        if (part == "..") { cur = join(cur, part); continue; }
+        const DirEnt *hit = nullptr;
+        const std::string lp = lower(part);
+        for (const DirEnt &e : dir_entries(cur)) {
+            if (e.name == part) { hit = &e; break; }
+            if (!hit && lower(e.name) == lp) hit = &e;
         }
-#endif
-        if (!found) return std::string();
+        if (!hit) return std::string();
+        cur = join(cur, hit->name);
     }
     return cur;
 }
@@ -193,7 +203,7 @@ void add_folder(int mi, const std::string &folder, const ConditionalFolder *cond
         }
     } else {
         std::string dir = fkey.empty() ? m.path : resolve_ci(m.path, folder);
-        if (dir.empty() || !is_dir(dir)) return;
+        if (dir.empty()) return;
         std::vector<std::string> files;
         list_files(dir, "", files);
         for (const std::string &f : files) add_override(f, mi, join(dir, f), cond);
@@ -441,40 +451,45 @@ std::string materialize(const Mod &m, int mi, const std::string &entry) {
     return out;
 }
 
-// The hext files (names relative to <folder>/hext) of one folder of a mod.
-std::vector<std::string> hext_names(const Mod &m, const std::string &folder) {
-    std::vector<std::string> out;
-    std::string prefix = norm_key(folder.empty() ? std::string("hext") : folder + "/hext") + "/";
-    if (m.iro) {
-        for (const IroArchive::Entry &e : m.iro->entries()) {
-            std::string k = norm_key(e.name);
-            if (k.size() > prefix.size() && k.compare(0, prefix.size(), prefix) == 0) out.push_back(k.substr(prefix.size()));
-        }
-    } else {
-        std::string dir = resolve_ci(m.path, folder.empty() ? std::string("hext") : folder + "/hext");
-        if (!dir.empty() && is_dir(dir)) list_files(dir, "", out);
+// A mod's hext files, found once: where each is, and its key (lower case, '/' separators).
+struct HextFile { std::string key, path; };
+
+std::vector<HextFile> hext_all(const Mod &m) {           // an archive's: the entries in any hext folder
+    std::vector<HextFile> out;
+    if (!m.iro) return out;
+    for (const IroArchive::Entry &e : m.iro->entries()) {
+        std::string k = norm_key(e.name);
+        if (k.find("hext/") != std::string::npos) out.push_back({ k, e.name });
     }
     return out;
 }
 
-bool read_hext(const Mod &m, const std::string &folder, const std::string &name, std::string &text) {
-    std::string rel = (folder.empty() ? std::string("hext") : folder + "/hext") + "/" + name;
+// Those of one folder of the mod: key relative to <folder>/hext, path the archive entry or host path.
+std::vector<HextFile> hext_files(const Mod &m, const std::string &folder, const std::vector<HextFile> &all) {
+    std::vector<HextFile> out;
+    const std::string rel = folder.empty() ? std::string("hext") : folder + "/hext";
     if (m.iro) {
-        const IroArchive::Entry *e = m.iro->find(rel);
-        if (!e) {
-            std::string bs = rel;
-            for (char &c : bs) if (c == '/') c = '\\';
-            e = m.iro->find(bs);
-        }
-        if (!e) return false;
+        const std::string prefix = norm_key(rel) + "/";
+        for (const HextFile &f : all)
+            if (f.key.size() > prefix.size() && f.key.compare(0, prefix.size(), prefix) == 0)
+                out.push_back({ f.key.substr(prefix.size()), f.path });
+    } else {
+        const std::string dir = resolve_ci(m.path, rel);
+        std::vector<std::string> names;
+        if (!dir.empty()) list_files(dir, "", names);
+        for (const std::string &n : names) out.push_back({ norm_key(n), join(dir, n) });
+    }
+    return out;
+}
+
+bool read_hext(const Mod &m, const HextFile &h, std::string &text) {
+    if (m.iro) {
         std::vector<uint8_t> data;
-        if (!m.iro->read(e->name, data)) return false;
+        if (!m.iro->read(h.path, data)) return false;
         text.assign(data.begin(), data.end());
         return true;
     }
-    std::string p = resolve_ci(m.path, rel);
-    if (p.empty() || !is_file(p)) return false;
-    std::FILE *f = std::fopen(p.c_str(), "rb");
+    std::FILE *f = std::fopen(h.path.c_str(), "rb");
     if (!f) return false;
     char buf[65536];
     size_t r;
@@ -499,21 +514,25 @@ extern "C" void ff7_mods_hext(ff7_mods_hext_cb cb, void *ctx) {
         std::vector<std::string> names, order;
         order.push_back("");
         for (const std::string &f : m.hext_folders) if (!f.empty()) order.push_back(f);
-        for (const std::string &f : order)
-            for (const std::string &n : hext_names(m, f)) {
-                std::string k = norm_key(n);
-                bool dup = false;
-                for (const std::string &x : names) dup |= (x == k);
-                if (!dup) names.push_back(k);
-            }
+        const std::vector<HextFile> all = hext_all(m);
+        std::map<std::string, std::vector<HextFile>> files;   // folder -> its hext files
+        std::set<std::string> seen;
+        for (const std::string &f : order) {
+            auto it = files.find(f);
+            if (it == files.end()) it = files.emplace(f, hext_files(m, f, all)).first;
+            for (const HextFile &h : it->second) if (seen.insert(h.key).second) names.push_back(h.key);
+        }
         for (const std::string &n : names)
             for (const std::string &f : m.hext_folders) {
+                const std::vector<HextFile> &in = files[f];
+                auto h = std::find_if(in.begin(), in.end(), [&](const HextFile &x) { return x.key == n; });
                 std::string text;
-                if (!read_hext(m, f, n, text)) continue;
+                if (h == in.end() || !read_hext(m, *h, text)) continue;
                 std::string label = (f.empty() ? std::string("hext/") : f + "/hext/") + n;
                 cb(m.name.c_str(), label.c_str(), text.data(), (unsigned)text.size(), ctx);
             }
     }
+    g_dirs.clear();
 }
 
 // ---- Animations with their own in-between frames (GitHub #63, #70) ----
@@ -896,6 +915,7 @@ void drop_interpolated_animations(const std::string &game, const std::string &ca
 extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
     const auto t_begin = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lk(g.lock);
+    g_dirs.clear();
     g.mods.clear();
     g.map.clear();
     g.order_moves.clear();
@@ -946,7 +966,10 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         std::fclose(tf);
     }
 
-    struct Pending { std::unique_ptr<Mod> mod; OptionValues chosen; };
+    struct Pending { std::unique_ptr<Mod> mod; OptionValues chosen; long long open_ms; };
+    auto since_ms = [](std::chrono::steady_clock::time_point t) {
+        return (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t).count();
+    };
     std::vector<Pending> pending;
     std::set<std::string> keep;              // cache folders of the profile's mods, on or off
     for (pugi::xml_node mn : prof.children("Mod")) {
@@ -961,6 +984,7 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         m->path = p;
         m->name = p.substr(p.rfind('/') + 1);
         m->mtime = mtime_of(p);
+        const auto t_open = std::chrono::steady_clock::now();
         if (lower(p).size() > 4 && lower(p).compare(p.size() - 4, 4, ".iro") == 0) {
             m->iro = std::make_unique<IroArchive>();
             if (!m->iro->open(p)) { std::fprintf(stderr, "[mods] %s: %s, skipped\n", m->name.c_str(), m->iro->error().c_str()); continue; }
@@ -972,7 +996,7 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         if (!load_modinfo(*m, err)) { std::fprintf(stderr, "[mods] %s: %s, skipped\n", m->name.c_str(), err.c_str()); continue; }
         OptionValues chosen;
         for (pugi::xml_node o : mn.children("Option")) chosen[lower(o.attribute("ID").value())] = o.attribute("Value").as_int();
-        pending.push_back({ std::move(m), std::move(chosen) });
+        pending.push_back({ std::move(m), std::move(chosen), since_ms(t_open) });
     }
 
     // The mods' <OrderConstraints>, as 7th Heaven's auto-sort applies them (MyModsViewModel
@@ -1124,6 +1148,7 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         OptionValues opts = pm.mod->info.values(pm.chosen);
         for (const auto &kv : ffnx) opts.emplace(kv.first, kv.second);   // a mod's own option wins
         int mi = (int)g.mods.size();
+        const auto t_mod = std::chrono::steady_clock::now();
         g.mods.push_back(std::move(pm.mod));
         Mod &mod = *g.mods[mi];
         mod.cache_dir = cache_name(mod.name);
@@ -1149,8 +1174,8 @@ extern "C" int ff7_mods_load(const char *profile_path, const char *cache_dir) {
         mod.hext_folders.push_back("");
         for (const std::string &w : mod.info.windows_code)
             std::fprintf(stderr, "[mods] %s: %s -- Windows code, not supported on Android\n", mod.name.c_str(), w.c_str());
-        std::fprintf(stderr, "[mods] %s \"%s\" %s: %d active folder(s)\n", mod.name.c_str(), mod.info.name.c_str(),
-                     mod.info.version.c_str(), folders);
+        std::fprintf(stderr, "[mods] %s \"%s\" %s: %d active folder(s) (%lld + %lld ms)\n", mod.name.c_str(), mod.info.name.c_str(),
+                     mod.info.version.c_str(), folders, pm.open_ms, since_ms(t_mod));
     }
     // The mod.xml at a mod's root is metadata, never a game file.
     g.map.erase("mod.xml");
@@ -1203,6 +1228,7 @@ std::string area_of(const std::string &key) {
 // mods' own <Compatibility> declarations. JSON; the caller frees it.
 extern "C" char *ff7_mods_conflicts_json(const char *profile_path) {
     ff7_mods_load(profile_path, "");
+    { std::lock_guard<std::mutex> dl(g.lock); g_dirs.clear(); }   // no hext pass follows
     std::lock_guard<std::mutex> lk(g.lock);
     struct Pair { int files = 0; std::map<std::string, int> areas; std::vector<std::string> examples; bool conditional = false; };
     std::map<std::pair<int, int>, Pair> pairs;               // (winner, loser)

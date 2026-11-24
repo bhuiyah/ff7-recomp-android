@@ -1467,6 +1467,12 @@ EDITS = [
     # The frame limiter waited by spinning on the clock: a whole core busy between frames (heat,
     # battery), hidden while presenting blocked on vsync but plain once frames are skipped. Sleep
     # most of the wait, spin only the last quarter millisecond.
+    # Slow motion (#79): a movie's sound plays at its own speed, so its picture does too.
+    ('ff7/misc.cpp', '\tframerate *= gamehacks.getCurrentSpeedhack();\n',
+     '\t{   // FF7Recomp: no slow motion in movies, their sound would run ahead\n'
+     '\t\tconst double speed = gamehacks.getCurrentSpeedhack();\n'
+     '\t\tframerate *= (speed < 1.0 && ff7_externals.movie_object->is_playing) ? 1.0 : speed;\n'
+     '\t}\n'),
     ('ff7/misc.cpp', '#include <algorithm>\n', '#include <algorithm>\n#include <chrono>\n#include <thread>\n'),
     ('ff7/misc.cpp',
      '\tdo qpc_get_time(&gametime);\n'

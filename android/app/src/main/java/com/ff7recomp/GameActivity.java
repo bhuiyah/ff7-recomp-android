@@ -921,6 +921,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             touch.setLayout(touchLayout());   // size, opacity, positions (#28), this screen's (#66)
         }
         if (portrait || split) panel = new CompanionView(this);
+        if (panel != null) panel.setGameArt(getIntent().getBooleanExtra("game_art", false));
         if (split) panel.setDeck(getIntent().getBooleanExtra("bottom_buttons", true));
         arrange(wantStacked());
         preferHighestRefreshRate(getWindow(), Compat.display(this));
@@ -1081,6 +1082,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         });
         layers.addView(windows);
         CompanionView panels = new CompanionView(ctx);
+        panels.setGameArt(getIntent().getBooleanExtra("game_art", false));
         panels.setDeck(getIntent().getBooleanExtra("bottom_buttons", true));
         layers.addView(panels);
         // the top screen's CRT filter here too, over the panels and the battle windows

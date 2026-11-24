@@ -1552,7 +1552,7 @@ public class LauncherActivity extends Activity {
         // Speed / Battles / Battle+ buttons and FFNx's L3 shortcuts change them.
         col.addView(space(16));
         col.addView(heading("Game boosters"));
-        col.addView(text("How the game starts. In game: the bottom screen's Speed, Battles and Battle+ buttons, or L3 then "
+        col.addView(text("How the game starts. In game: the bottom screen's Speed, Slow (slow motion, for the minigames), Battles and Battle+ buttons, or L3 then "
                 + "R1/L1 (speed), A (random battles), B (battle enhancement). Icons in the top-right corner show what is on.", 14, DIM));
         RadioGroup sg = new RadioGroup(this);
         sg.setOrientation(smallScreen ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
@@ -1684,13 +1684,21 @@ public class LauncherActivity extends Activity {
         second.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("bottom_screen", on).apply());
         col.addView(second);
         CheckBox deckBox = new CheckBox(this);
-        deckBox.setText("Second screen buttons\nMenu, Save, Load, Speed, Battles and Battle+ along the bottom. "
+        deckBox.setText("Second screen buttons\nMenu, Save, Load, Speed, Slow, Battles and Battle+ along the bottom. "
                 + "Off: the panels fill the screen and the controller does everything");
         deckBox.setTextColor(TEXT);
         deckBox.setTextSize(16);
         deckBox.setChecked(prefs.getBoolean("bottom_buttons", true));
         deckBox.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("bottom_buttons", on).apply());
         col.addView(deckBox);
+        CheckBox artBox = new CheckBox(this);   // #79
+        artBox.setText("Game pictures on the panels\nPortraits and the world map as the game itself shows them, with your mods' versions "
+                + "(menu avatars, a labelled map...). Off: the original portraits and the panels' own map");
+        artBox.setTextColor(TEXT);
+        artBox.setTextSize(16);
+        artBox.setChecked(prefs.getBoolean("game_art", false));
+        artBox.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("game_art", on).apply());
+        col.addView(artBox);
         CheckBox swapBox = new CheckBox(this);
         swapBox.setText("Swap screens\nThe game on the second screen and the panels on the main one. "
                 + "For devices whose main screen is the small one, such as the Ayaneo Pocket DS");
@@ -2706,6 +2714,7 @@ public class LauncherActivity extends Activity {
                     .putExtra("rotation_lock", prefs.getInt("rotation_lock", 0))
                     .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
                     .putExtra("bottom_buttons", prefs.getBoolean("bottom_buttons", true))
+                    .putExtra("game_art", prefs.getBoolean("game_art", false))
                     .putExtra("crt_filter", prefs.getBoolean("crt_filter", false))
                     .putExtra("aspect", prefs.getInt("aspect", 2))
                     .putExtra("fps", prefs.getInt("fps", 3)), gameDisplayOptions()));

@@ -140,8 +140,8 @@ double base_rate(int mode) {
 
 void GameHacks::companionSetSpeed(double speed) {
     speedhack_current_speed = speed;
-    speedhack_enabled = speed > 1.0;
-    show_popup_msg(TEXTCOLOR_LIGHT_BLUE, "Speed: %.0fx", speed);
+    speedhack_enabled = speed != 1.0;
+    show_popup_msg(TEXTCOLOR_LIGHT_BLUE, "Speed: %gx", speed);
 }
 
 void GameHacks::companionSetBattles(bool on) {
@@ -158,11 +158,16 @@ extern "C" void ff7_boosters_command(int cmd) {
     switch (cmd) {
     case 1: {   // speed: 1x -> 2x -> 3x -> 1x
         const double now = gamehacks.getCurrentSpeedhack();
-        gamehacks.companionSetSpeed(now < 1.5 ? 2.0 : now < 2.5 ? 3.0 : 1.0);
+        gamehacks.companionSetSpeed(now < 0.9 ? 1.0 : now < 1.5 ? 2.0 : now < 2.5 ? 3.0 : 1.0);
         break;
     }
     case 4: gamehacks.companionSetBattles(!gamehacks.companionBattlesWanted()); break;
     case 5: ff7_boosters_toggle_battle(); break;
+    case 6: {   // slow motion (#79): off -> 0.5x -> 0.25x -> off, for the minigames
+        const double now = gamehacks.getCurrentSpeedhack();
+        gamehacks.companionSetSpeed(now > 0.9 ? 0.5 : now > 0.4 ? 0.25 : 1.0);
+        break;
+    }
     default: break;
     }
 }
@@ -186,6 +191,8 @@ extern "C" bool ffnx_frame_skip_next(bool movie) {
     return true;
 }
 
+// Slow motion in percent of normal speed (50, 25), 0 when off.
+extern "C" int ff7_booster_slow() { const double s = gamehacks.getCurrentSpeedhack(); return s < 0.99 ? (int)(s * 100 + 0.5) : 0; }
 extern "C" int ff7_booster_speed() { return (int)(gamehacks.getCurrentSpeedhack() + 0.5); }
 extern "C" int ff7_booster_no_encounters() { return gamehacks.companionBattlesWanted() ? 0 : 1; }
 

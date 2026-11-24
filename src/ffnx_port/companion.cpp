@@ -200,7 +200,7 @@ void materia_json(std::string &j, const savemap_char &c) {
 }
 
 // Items, key items, counters, vehicles: the savemap (offsets checked against a mid-game save).
-void savemap_json(std::string &j, const savemap *sm) {
+void savemap_json(std::string &j, const savemap *sm, bool world) {
     const uint8_t *s = (const uint8_t *)sm;
     j += "\"inv\":[";
     bool first = true;
@@ -244,23 +244,54 @@ void savemap_json(std::string &j, const savemap *sm) {
         j += b;
     }
     j += "],";
-    // world map: x in the low 19 bits of the first word, z in the low 18 of the second
-    // (leader 0x0F5C, Tiny Bronco / chocobo 0x0F6C, buggy / Highwind 0x0F74, submarine
-    // 0x0F7C); which vehicles exist: 0x0C23 (1 buggy, 4 Tiny Bronco, 0x10 Highwind)
-    auto pos = [&](unsigned off, const char *kind, bool first_one) {
-        const uint32_t a = *(const uint32_t *)(s + off), z = *(const uint32_t *)(s + off + 4);
-        if (!a && !z) return false;
-        snprintf(b, sizeof b, "%s[\"%s\",%u,%u]", first_one ? "" : ",", kind, a & 0x7FFFF, z & 0x3FFFF);
+    // world map: x in the low 19 bits of the first word, the model in the 5 above, z in the low 18
+    // of the second (leader 0x0F5C, wild chocobo 0x0F64, Tiny Bronco / chocobo 0x0F6C, buggy /
+    // Highwind 0x0F74, submarine 0x0F7C, the weapons 0x0F84); which vehicles exist: 0x0C23
+    // (1 buggy, 4 Tiny Bronco, 0x10 Highwind)
+    bool f = true;
+    unsigned shown = 0;                                  // kinds listed, by model bit
+    auto put = [&](const char *kind, unsigned x, unsigned z) {
+        snprintf(b, sizeof b, "%s[\"%s\",%u,%u]", f ? "" : ",", kind, x, z);
         j += b;
-        return true;
+        f = false;
+    };
+    j += "\"veh\":[";
+    // On the world map the game writes those only when it leaves it (a battle, a town): the live
+    // ones are its list of map objects (0xE39A00, up to 16 of 0xC0 bytes from 0xE39BC8; #79). The
+    // underwater map has its own coordinates.
+    if (world && ff7_externals.world_map_type_E045E8 && *ff7_externals.world_map_type_E045E8 == 0) {
+        constexpr uint32_t k_list = 0xE39A00, k_pool = 0xE39BC8, k_obj = 0xC0, k_max = 16;
+        uint32_t e = *(const uint32_t *)(uintptr_t)k_list;
+        for (uint32_t n = 0; n < k_max && e >= k_pool && e < k_pool + k_obj * k_max && (e - k_pool) % k_obj == 0; n++) {
+            const world_event_data &o = *(const world_event_data *)(uintptr_t)e;
+            const char *kind = nullptr;
+            switch (o.model_id) {
+            case 3: kind = "highwind"; break;
+            case 5: kind = "bronco"; break;
+            case 6: kind = "buggy"; break;
+            case 11: kind = "ultima"; break;
+            case 13: kind = "submarine"; break;
+            case 19: kind = "chocobo"; break;
+            default: break;
+            }
+            if (kind && !(shown >> o.model_id & 1) && o.position.x > 0 && o.position.x < 9 * 4 * 8192 &&
+                o.position.z > 0 && o.position.z < 7 * 4 * 8192) {
+                put(kind, (unsigned)o.position.x, (unsigned)o.position.z);
+                shown |= 1u << o.model_id;
+            }
+            e = *(const uint32_t *)(uintptr_t)e;         // next_ptr
+        }
+    }
+    auto pos = [&](unsigned off, const char *kind, unsigned model) {
+        const uint32_t a = *(const uint32_t *)(s + off), z = *(const uint32_t *)(s + off + 4);
+        if ((!a && !z) || (shown >> model & 1)) return;
+        put(kind, a & 0x7FFFF, z & 0x3FFFF);
     };
     const unsigned veh = s[0x0C23];
-    j += "\"veh\":[";
-    bool f = true;
-    if (veh & 0x10) { if (pos(0x0F74, "highwind", f)) f = false; }
-    else if (veh & 0x01) { if (pos(0x0F74, "buggy", f)) f = false; }
-    if (veh & 0x04) { if (pos(0x0F6C, "bronco", f)) f = false; }
-    if (s[0x0C22] & 0x01) { if (pos(0x0F64, "chocobo", f)) f = false; }
+    if (veh & 0x10) pos(0x0F74, "highwind", 3);
+    else if (veh & 0x01) pos(0x0F74, "buggy", 6);
+    if (veh & 0x04) pos(0x0F6C, "bronco", 5);
+    if (s[0x0C22] & 0x01) pos(0x0F64, "chocobo", 19);
     j += "],";
     const uint32_t lx = *(const uint32_t *)(s + 0x0F5C), lz = *(const uint32_t *)(s + 0x0F60);
     if (lx || lz) { snprintf(b, sizeof b, "\"wlead\":[%u,%u],", lx & 0x7FFFF, lz & 0x3FFFF); j += b; }
@@ -275,6 +306,7 @@ extern "C" void ff7_achievements_frame();                       // achievements.
 extern "C" unsigned ff7_achievements_last(char *title, unsigned size, unsigned *points);
 extern "C" void ff7_boosters_command(int cmd);
 extern "C" int ff7_booster_speed();
+extern "C" int ff7_booster_slow();
 extern "C" int ff7_booster_no_encounters();
 extern "C" int ff7_booster_battle;
 
@@ -310,9 +342,9 @@ std::string build_snapshot() {
     j.reserve(2048);
     char b[512];
     snprintf(b, sizeof b, "{\"ready\":1,\"mode\":\"%s\",\"loc\":\"%s\",\"gil\":%u,\"time\":%u,\"speed2x\":%d,"
-             "\"speed\":%d,\"noenc\":%d,\"bplus\":%d,\"cine\":%d,\"party\":[",
+             "\"speed\":%d,\"slow\":%d,\"noenc\":%d,\"bplus\":%d,\"cine\":%d,\"party\":[",
              mode_name(mode), loc, sm->gil, seconds, gamehacks.getCurrentSpeedhack() > 1.0 ? 1 : 0,
-             ff7_booster_speed(), ff7_booster_no_encounters(), ff7_booster_battle, cinematic(mode) ? 1 : 0);
+             ff7_booster_speed(), ff7_booster_slow(), ff7_booster_no_encounters(), ff7_booster_battle, cinematic(mode) ? 1 : 0);
     j += b;
     {
         char at[96];
@@ -365,7 +397,7 @@ std::string build_snapshot() {
         first = false;
     }
     j += "],";
-    savemap_json(j, sm);
+    savemap_json(j, sm, mode == MODE_WORLDMAP);
     j += "\"enemies\":[";
     if (battle) {
         const battle_ai_context *ctx = ff7_externals.battle_context;
@@ -393,14 +425,14 @@ std::string build_snapshot() {
 }  // namespace
 
 // Commands: 1 speed 1x/2x/3x, 2 save state (current slot), 3 load it, 4 random battles on/off,
-// 5 battle enhancement on/off (boosters.cpp).
+// 5 battle enhancement on/off, 6 slow motion off/0.5x/0.25x (boosters.cpp).
 extern "C" void ff7_companion_frame() {
     ff7_companion_battle_tick();
     ff7_boosters_frame();
     ff7_achievements_frame();
     int cmd = g_command.exchange(0);
     switch (cmd) {
-    case 1: case 4: case 5: ff7_boosters_command(cmd); break;
+    case 1: case 4: case 5: case 6: ff7_boosters_command(cmd); break;
     case 2: ff7_savestate_request(0, "current"); break;
     case 3: ff7_savestate_request(1, "current"); break;
     default: break;

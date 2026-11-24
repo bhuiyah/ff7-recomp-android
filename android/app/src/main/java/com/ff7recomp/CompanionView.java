@@ -42,8 +42,10 @@ public class CompanionView extends View {
     private static native void nativeSetArea(int top, int bottom);
     private static native void nativeBattleTap(float x, float y);
     private static native void nativeBattleBack();
+    private static native String nativeArtPath(String name);
+    private static native int[] nativeArtPixels(String path);
 
-    private static final int CMD_SPEED = 1, CMD_SAVE = 2, CMD_LOAD = 3, CMD_BATTLES = 4, CMD_BPLUS = 5;   // companion.cpp / boosters.cpp
+    private static final int CMD_SPEED = 1, CMD_SAVE = 2, CMD_LOAD = 3, CMD_BATTLES = 4, CMD_BPLUS = 5, CMD_SLOW = 6;   // companion.cpp / boosters.cpp
     private static final int PAD_Y = 0x8000;   // Triangle: the game's main menu
 
     // FF7's menu colours
@@ -71,6 +73,7 @@ public class CompanionView extends View {
         new Button("Save", "💾", CMD_SAVE, 0),
         new Button("Load", "📂", CMD_LOAD, 0),
         new Button("Speed", "⏩", CMD_SPEED, 0),          // game boosters (docs/ROADMAP.md M8)
+        new Button("Slow", "🐢", CMD_SLOW, 0),             // slow motion (#79)
         new Button("Battles", "🛡", CMD_BATTLES, 0),
         new Button("Battle+", "✚", CMD_BPLUS, 0),
     };
@@ -83,6 +86,58 @@ public class CompanionView extends View {
     private boolean hideAtLeft, hidePressed;
     private final RectF hideBox = new RectF();
     void setOnHide(Runnable r, boolean atLeft) { onHide = r; hideAtLeft = atLeft; if (r == null) hideBox.setEmpty(); invalidate(); }
+    /** Settings > Screen > Game pictures (#79): the portraits and the world map as the game shows
+     *  them, the enabled mods' versions where they have one. Loaded once a game is under way (the
+     *  mods are loaded then); until then, and where nothing is found, the panels' own. */
+    private boolean gameArt, artAsked;
+    private volatile android.graphics.Bitmap gameMap;
+    private volatile android.graphics.Bitmap[] gameFaces;
+    void setGameArt(boolean on) { gameArt = on; }
+
+    private void loadGameArt() {
+        artAsked = true;
+        final Context app = getContext().getApplicationContext();
+        new Thread(() -> {
+            java.io.File game = new java.io.File(Storage.root(app), "game");
+            try {
+                android.graphics.Bitmap map = null;
+                for (String n : new String[] { "world/midlmap", "world/midlmap2" }) {
+                    map = WorldMap.gamePart(modArt(n));
+                    if (map != null) break;
+                }
+                if (map == null) map = WorldMap.gamePart(WorldMap.fromGame(game));
+                gameMap = map;
+                android.graphics.Bitmap[] faces = new android.graphics.Bitmap[Portraits.FILES.length];
+                for (int i = 0; i < faces.length; i++) faces[i] = Portraits.face(modArt("menu/" + Portraits.FILES[i]));
+                gameFaces = faces;
+            } catch (Throwable t) {
+                android.util.Log.w("FF7Companion", "game pictures: " + t);
+            }
+            postInvalidate();
+        }, "game-art").start();
+    }
+
+    /** A mod's texture for a game picture; null without one. */
+    private static android.graphics.Bitmap modArt(String name) {
+        String p = nativeArtPath(name);
+        if (p == null) return null;
+        android.graphics.Bitmap b;
+        if (p.toLowerCase(java.util.Locale.US).endsWith(".png")) {
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeFile(p, o);
+            o.inSampleSize = 1;
+            while (Math.max(o.outWidth, o.outHeight) / o.inSampleSize > 2048) o.inSampleSize *= 2;
+            o.inJustDecodeBounds = false;
+            b = android.graphics.BitmapFactory.decodeFile(p, o);
+        } else {
+            int[] px = nativeArtPixels(p);
+            b = px == null ? null : android.graphics.Bitmap.createBitmap(px, 2, px[0], px[0], px[1], android.graphics.Bitmap.Config.ARGB_8888);
+        }
+        android.util.Log.i("FF7Companion", name + ": " + p + (b == null ? " (unreadable)" : " " + b.getWidth() + "x" + b.getHeight()));
+        return b;
+    }
+
     void setDeck(boolean on) { deck = on; if (!on) for (Button b : buttons) b.box.setEmpty(); invalidate(); }
 
     // ---- tabs ---------------------------------------------------------------------------------
@@ -147,6 +202,7 @@ public class CompanionView extends View {
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             try { state = new JSONObject(nativeState()); } catch (JSONException e) { state = new JSONObject(); }
+            if (gameArt && !artAsked && state.optInt("ready") == 1) loadGameArt();
             updateDim(state.optInt("cine") == 1);
             if (guide == null && android.os.SystemClock.uptimeMillis() - guideCheckedAt > 2000) refreshGuide();
             String gs = GuideInstaller.status;
@@ -477,7 +533,8 @@ public class CompanionView extends View {
             String name = m.optString("name");
             int id = m.optInt("id");
             android.graphics.Bitmap[] faces = portraits;
-            android.graphics.Bitmap face = faces != null && id >= 0 && id < faces.length ? faces[id] : null;
+            android.graphics.Bitmap[] modded = gameFaces;
+            android.graphics.Bitmap face = modded != null && id >= 0 && id < modded.length && modded[id] != null ? modded[id] : faces != null && id >= 0 && id < faces.length ? faces[id] : null;
             // the game's own face (84 x 96) where the files have it, else a letter tile
             float ph = Math.min(cardH - 36 * u, 120 * u);
             float ps = face != null ? ph * Portraits.FACE_W / Portraits.FACE_H : Math.min(92 * u, ph);
@@ -725,7 +782,7 @@ public class CompanionView extends View {
     /** The world map with where the party and its vehicles are (from the savemap when the party
      *  is not on the world map now). */
     private float drawMap(Canvas c, RectF in, float u) {
-        android.graphics.Bitmap map = worldMap;
+        android.graphics.Bitmap map = gameMap != null ? gameMap : worldMap;
         if (map == null) {
             label(c, "The world map appears after the game files are found", in.centerX(), in.top + 70 * u, 28 * u, DIM, Paint.Align.CENTER);
             return in.top + 100 * u;
@@ -823,6 +880,8 @@ public class CompanionView extends View {
         case "buggy": return "🚙";
         case "bronco": return "🛩️";
         case "chocobo": return "🐤";
+        case "submarine": return "🚢";
+        case "ultima": return "🐉";
         default: return "•";
         }
     }
@@ -833,9 +892,13 @@ public class CompanionView extends View {
         case "buggy": return "Buggy";
         case "bronco": return "Tiny Bronco";
         case "chocobo": return "Chocobo";
+        case "submarine": return "Submarine";
+        case "ultima": return "Ultimate Weapon";
         default: return k;
         }
     }
+
+    private static String slowText(int percent) { return percent == 50 ? "½×" : percent == 25 ? "¼×" : percent + "%"; }
 
     /** The boosters as big buttons, a countdown banner when one runs, and the save's counters. */
     private float drawExtras(Canvas c, RectF in, float y, float u) {
@@ -850,16 +913,16 @@ public class CompanionView extends View {
                   0xFFFFE08A, Paint.Align.RIGHT);
             y += 80 * u;
         }
-        int speed = Math.max(1, state.optInt("speed", 1));
-        String[] names = { "Speed", "No battles", "Battle+" };
-        int[] cmds = { CMD_SPEED, CMD_BATTLES, CMD_BPLUS };
-        boolean[] on = { speed > 1, state.optInt("noenc") == 1, state.optInt("bplus") == 1 };
-        String[] val = { speed > 1 ? speed + "×" : "OFF", on[1] ? "ON" : "OFF", on[2] ? "ON" : "OFF" };
-        float gap = 12 * u, bw = (in.width() - 2 * gap) / 3f, bh = 74 * u;
-        boolean stack = bw < 250 * u;                   // narrow: one under another
-        if (stack) bw = in.width();
-        for (int i = 0; i < 3; i++) {
-            float bx = stack ? in.left : in.left + i * (bw + gap), by = stack ? y + 4 * u + i * (bh + gap) : y + 4 * u;
+        int speed = Math.max(1, state.optInt("speed", 1)), slow = state.optInt("slow");
+        String[] names = { "Speed", "Slow", "No battles", "Battle+" };
+        int[] cmds = { CMD_SPEED, CMD_SLOW, CMD_BATTLES, CMD_BPLUS };
+        boolean[] on = { speed > 1, slow > 0, state.optInt("noenc") == 1, state.optInt("bplus") == 1 };
+        String[] val = { speed > 1 ? speed + "×" : "OFF", slow > 0 ? slowText(slow) : "OFF", on[2] ? "ON" : "OFF", on[3] ? "ON" : "OFF" };
+        float gap = 12 * u, bh = 74 * u;
+        int cols = in.width() >= 4 * 250 * u + 3 * gap ? 4 : in.width() >= 2 * 250 * u + gap ? 2 : 1;   // narrow: one under another
+        float bw = (in.width() - (cols - 1) * gap) / cols;
+        for (int i = 0; i < names.length; i++) {
+            float bx = in.left + (i % cols) * (bw + gap), by = y + 4 * u + (i / cols) * (bh + gap);
             RectF b = new RectF(bx, by, bx + bw, by + bh);
             if (on[i]) {
                 fill.setShader(new LinearGradient(b.left, b.top, b.left, b.bottom, 0xFF22306A, 0xFF101A44, Shader.TileMode.CLAMP));
@@ -876,7 +939,8 @@ public class CompanionView extends View {
             toggleBoxes.add(b);
             toggleCmds.add(cmds[i]);
         }
-        y += (stack ? 3 * bh + 2 * gap : bh) + 24 * u;
+        int trows = (names.length + cols - 1) / cols;
+        y += trows * bh + (trows - 1) * gap + 24 * u;
         String[][] rows = {
             { "Battles fought", grouped(st.optLong("battles")) },
             { "Escapes", grouped(st.optLong("escapes")) },
@@ -934,6 +998,7 @@ public class CompanionView extends View {
             float l = pad + (i % per) * (bw + gap), top = deckT + (i / per) * (bh + gap);
             b.box.set(l, top, l + bw, top + bh);
             boolean on = (b.cmd == CMD_SPEED && state.optInt("speed", 1) > 1)
+                    || (b.cmd == CMD_SLOW && state.optInt("slow") > 0)
                     || (b.cmd == CMD_BATTLES && state.optInt("noenc") == 1)
                     || (b.cmd == CMD_BPLUS && state.optInt("bplus") == 1);
             window(c, b.box.left, b.box.top, b.box.right, b.box.bottom);
@@ -948,6 +1013,7 @@ public class CompanionView extends View {
             }
             String t = (battle && b.pad == PAD_Y) ? "Back" : b.label;
             if (b.cmd == CMD_SPEED && state.optInt("speed", 1) > 1) t = "Speed " + state.optInt("speed", 1) + "×";
+            else if (b.cmd == CMD_SLOW && state.optInt("slow") > 0) t = "Slow " + slowText(state.optInt("slow"));
             else if (b.cmd == CMD_BATTLES && state.optInt("noenc") == 1) t = "No battles";
             emoji.setTextSize(30 * u);
             emoji.setColor(on ? GOLD : WHITE);
