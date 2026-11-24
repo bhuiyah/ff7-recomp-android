@@ -1,0 +1,131 @@
+--- a/src/renderer_vk.cpp
++++ b/src/renderer_vk.cpp
+@@ -14,6 +14,16 @@
+ // FF7Recomp: Vulkan start-up traces kept in release builds (in memory; ff7_bgfx_vk_trace()):
+ // when Vulkan does not start on a device, the reason goes to the game's log.
+ #	include <stdarg.h>
++#if BX_PLATFORM_ANDROID
++// FF7Recomp: frame generation (src/ffnx_port/framegen.h)
++extern "C"
++{
++	int (*ff7_fg_present)(const void*, VkResult*) = NULL;
++	void (*ff7_fg_swapchain_gone)(void) = NULL;
++	uint32_t ff7_fg_images = 0;
++}
++#endif // BX_PLATFORM_ANDROID
++
+ namespace bgfx { namespace vk {
+ 	static char s_ff7Trace[16384];
+ 	static size_t s_ff7TraceLen;
+@@ -437,6 +447,9 @@
+ 
+ #	if BX_PLATFORM_ANDROID
+ 			KHR_android_surface,
++			ANDROID_external_memory_ahb,   // FF7Recomp: frame generation
++			EXT_queue_family_foreign,
++			GOOGLE_display_timing,
+ #	elif BX_PLATFORM_LINUX
+ 			KHR_wayland_surface,
+ 			KHR_xlib_surface,
+@@ -488,6 +501,9 @@
+ 		{ "VK_NV_low_latency2",                     2, false, false, false,                                                         Layer::Count },
+ #	if BX_PLATFORM_ANDROID
+ 		{ VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,    1, false, false, true,                                                          Layer::Count },
++		{ "VK_ANDROID_external_memory_android_hardware_buffer", 1, false, false, true,                                              Layer::Count },
++		{ "VK_EXT_queue_family_foreign",            1, false, false, true,                                                          Layer::Count },
++		{ "VK_GOOGLE_display_timing",               1, false, false, true,                                                          Layer::Count },
+ #	elif BX_PLATFORM_LINUX
+ 		{ VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,    1, false, false, true,                                                          Layer::Count },
+ 		{ VK_KHR_XLIB_SURFACE_EXTENSION_NAME,       1, false, false, true,                                                          Layer::Count },
+@@ -8957,7 +8973,16 @@
+ 			return VK_ERROR_INITIALIZATION_FAILED;
+ 		}
+ 
+-		const uint32_t swapBufferCount = bx::clamp<uint32_t>(m_desc.numBackBuffers, minSwapBufferCount, maxSwapBufferCount);
++		uint32_t numBackBuffers = m_desc.numBackBuffers;
++#if BX_PLATFORM_ANDROID
++		if (NULL != ::ff7_fg_present
++		&&  this == &s_renderVK->m_backBuffer.m_swapChain)
++		{
++			numBackBuffers = bx::max<uint32_t>(numBackBuffers, ::ff7_fg_images);
++			m_vsync = true;   // in order, each at its time
++		}
++#endif // BX_PLATFORM_ANDROID
++		const uint32_t swapBufferCount = bx::clamp<uint32_t>(numBackBuffers, minSwapBufferCount, maxSwapBufferCount);
+ 
+ 		const VkColorSpaceKHR surfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+ 
+@@ -9224,6 +9249,14 @@
+ 
+ 	void SwapChainVK::releaseSwapChain()
+ 	{
++#if BX_PLATFORM_ANDROID
++		if (NULL != ::ff7_fg_swapchain_gone
++		&&  this == &s_renderVK->m_backBuffer.m_swapChain)
++		{
++			::ff7_fg_swapchain_gone();
++		}
++#endif // BX_PLATFORM_ANDROID
++
+ 		BGFX_PROFILER_SCOPE("SwapChainVK::releaseSwapChain", kColorFrame);
+ 
+ 		if (isLowLatency() )
+@@ -9733,6 +9766,27 @@
+ 		return true;
+ 	}
+ 
++#if BX_PLATFORM_ANDROID
++	// FF7Recomp: frame generation (src/ffnx_port/framegen.cpp, FF8Recomp #8) presents the main
++	// screen's frames itself, with the ones it makes between them.
++	struct FgFrame
++	{
++		VkInstance instance;
++		VkPhysicalDevice physical;
++		VkDevice device;
++		VkQueue queue;
++		uint32_t family;
++		VkSwapchainKHR swapchain;
++		const VkImage* images;
++		uint32_t image;
++		VkExtent2D extent;
++		VkSemaphore rendered;
++		PFN_vkGetInstanceProcAddr get;
++		int externalMemory;
++		int displayTiming;
++	};
++#endif // BX_PLATFORM_ANDROID
++
+ 	void SwapChainVK::present()
+ 	{
+ 		BGFX_PROFILER_SCOPE("SwapChainVk::present", kColorFrame);
+@@ -9782,6 +9836,30 @@
+ 			}
+ 
+ 			VkResult result;
++#if BX_PLATFORM_ANDROID
++			bool presented = false;
++			if (NULL != ::ff7_fg_present
++			&&  this == &s_renderVK->m_backBuffer.m_swapChain)
++			{
++				FgFrame fg;
++				fg.instance  = s_renderVK->m_instance;
++				fg.physical  = s_renderVK->m_physicalDevice;
++				fg.device    = s_renderVK->m_device;
++				fg.queue     = m_queue;
++				fg.family    = s_renderVK->m_globalQueueFamily;
++				fg.swapchain = m_swapChain;
++				fg.images    = m_backBufferColorImage;
++				fg.image     = m_backBufferColorIdx;
++				fg.extent    = m_sci.imageExtent;
++				fg.rendered  = m_lastImageRenderedSemaphore;
++				fg.get       = vkGetInstanceProcAddr;
++				fg.externalMemory = s_extension[Extension::ANDROID_external_memory_ahb].m_supported;
++				fg.displayTiming  = s_extension[Extension::GOOGLE_display_timing].m_supported;
++				presented = 0 != ::ff7_fg_present(&fg, &result);
++			}
++
++			if (!presented)
++#endif // BX_PLATFORM_ANDROID
+ 			{
+ 				BGFX_PROFILER_SCOPE("vkQueuePresentHKR", kColorFrame);
+ 				LowLatencyScope lowLatencyScope(*this);

@@ -809,3 +809,15 @@
 - Thor, reporter's save edited to start in woa_2 (field 710 at 132,-604 tri 31 from trnad_3's
   gateway): log "counter 16 set to 32 / 8 set to 16"; an 8 s recording at 60 FPS shows the wave
   sweep the whole screen right to left in about 1.5 s per cycle, the same as at Original.
+
+## 2026-11-24: FF8Recomp's features in FF7 (branch feature/ff8-parity, not released, not run on a device)
+- Frame generation (src/ffnx_port/framegen*.cpp, patches/bgfx/0007, patches/lsfg-vk-android; the player's own
+  Lossless.dll). Not started at frame rates 60 and 120 (FrameGen.useful): it fits frames to 60 a second.
+- DDS mod textures (include/DirectXTex.h on bimg), button swaps (ButtonMap: FF7's xinputBit bits, controller and keyboard),
+  aspect 1 (4:3 stretched), one compile at a time under 2.6 GB of RAM, Steam chunk retries, files/steam/dry-run.
+- Updates keep compiled files: GameBuild.keepObjects, run_lift.py ends files at fixed functions. kit.liftversion
+  1f0ec3994347f60d holds the same C as 3527d294d7b85123 (LEGACY_LIFT: a finished build is only linked again). If run_lift.py,
+  gen_extents.py or the manifests change before the release, set LEGACY_LIFT to the new kit.liftversion.
+- Android 16's Java heap at 0x02000000 does not touch FF7: the image ends below 0x01000000, and FFNx's block, the
+  arena and VM_MOVED are placed at run time in free space from 0x33000000 up (ff7_boot.c, ffnx_guest_static.cpp).
+- Not taken: Steam stats (FF7's achievements are bits of stats already), safe_read (FF7's enemies are a fixed array).

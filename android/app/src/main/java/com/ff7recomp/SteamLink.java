@@ -360,6 +360,13 @@ final class SteamLink {
             push.put(a.stat, v);
             newly.add(a.display);
         }
+        // files/steam/dry-run (testing with saves that are not the player's own): log what would
+        // be sent, send nothing, keep it waiting
+        if (!push.isEmpty() && new File(dir, "dry-run").isFile()) {
+            Log.i(TAG, "dry run, not sent: " + newly);
+            writeState(s.app, schema, values(st));
+            return new ArrayList<>();
+        }
         if (!push.isEmpty()) {
             ClientMsgProtobuf<CMsgClientStoreUserStats2.Builder> msg =
                     new ClientMsgProtobuf<>(CMsgClientStoreUserStats2.class, EMsg.ClientStoreUserStats2);

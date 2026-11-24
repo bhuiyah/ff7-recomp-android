@@ -481,9 +481,10 @@ final class GameInstall {
         toml = set(toml, "trace_achievement", steamAchievements ? "true" : "false");
         // the re-release's English exe in French, German or Spanish (FFNx's multilanguage patches)
         toml = set(toml, "game_language", Integer.toString(hasLanguage(gameLanguage) ? gameLanguage : 1));
+        // 1: the 4:3 picture stretched to the window.
         // 16:9 (FFNx aspect_ratio 2) also uncrops: the Thor's screen is 16:9 top to bottom.
         toml = set(toml, "aspect_ratio", Integer.toString(aspectRatio));
-        toml = set(toml, "enable_uncrop", aspectRatio != 0 ? "true" : "false");
+        toml = set(toml, "enable_uncrop", aspectRatio > 1 ? "true" : "false");
         // FFNx's analogue controls: the left stick walks when tilted a little and runs when tilted
         // all the way; the right stick and L2/R2 move the camera in battles (GitHub #25). Off: as
         // the template or a mod sets them.

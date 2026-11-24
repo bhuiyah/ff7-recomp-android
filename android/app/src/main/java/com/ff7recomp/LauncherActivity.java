@@ -35,7 +35,7 @@ import java.io.File;
  * quitting it lands back here and Play can start a fresh one.
  */
 public class LauncherActivity extends Activity {
-    private static final int PICK_GAME = 1, PICK_IRO = 2, PICK_FOLDER = 3, PICK_PSX = 4, PICK_STORAGE = 5;
+    private static final int PICK_GAME = 1, PICK_IRO = 2, PICK_FOLDER = 3, PICK_PSX = 4, PICK_STORAGE = 5, PICK_LOSSLESS = 6;
     /** Settings > Storage > Custom folder sent the player to grant All files access: pick the folder when they are back. */
     private boolean wantStorageFolder;
 
@@ -1601,6 +1601,7 @@ public class LauncherActivity extends Activity {
             { "0", "4:3, original", "Black bars at the sides of a 16:9 screen" },
             { "2", "16:9 widescreen", "3D scenes and menus use the whole screen; fields without widescreen backgrounds keep side bars" },
             { "3", "16:9, stretched to fill", "For screens wider than 16:9 (most phones): the 16:9 picture is stretched sideways to the screen's edges, no black bars" },
+            { "1", "Everything stretched to fill", "The whole 4:3 picture stretched to the screen's edges, fields and movies too: no side bars, but people and things look wider" },
         };
         int curAr = prefs.getInt("aspect", 2);
         for (String[] a : aspects) {
@@ -1673,6 +1674,8 @@ public class LauncherActivity extends Activity {
         crt.setChecked(prefs.getBoolean("crt_filter", false));
         crt.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("crt_filter", on).apply());
         col.addView(crt);
+        col.addView(space(16));
+        frameGenSection(col);
         col.addView(space(16));
         ffnxSections(col);
         col.addView(heading("Screen"));
@@ -1812,6 +1815,11 @@ public class LauncherActivity extends Activity {
         fire.setChecked(prefs.getBoolean("autofire", false));
         fire.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("autofire", on).apply());
         col.addView(fire);
+        col.addView(text("What each button of a controller or keyboard does. Choosing one that is in use swaps the two.", 14, DIM));
+        final LinearLayout maps = new LinearLayout(this);
+        maps.setOrientation(LinearLayout.VERTICAL);
+        fillButtonMap(maps);
+        col.addView(maps);
         // Rumble (src/ffnx_port/rumble.cpp): FF7 has none of its own, so it follows the game
         RadioGroup rumbleGroup = new RadioGroup(this);
         String[][] rumbles = {
@@ -2120,10 +2128,53 @@ public class LauncherActivity extends Activity {
     }
 
     // ------------------------------------------------------------------- actions
+    /** Settings > Display: frame generation with the player's own Lossless Scaling (FF8Recomp #8). */
+    private void frameGenSection(LinearLayout col) {
+        col.addView(heading("Frame generation"));
+        boolean have = FrameGen.dll(install.files).isFile();
+        CheckBox on = new CheckBox(this);
+        on.setText("Frame generation (Lossless Scaling)\nShows up to 60 frames a second by making frames between the game's own, "
+                + "which keeps its normal speed. Needs Lossless Scaling (bought on Steam) and Vulkan 1.3. It adds a little "
+                + "delay and uses more battery; fast scenes can look smeared");
+        on.setTextColor(have ? TEXT : DIM);
+        on.setTextSize(16);
+        on.setEnabled(have);
+        on.setChecked(have && prefs.getBoolean("framegen", false));
+        on.setOnCheckedChangeListener((b, x) -> prefs.edit().putBoolean("framegen", x).apply());
+        col.addView(on);
+        if (have && prefs.getInt("renderer", 0) == 1) col.addView(text("It works with the Vulkan renderer only: choose Vulkan above.", 14, DIM));
+        if (have && !FrameGen.useful(prefs.getInt("fps", 3))) col.addView(text("Frame rate is set to " + fpsName(prefs.getInt("fps", 3))
+                + ": there is nothing to make. Choose a lower frame rate above to use it.", 14, DIM));
+        if (!have) col.addView(text("FF7Recomp does not include it: it uses Lossless.dll (7 MB) from your own copy, "
+                + "downloaded from your Steam account or chosen here.", 14, DIM));
+        if (steam().signedIn()) col.addView(button(have ? "Get Lossless.dll from Steam again" : "Get Lossless.dll from your Steam", v -> background(() -> {
+            File tmp = new File(FrameGen.dir(install.files), "steam");
+            GameBuild.deleteTree(tmp);
+            try {
+                String err = new SteamFiles(steam()).downloadLossless(tmp, this::progress, new java.util.concurrent.atomic.AtomicBoolean());
+                if (err == null) try (java.io.InputStream in = new java.io.FileInputStream(new File(tmp, "Lossless.dll"))) { err = FrameGen.install(in, install.files); }
+                if (err != null) return "Not added: " + err;
+                return frameGenAdded();
+            } finally { GameBuild.deleteTree(tmp); }
+        })));
+        else col.addView(button("Sign in to Steam to get Lossless.dll…", v -> steamSignIn()));
+        col.addView(small("Choose a Lossless.dll on this device…", v -> pick(PICK_LOSSLESS)));
+    }
+
+    private String frameGenAdded() {
+        prefs.edit().putBoolean("framegen", true).apply();
+        runOnUiThread(() -> show("settings"));
+        return "Lossless.dll added. Frame generation is on.";
+    }
+
     private void pick(int what) {
         if (busy) return;
         Intent i;
-        if (what == PICK_IRO || what == PICK_PSX) {
+        if (what == PICK_LOSSLESS) {
+            i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("*/*");
+        } else if (what == PICK_IRO || what == PICK_PSX) {
             i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
             i.setType("*/*");
@@ -2148,6 +2199,13 @@ public class LauncherActivity extends Activity {
             return;
         }
         background(() -> {
+            if (req == PICK_LOSSLESS) {
+                try (java.io.InputStream in = getContentResolver().openInputStream(data.getData())) {
+                    if (in == null) return "Not added: the file cannot be read";
+                    String err = FrameGen.install(in, install.files);
+                    return err != null ? "Not added: " + err : frameGenAdded();
+                }
+            }
             if (req == PICK_PSX) return importPsx(data);
             if (req == PICK_IRO) {
                 // .iro, .zip or .7z: Nexus Mods and other sites' downloads (unpacked like Get mods')
@@ -2685,6 +2743,7 @@ public class LauncherActivity extends Activity {
                 syncCloudSaves();
                 cloudAfterGame = true;
             }
+            FrameGen.write(install.files, prefs.getBoolean("framegen", false) && FrameGen.useful(prefs.getInt("fps", 3)) && FrameGen.dll(install.files).isFile());
             install.crtFilter = prefs.getBoolean("crt_filter", false);
             install.analogControls = prefs.getBoolean("analog_controls", false);
             install.resolutionScale = prefs.getInt("resolution", 0);
@@ -2754,6 +2813,23 @@ public class LauncherActivity extends Activity {
         int shortSide = Math.min(dm.widthPixels, dm.heightPixels);
         int match = Math.max(1, (shortSide + 240) / 480);
         return perf == 0 ? Math.max(1, match - 1) : match;
+    }
+
+    /** Settings > Controller: one row per button (ButtonMap), and a way back to the usual layout. */
+    private void fillButtonMap(LinearLayout maps) {
+        maps.removeAllViews();
+        final int[] map = ButtonMap.read(prefs);
+        for (int i = 0; i < ButtonMap.NAMES.length; i++) {
+            final int b = i;
+            maps.addView(button(ButtonMap.NAMES[b] + (map[b] == b ? "" : "  works as  " + ButtonMap.NAMES[map[b]]), v ->
+                    new android.app.AlertDialog.Builder(this).setTitle(ButtonMap.NAMES[b] + " works as")
+                            .setSingleChoiceItems(ButtonMap.NAMES, map[b], (d, which) -> {
+                                ButtonMap.choose(prefs, b, which);
+                                d.dismiss();
+                                fillButtonMap(maps);
+                            }).setNegativeButton("Cancel", null).show()));
+        }
+        maps.addView(button("Reset the buttons", v -> { ButtonMap.reset(prefs); fillButtonMap(maps); }));
     }
 
     private int boosterSpeed() {

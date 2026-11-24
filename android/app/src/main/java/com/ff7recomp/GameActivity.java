@@ -650,11 +650,14 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         }
     };
 
+    private int[] buttonMap = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };   // ButtonMap, read in onCreate
+
     private void sendPad() {
-        int buttons = padButtons | hatButtons | touchButtons | testButtons;
+        int[] pad = ButtonMap.apply(buttonMap, padButtons, padLt, padRt);
+        int buttons = pad[0] | hatButtons | touchButtons | testButtons;
         // the on-screen right stick (#62) when the real one is centred
         boolean real = padRx != 0 || padRy != 0;
-        nativePad(buttons, Math.max(padLt, touchLt), Math.max(padRt, touchRt),
+        nativePad(buttons, Math.max(pad[1], touchLt), Math.max(pad[2], touchRt),
                   padLx, padLy, real ? padRx : touchRx, real ? padRy : touchRy);
         // Select+Start held for a second: leave the game (GitHub #42)
         boolean combo = (buttons & 0x0030) == 0x0030;
@@ -907,6 +910,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
         gameFrame.addView(new BoosterIcons(this), new android.widget.FrameLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         touchMode = getIntent().getIntExtra("touch_controls", 0);
+        buttonMap = ButtonMap.read(getSharedPreferences("launcher", MODE_PRIVATE));
         if (touchMode != 2) {
             touch = new TouchControls(this, (buttons, lt, rt, rx, ry) -> {
                 touchButtons = buttons;

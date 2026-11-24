@@ -72,6 +72,8 @@ set_target_properties(ff7_rcheevos PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(ffnx STATIC ${FFNX_SOURCES}
   # 32-bit layout proof for every game struct (tools/ffnx_layout_check.py)
   "${FF7_ROOT}/src/ffnx_port/layout_asserts.cpp"
+  "${FF7_ROOT}/src/ffnx_port/framegen.cpp"
+  "${FF7_ROOT}/src/ffnx_port/framegen_game.cpp"
   # FFNx's patch API with recomp semantics (replaces FFNx's patch.cpp)
   "${FF7_ROOT}/src/ffnx_port/patch_recomp.cpp"
   "${FF7_ROOT}/src/ffnx_port/quickboot.cpp"
@@ -131,7 +133,7 @@ include("${FF7_ROOT}/cmake/ffnx_deps.cmake")
 include("${FF7_ROOT}/cmake/ffnx_audio.cmake")
 target_include_directories(ffnx PRIVATE "${FFNX_DEPS}/cgltf" "${FF7_ROOT}/src/interp" "${FF7_ROOT}/src/host")
 target_link_libraries(ffnx PUBLIC ff7_core bgfx ff7_rcheevos ffnx::rc ffnx_png ffnx_imgui ffnx_pugixml ffnx_xxhash
-  ffnx_soloud ffnx_vgmstream ffnx_openpsf ffnx_lz4)
+  ffnx_soloud ffnx_vgmstream ffnx_openpsf ffnx_lz4 ffnx_lsfg)
 if(FF7_HAVE_FFMPEG)
   target_compile_definitions(ffnx PRIVATE FF7_HAVE_FFMPEG=1)
   foreach(lib avformat avcodec swscale swresample avutil)

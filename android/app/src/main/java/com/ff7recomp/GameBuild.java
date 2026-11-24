@@ -104,7 +104,8 @@ final class GameBuild {
      *  version): kit version -> its lift version. */
     private static final java.util.Map<String, String> LEGACY_LIFT = java.util.Map.of(
             "78bd54ab776e925f", "4fccebb48f648461",     // 0.1.0, 0.1.1
-            "649a801537249bde", "3527d294d7b85123");           // 1.1.12: run_lift.py --resume, the same C
+            "649a801537249bde", "1f0ec3994347f60d",     // 1.1.11 and before 1.1.12 (--resume)
+            "3527d294d7b85123", "1f0ec3994347f60d");          // 1.1.12 to 1.1.45: files split elsewhere, the same C
 
     /** The game is built for this APK's kit (or a dev APK bundles libff7.so itself). */
     boolean built() {
@@ -154,16 +155,22 @@ final class GameBuild {
             String old = readText(new File(work, "stamp"));
             String[] o = old.split(" ", 2);
             boolean same = stamp.equals(old)
-                    || (o.length == 2 && o[1].equals(sha) && lift.equals(LEGACY_LIFT.get(o[0])));
+                    || (o.length == 2 && o[1].equals(sha) && lift.equals(LEGACY_LIFT.get(o[0]))
+                        && new File(work, "lifted").isFile() && !gen.isDirectory());   // a half-done one ends its files elsewhere
             lw.println("lift " + lift + (same ? " (lifted objects kept)" : " (lifting from the start)"));
             if (!same) {
-                deleteTree(work);
+                // the C anew; what it has in common with the last one is not compiled again
+                keepObjects();
+                deleteTree(gen);
+                new File(work, "lifted").delete();
+                new File(work, "stamp").delete();
                 work.mkdirs();
             }
             if (!stamp.equals(old)) writeText(new File(work, "stamp"), stamp);
             if (!new File(work, "lifted").isFile() || gen.isDirectory()) liftAndCompile(exe);
             checkPause();
             link(ver);
+            deleteTree(oldObj());
             deleteTree(gen);                 // the C (~500 MB); the objects stay for relinks
             set("Ready", 100);
             lw.println("done in " + (System.currentTimeMillis() - t0) / 1000 + " s");
@@ -189,11 +196,12 @@ final class GameBuild {
         // (also with a game built before: Build again keeps it until the new one is linked)
         if (relinkOnly() || !new File(work, "stamp").isFile() || !gen.isDirectory()) return false;
         if (new File(work, "lifted").isFile()) return gen.isDirectory();
-        for (int i = 0; i < SHARDS; i++) {
+        int n = shardsOf(gen);
+        for (int i = 0; i < n; i++) {
             String[] f = readText(new File(gen, "recomp_" + i + ".progress")).trim().split(" ");
-            if (f.length != 4 || !f[2].equals(String.valueOf(CHUNK)) || !f[3].equals(String.valueOf(SHARDS))) return false;
+            if (f.length != 4 || !f[2].equals(String.valueOf(CHUNK)) || !f[3].equals(String.valueOf(n))) return false;
         }
-        return true;
+        return n > 0;
     }
 
     private PrintWriter lw;
@@ -232,7 +240,12 @@ final class GameBuild {
      */
     /* One lift process: it writes C several times faster than the compiles use it, and each
        extra shard repeats the lifter's setup (~35 s on a Thor). */
-    private static final int SHARDS = 1;
+    private int shards = 1;   // more when an update keeps most objects: then the lift is what takes time
+    /** How many processes the lift in gen was started with (0: none). */
+    private static int shardsOf(File gen) {
+        String[] f = readText(new File(gen, "recomp_0.progress")).trim().split(" ");
+        try { return f.length == 4 ? Integer.parseInt(f[3]) : 0; } catch (NumberFormatException e) { return 0; }
+    }
     private static final int CHUNK = 4_000_000;
     private static final long EXPECTED_C = 520L << 20;   // the lift writes ~520 MB of C
     private static final Pattern LIFTED = Pattern.compile("\\[\\*\\] (\\d+)/(\\d+) lifted");
@@ -392,7 +405,10 @@ final class GameBuild {
         boolean lifted = new File(work, "lifted").isFile();
         // an interrupted lift goes on where it was (#53); anything else starts the lift afresh
         boolean resume = !lifted && resumable();
-        if (!lifted && !resume) { deleteTree(gen); deleteTree(obj); }
+        if (!lifted && !resume) { deleteTree(gen); keepObjects(); }
+        reused = 0;
+        findKnown();
+        shards = resume ? shardsOf(gen) : known.isEmpty() ? 1 : Math.min(4, jobs());
         lw.println(lifted ? "lift done before: compiling what is left" : resume ? "lift: going on where it stopped" : "lift: from the start");
         gen.mkdirs();
         obj.mkdirs();
@@ -411,23 +427,23 @@ final class GameBuild {
         int maxJobs = jobs();
         int target = maxJobs;
         PowerManager pm = (PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
-        lw.println("pipeline: " + SHARDS + " lift process, up to " + maxJobs + " at once" + (quiet ? " (quiet)" : ""));
+        lw.println("pipeline: " + shards + " lift process, up to " + maxJobs + " at once" + (quiet ? " (quiet)" : ""));
 
         List<Job> lifts = new ArrayList<>();
         List<Job> running = new ArrayList<>();
-        java.util.Set<String> queued = new java.util.HashSet<>();
+        java.util.Set<String> queued = new java.util.HashSet<>(), retried = new java.util.HashSet<>();
         List<File> queue = new ArrayList<>();
-        final float[] shardFrac = new float[SHARDS];
+        final float[] shardFrac = new float[shards];
         Job extents = null;
         long compiledBytes = 0, seenBytes = 0;
         long lastThermal = 0, lastRaise = 0, lastLog = 0, tStart = System.currentTimeMillis();
         float headroom = Float.NaN;
         if (!lifted) {
             set("Translating the game's code", 4);
-            for (int i = 0; i < SHARDS; i++) {
+            for (int i = 0; i < shards; i++) {
                 final int si = i;
                 lifts.add(new Job("lift " + i, 0, pythonPb(new String[] { liftPy, "lift", exe.getPath(), catalog, gen.getPath(),
-                        "--shard", i + "/" + SHARDS, "--chunk-bytes", String.valueOf(CHUNK), "--resume",
+                        "--shard", i + "/" + shards, "--chunk-bytes", String.valueOf(CHUNK), "--resume",
                         "--manifests", String.join(",", manifests) }, null), line -> {
                     Matcher m = LIFTED.matcher(line);
                     if (m.find()) shardFrac[si] = (float) Integer.parseInt(m.group(1)) / Integer.parseInt(m.group(2));
@@ -446,6 +462,12 @@ final class GameBuild {
                     Job j = it.next();
                     if (!j.done) continue;
                     it.remove();
+                    if (j.rc != 0 && j.name.startsWith("cc ") && pendingRename.containsKey(j) && retried.add(j.name)) {
+                        // the compiler itself crashed (seen once) or was killed for memory: once more
+                        pendingRename.remove(j);
+                        queue.add(new File(gen, j.name.substring(3)));
+                        continue;
+                    }
                     if (j.rc != 0) {
                         String t = j.tail;
                         int cut = t.lastIndexOf('\n');
@@ -475,6 +497,7 @@ final class GameBuild {
                         seenBytes += c.length();
                         File o = new File(obj, c.getName().replace(".c", ".o"));
                         if (o.isFile() && o.lastModified() >= c.lastModified()) { compiledBytes += c.length(); continue; }
+                        if (reuse(c, o)) { compiledBytes += c.length(); reused += c.length(); continue; }
                         queue.add(c);
                     }
                     queue.sort((a, b) -> Long.compare(b.length(), a.length()));
@@ -508,17 +531,20 @@ final class GameBuild {
                 for (java.util.Iterator<Map.Entry<Job, File[]>> it = pendingRename.entrySet().iterator(); it.hasNext(); ) {
                     Map.Entry<Job, File[]> e = it.next();
                     if (e.getKey().done && e.getKey().rc == 0) {
-                        if (!e.getValue()[0].renameTo(e.getValue()[1])) throw new IOException("cannot write " + e.getValue()[1]);
+                        File o = e.getValue()[1];
+                        if (!e.getValue()[0].renameTo(o)) throw new IOException("cannot write " + o);
+                        writeText(keyFile(o), objectKey(new File(gen, o.getName().replace(".o", ".c"))));
                         it.remove();
                     }
                 }
                 // progress: lift ~15%, compile ~85% of the time
                 float lf = 0;
-                for (float f : shardFrac) lf += f / SHARDS;
+                for (float f : shardFrac) lf += f / shards;
                 if (lifted) lf = 1;
                 long total = lifted ? Math.max(seenBytes, 1) : Math.max(EXPECTED_C, seenBytes);
                 float cf = Math.min(1f, (float) compiledBytes / total);
-                set(lifted ? "Compiling for this device" : "Translating and compiling", 4 + (int) (92 * (0.15f * lf + 0.85f * cf)));
+                set((lifted ? "Compiling for this device" : "Translating and compiling")
+                        + (maxJobs == 1 ? " (slow: this device is low on memory, it can take many hours)" : ""), 4 + (int) (92 * (0.15f * lf + 0.85f * cf)));
                 if (lifted && queue.isEmpty() && running.isEmpty() && pendingRename.isEmpty()) break;
                 Thread.sleep(250);
             }
@@ -527,7 +553,72 @@ final class GameBuild {
             // wait for them, so their output reaches build.log before the build returns
             for (Job j : running) { try { j.thread.join(5000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); } }
         }
-        lw.println("compiled " + (compiledBytes >> 20) + " MB of C in " + (System.currentTimeMillis() - tStart) / 1000 + " s");
+        lw.println("compiled " + (compiledBytes - reused >> 20) + " MB of C (" + (reused >> 20) + " MB more taken from earlier builds) in " + (System.currentTimeMillis() - tStart) / 1000 + " s");
+    }
+
+    private long reused;
+
+    private static File keyFile(File o) { return new File(o.getPath() + ".key"); }
+
+    /** What the compile step depends on besides the C (assets/kit.compileversion): the headers,
+     *  the flags and the compiler. */
+    private String compileVersion() {
+        try (InputStream in = ctx.getAssets().open("kit.compileversion")) {
+            return new String(readAll(in), StandardCharsets.UTF_8).trim();
+        } catch (IOException e) {
+            return kitVersion();
+        }
+    }
+
+    /** What an object is compiled from: its C (but the first line, a comment naming the exe) and
+     *  the compile version. (recomp_funcs.h is a list of declarations: it does not change code.) */
+    private String objectKey(File c) throws IOException {
+        try (InputStream in = new java.io.BufferedInputStream(new FileInputStream(c), 1 << 16)) {
+            for (int ch; (ch = in.read()) >= 0 && ch != '\n'; ) { }
+            return sha1(in) + " " + compileVersion();
+        }
+    }
+
+    /** Objects of earlier builds, kept while a new one is made: an update changes few of the files. */
+    private File oldObj() { return new File(work, "obj.old"); }
+
+    /** The objects here that say what they were made from go to obj.old, the rest away. */
+    private void keepObjects() throws IOException {
+        File old = oldObj();
+        File[] os = obj.listFiles((d, n) -> n.endsWith(".o"));
+        if (os != null) for (File o : os) {
+            String key = readText(keyFile(o));
+            if (key.isEmpty()) continue;
+            old.mkdirs();
+            File to = new File(old, sha1(new java.io.ByteArrayInputStream(key.getBytes(StandardCharsets.UTF_8))) + ".o");
+            if (o.renameTo(to)) writeText(keyFile(to), key);
+        }
+        deleteTree(obj);
+    }
+
+    private Map<String, File> known;   // what it was compiled from -> the object
+    private void findKnown() {
+        known = new java.util.HashMap<>();
+        File[] os = oldObj().listFiles((x, n) -> n.endsWith(".o"));
+        if (os != null) for (File o : os) { String k = readText(keyFile(o)); if (!k.isEmpty()) known.put(k, o); }
+    }
+
+    /** An object compiled from the very same input (the version before this one's) is
+     *  this one's too. */
+    private boolean reuse(File c, File o) throws IOException {
+        if (known == null) findKnown();
+        if (known.isEmpty()) return false;
+        String key = objectKey(c);
+        File from = known.get(key);
+        if (from == null || !from.isFile()) return false;
+        File tmp = new File(o.getPath() + ".tmp");
+        try (InputStream in = new FileInputStream(from); OutputStream out = new FileOutputStream(tmp)) {
+            byte[] buf = new byte[1 << 16];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+        }
+        if (!tmp.renameTo(o)) throw new IOException("cannot write " + o);
+        writeText(keyFile(o), key);
+        return true;
     }
 
     private final Map<Job, File[]> pendingRename = new java.util.HashMap<>();
@@ -564,6 +655,7 @@ final class GameBuild {
         ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
         am.getMemoryInfo(mi);
         int byMem = (int) Math.max(2, (mi.availMem - (1L << 30)) / (3L << 29));
+        if (mi.totalMem < 2600L << 20) return 1;   // a 2 GB phone swaps itself to a standstill with two (FF8Recomp #5)
         if (quiet) return 2;
         return Math.max(2, Math.min(Math.min(coreCount < cores ? coreCount : cores - 2, 6), byMem));
     }
@@ -611,7 +703,11 @@ final class GameBuild {
 
     // ------------------------------------------------------------------ helpers
     static String sha1(File f) throws IOException {
-        try (InputStream in = new FileInputStream(f)) {
+        try (InputStream in = new FileInputStream(f)) { return sha1(in); }
+    }
+
+    private static String sha1(InputStream in) throws IOException {
+        try {
             MessageDigest md = MessageDigest.getInstance("SHA-1");
             byte[] b = new byte[1 << 16];
             for (int n; (n = in.read(b)) > 0; ) md.update(b, 0, n);

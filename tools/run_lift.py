@@ -35,7 +35,7 @@ Adapted from codepdbh/nfsu2-recompiled scripts/run_lift.py (MIT License).
 
 Everything written here is derived from the game binary and is gitignored.
 """
-import gzip, json, os, sys, time, collections
+import contextlib, gzip, json, os, sys, time, collections
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PCRECOMP = os.environ.get("PCRECOMP", os.path.normpath(os.path.join(HERE, "..", "external", "pcrecomp")))
@@ -217,6 +217,15 @@ def manifest_patches(manifest_paths, img, base, md, fds):
     return patch_sites, variants
 
 
+@contextlib.contextmanager
+def whole(path):
+    """A file that appears whole: the on-device build compiles each as soon as it sees it, and clang
+    crashed on one still being written."""
+    with open(path + ".tmp", "w", newline="\n") as fh:
+        yield fh
+    os.replace(path + ".tmp", path)
+
+
 def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manifests=None,
              chunk_bytes=0, shard=None, resume=False):
     import pefile
@@ -234,6 +243,14 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
     os.makedirs(outdir, exist_ok=True)
 
     def write(name, text):
+        # An unchanged file keeps its timestamp, so a re-lift recompiles only what changed.
+        dest = os.path.join(outdir, name)
+        try:
+            with open(dest, newline="\n") as fh:
+                if fh.read() == text:
+                    return
+        except OSError:
+            pass
         tmp = os.path.join(outdir, name + ".tmp")
         with open(tmp, "w", newline="\n") as fh:
             fh.write(text)
@@ -260,6 +277,20 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
             if fn.startswith(prefix + "recomp_") and fn.endswith(".c"):
                 os.remove(os.path.join(outdir, fn))
 
+    # Files end where the program's own code says (about chunk_bytes of C: C_PER_CODE bytes for one
+    # of code), not where the C's length does: a function that lifts differently in an update then
+    # changes its own file only, and the rest need not be compiled again.
+    C_PER_CODE = 34
+    # With --shard those files are the unit: process I of N lifts every Nth file, so the files are
+    # the same however many processes there are.
+    file_of, k, w = [], 0, 0
+    if shard and chunk_bytes:
+        for fd in fds:
+            file_of.append(k)
+            w += C_PER_CODE * sum(b[1] - b[0] for b in fd["blocks"])
+            if w >= chunk_bytes:
+                k, w = k + 1, 0
+
     # --resume (#53): after each file a shard writes "files last_function chunk_bytes shards"
     # to its progress file; a resumed lift skips the functions those files hold. Only when the
     # same chunk size and shard count wrote it (the files would end elsewhere otherwise).
@@ -268,7 +299,7 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
     if progress and resume and os.path.isfile(progress):
         try:
             f_idx, f_last, f_cb, f_sn = (int(x) for x in open(progress).read().split())
-            last_file = os.path.join(outdir, f"{prefix}recomp_{si}{f_idx - 1:03d}.c")
+            last_file = os.path.join(outdir, f"{prefix}recomp_0{file_of[min(f_last, len(fds) - 1)]:03d}.c" if file_of else f"{prefix}recomp_{si}{f_idx - 1:03d}.c")
             if f_cb == chunk_bytes and f_sn == sn and f_idx > 0 and os.path.isfile(last_file):
                 skip_to, start_idx = f_last, f_idx
         except (OSError, ValueError):
@@ -288,7 +319,7 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
         nonlocal chunk, idx, lines_total, chunk_len
         if not chunk:
             return
-        name = f"{prefix}recomp_{si}{idx:03d}.c" if shard else f"{prefix}recomp_{idx:04d}.c"
+        name = f"{prefix}recomp_0{file_of[last]:03d}.c" if file_of else f"{prefix}recomp_{si}{idx:03d}.c" if shard else f"{prefix}recomp_{idx:04d}.c"
         body = "\n\n".join(chunk)
         write(name, f"/* AUTO-GENERATED from {module} by run_lift.py (pcrecomp lift32). DO NOT EDIT, DO NOT COMMIT. */\n"
               + f'#define RECOMP_GENERATED_CODE\n#include "recomp_types.h"\n#include "{prefix}recomp_funcs.h"\n#include <math.h>\n#include <string.h>\n\n'
@@ -302,10 +333,10 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
     for n, fd in enumerate(fds):
         a = fd["address"]
         entries.append(a)
-        if n % sn != si:
+        if (file_of[n] if file_of else n) % sn != si:
             continue
         if n <= skip_to:
-            if n + sn > skip_to:
+            if n + (1 if file_of else sn) > skip_to:
                 print(f"[*] {n + 1}/{len(fds)} lifted (resumed after {idx} files)", flush=True)
             continue
         try:
@@ -337,7 +368,7 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
             code = f"/* {names[a]} */\n" + code
         chunk.append(code)
         chunk_len += len(code)
-        if (chunk_len >= chunk_bytes) if chunk_bytes else (len(chunk) >= split):
+        if (n + 1 == len(fds) or file_of[n + 1] != file_of[n]) if file_of else (chunk_len >= chunk_bytes) if chunk_bytes else (len(chunk) >= split):
             flush(n)
             el = time.time() - t0
             print(f"[*] {n + 1}/{len(fds)} lifted ({el:.0f}s)", flush=True)
@@ -346,14 +377,14 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
         print(f"[*] shard {si}/{sn}: {idx} files", flush=True)
         return
 
-    with open(os.path.join(outdir, f"{prefix}recomp_dispatch.c"), "w", newline="\n") as fh:
+    with whole(os.path.join(outdir, f"{prefix}recomp_dispatch.c")) as fh:
         fh.write(f'/* AUTO-GENERATED. DO NOT EDIT. */\n#include "recomp_types.h"\n#include "{prefix}recomp_funcs.h"\n\n')
         fh.write(f"const recomp_dispatch_entry_t {prefix}recomp_dispatch_table[] = {{\n")
         for a in sorted(entries):
             fh.write(f"    {{ 0x{a:08X}u, sub_{a:08X} }},\n")
         fh.write("};\n")
         fh.write(f"const uint32_t {prefix}recomp_dispatch_count = {len(entries)};\n")
-    with open(os.path.join(outdir, f"{prefix}recomp_imports.c"), "w", newline="\n") as fh:
+    with whole(os.path.join(outdir, f"{prefix}recomp_imports.c")) as fh:
         fh.write("/* AUTO-GENERATED: IAT slot -> import name, for diagnostics. */\n#include <stdint.h>\n")
         fh.write("typedef struct { uint32_t slot; const char* name; } ff7_import_name_t;\n")
         fh.write(f"const ff7_import_name_t {prefix}ff7_import_names[] = {{\n")
@@ -364,7 +395,7 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", manife
     # against these: a write with no matching variant cannot take effect).
     def cstr(b):
         return '"' + "".join(f"\\x{x:02X}" for x in b) + '"'
-    with open(os.path.join(outdir, f"{prefix}recomp_variants.c"), "w", newline="\n") as fh:
+    with whole(os.path.join(outdir, f"{prefix}recomp_variants.c")) as fh:
         fh.write("/* AUTO-GENERATED: lifted patched-code variants (start, end, bytes, mask). */\n#include <stdint.h>\n")
         fh.write("typedef struct { uint32_t start, end; const char *bytes, *mask; } ff7_code_variant_t;\n")
         rows = [(s, v) for s, vs in sorted(code_variants.items()) for v in vs]

@@ -35,3 +35,13 @@ set_target_properties(ffnx_pugixml PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(ffnx_xxhash STATIC "${FFNX_DEPS}/xxhash/xxhash.c")
 target_include_directories(ffnx_xxhash PUBLIC "${FFNX_DEPS}/xxhash")
 set_target_properties(ffnx_xxhash PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# lsfg-vk's frame generation engine, the performance variant (src/ffnx_port/framegen.cpp).
+set(LSFG_DIR "${FFNX_DEPS}/lsfg-vk-android/framegen")
+file(GLOB LSFG_SOURCES "${LSFG_DIR}/src/common/*.cpp" "${LSFG_DIR}/src/core/*.cpp" "${LSFG_DIR}/src/pool/*.cpp"
+  "${LSFG_DIR}/v3.1p_src/*.cpp" "${LSFG_DIR}/v3.1p_src/shaders/*.cpp")
+add_library(ffnx_lsfg STATIC ${LSFG_SOURCES} "${FFNX_DEPS}/volk/volk.c")
+target_include_directories(ffnx_lsfg PUBLIC "${LSFG_DIR}/public" PRIVATE "${LSFG_DIR}/include" "${LSFG_DIR}/v3.1p_include" "${FFNX_DEPS}/volk")
+target_compile_definitions(ffnx_lsfg PRIVATE VK_USE_PLATFORM_ANDROID_KHR=1 VK_NO_PROTOTYPES)
+target_compile_options(ffnx_lsfg PRIVATE -w -O2 $<$<COMPILE_LANGUAGE:CXX>:-fexceptions> $<$<COMPILE_LANGUAGE:CXX>:-frtti>)
+set_target_properties(ffnx_lsfg PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_STANDARD 20)

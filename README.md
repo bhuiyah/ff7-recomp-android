@@ -259,6 +259,7 @@ FF7Recomp is GPL-3.0 (it links FFNx). It builds on:
 [bgfx/bx/bimg](https://github.com/bkaradzic/bgfx) (BSD-2),
 [7th Heaven](https://github.com/tsunamods-codes/7th-Heaven) (MS-PL; mod formats),
 [rcheevos](https://github.com/RetroAchievements/rcheevos) (MIT),
+[lsfg-vk-android](https://github.com/FrankBarretta/lsfg-vk-android) and [volk](https://github.com/zeux/volk) (MIT; frame generation),
 the [LZMA SDK](https://www.7-zip.org/sdk.html) (public domain),
 [FFmpeg](https://ffmpeg.org/) (LGPL).
 The APK also carries, for the on-device build: [LLVM/clang and lld](https://llvm.org/) (Apache-2.0

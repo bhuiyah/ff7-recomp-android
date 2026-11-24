@@ -15,6 +15,8 @@
 #include "guest_abi.h"
 #include "ffnx_android.h"
 
+void framegen_init();                                                       // framegen.cpp
+
 extern "C" void *new_dll_graphics_driver(void *game_object);               // FFNx common.cpp
 extern "C" BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved); // FFNx common.cpp
 extern "C" void ffnx_recomp_report(void);                                   // patch_recomp.cpp
@@ -24,6 +26,7 @@ extern "C" void ffnx_bridge_register(void) {
 }
 
 extern "C" int ff7_ffnx_attach(void) {
+    framegen_init();   // before the renderer starts
     std::fprintf(stderr, "[ffnx] DllMain(DLL_PROCESS_ATTACH)\n");
     BOOL ok = DllMain(FFNX_MODULE, DLL_PROCESS_ATTACH, nullptr);
     ffnx_recomp_report();

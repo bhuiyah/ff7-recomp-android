@@ -54,6 +54,9 @@ pin tomlplusplus        https://github.com/marzer/tomlplusplus.git           301
 pin vgmstream           https://github.com/vgmstream/vgmstream.git           71e2361042531fe767fb98300cf8c1ee95e539a0   # r2117
 pin vorbis              https://github.com/xiph/vorbis.git                   0657aee69dec8508a0011f47f3b69d7538e9d262   # v1.3.7
 pin xxhash              https://github.com/Cyan4973/xxHash.git               e626a72bc2321cd320e953a0ccf1584cad60f363   # v0.8.3
+# Frame generation (src/ffnx_port/framegen.cpp): lsfg-vk's engine, MIT; volk loads Vulkan for it.
+pin lsfg-vk-android     https://github.com/FrankBarretta/lsfg-vk-android.git 3e89e5439a98f55d5acb003d20039426ab24e69c
+pin volk                https://github.com/zeux/volk.git                     be3dbd49bf77052665e96b6c7484af855e7e5f67
 # The on-device build (tools/build_device_kit.sh): the lifter's disassembler and PE reader,
 # built / packed for Android so the player's device lifts its own exe.
 pin capstone            https://github.com/capstone-engine/capstone.git      52c66920fc7bfa15fd9626dfd9f646c698aaa99b   # 5.0.7

@@ -54,7 +54,7 @@ public class TestControl extends BroadcastReceiver {
     static {
         for (String k : new String[] { "fps", "renderer", "aspect", "perf", "speed", "touch_controls", "game_language", "gil", "resolution", "exp", "ap", "rumble", "rotation_lock", "modcache_limit_mb" })
             TYPES.put(k, Integer.class);
-        for (String k : new String[] { "crt_filter", "show_fps", "no_encounters", "battle_plus", "bottom_screen", "portrait", "split", "side", "side_left",
+        for (String k : new String[] { "crt_filter", "framegen", "show_fps", "no_encounters", "battle_plus", "bottom_screen", "portrait", "split", "side", "side_left",
                                        "menu_sounds", "quiet_build", "turbo", "analog_controls", "save_anywhere", "bottom_buttons", "autofire", "always_run", "swap_screens",
                                        "touch_extra", "game_art", "modcache_clear_on_close" })
             TYPES.put(k, Boolean.class);
