@@ -50,7 +50,7 @@ and I would rather you know before you install it.
   your Steam copy includes. Mods that replace text stay in their own language (most are English).
 - On-screen touch controls for devices with one screen and no controller (D-pad, A/B/X/Y,
   L1/L2/R1/R2, Start/Select); they hide when a controller is used. **Settings** → **On-screen
-  controls**: Automatic, Always or Off.
+  controls**: Automatic, Always or Off, their size and place, and which buttons are shown.
 - On screens wider than 16:9 (most phones), **Settings** → **Display** → **16:9, stretched to fill** removes the
   black bars at the sides.
 - **Everything stretched to fill** (**Settings** → **Display**) stretches the whole 4:3 picture to the screen,

@@ -1797,6 +1797,8 @@ public class LauncherActivity extends Activity {
         }
         col.addView(tc);
         col.addView(button("Size and layout…", v -> startActivity(new Intent(this, TouchLayoutActivity.class))));
+        col.addView(space(8));
+        col.addView(button("Buttons shown…", v -> TouchLayoutActivity.buttonsShown(this, prefs, () -> { })));   // #88
         col.addView(space(16));
         col.addView(heading("Controller"));
         CheckBox analog = new CheckBox(this);
@@ -2774,6 +2776,7 @@ public class LauncherActivity extends Activity {
                     .putExtra("touch_controls", prefs.getInt("touch_controls", 0))
                     .putExtra("touch_layout", prefs.getString("touch_layout", ""))
                     .putExtra("touch_layout_square", TouchControls.savedLayout(prefs, "touch_layout_square"))   // #66
+                    .putExtra("touch_hidden", prefs.getString("touch_hidden", ""))   // #88
                     .putExtra("touch_extra", prefs.getBoolean("touch_extra", false))
                     .putExtra("portrait", prefs.getBoolean("portrait", false))
                     .putExtra("split", prefs.getBoolean("split", false))

@@ -941,6 +941,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
                 sendPad();
             });
             touch.setExtra(getIntent().getBooleanExtra("touch_extra", false));   // right stick, L3, R3 (#62)
+            touch.setHidden(getIntent().getStringExtra("touch_hidden"));   // Buttons shown (#88)
             touchLayoutKey = TouchControls.layoutKey(this);
             touch.setLayout(touchLayout());   // size, opacity, positions (#28), this screen's (#66)
         }

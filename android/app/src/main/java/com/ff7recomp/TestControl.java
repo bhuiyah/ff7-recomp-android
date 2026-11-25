@@ -59,6 +59,7 @@ public class TestControl extends BroadcastReceiver {
                                        "touch_extra", "game_art", "panel_button", "modcache_clear_on_close" })
             TYPES.put(k, Boolean.class);
         TYPES.put("quickboot", String.class);
+        TYPES.put("touch_hidden", String.class);          // Buttons shown: "L2,R2,DPAD" hides these (#88)
         TYPES.put("touch_layout", String.class);
         TYPES.put("touch_layout_square", String.class);   // a foldable's inner screen (#66)
         // Settings > Storage > Custom folder's path ("" = the app's own folder), switched without moving anything

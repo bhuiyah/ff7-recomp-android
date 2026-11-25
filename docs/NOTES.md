@@ -843,3 +843,9 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
   The panels (CompanionView) are in the window only while open. arrange() takes the layer apart and resets the panels' LayoutParams.
 - Thor (bottom_screen off, on-screen pad on): open, close by X and by the header, drag, place kept after a restart, Menu from the panels;
   `wm size` change with the panels open in Split (tall, then landscape again). Not shown with the second screen on. Java only: no kit change.
+
+## 2026-11-25: any on-screen button can be hidden (1.1.51; issue #88)
+- "touch_hidden" (names separated by commas, TouchControls.NAMES): hidden buttons are neither drawn nor pressed; a group's bounds() cover
+  its shown buttons only (null when all are hidden). One list for both screen shapes. Buttons shown in Settings and in the layout screen.
+- Thor: list, Show all, layout screen without the D-pad; hidden Y opens no menu, shown Y does; Split (`wm size 1500x1500`, bottom_screen off)
+  with some and with all hidden. The narrow Split branch (panels above the pad) was not reached. Java only: no kit change.
