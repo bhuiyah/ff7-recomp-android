@@ -234,13 +234,14 @@ void savemap_json(std::string &j, const savemap *sm, bool world) {
     snprintf(b, sizeof b, "\"stats\":{\"battles\":%u,\"escapes\":%u,\"kills\":%u,\"races\":%u,\"countdown\":%u},",
              *(const uint16_t *)(s + 0x0BBC), *(const uint16_t *)(s + 0x0BBE), kills, races, sm->countdown_timer);
     j += b;
-    // Date (love) points, 0x0BA8..0x0BAB: Aerith, Tifa, Yuffie, Barret (#71). The highest one
+    // Date (love) points, 0x0BA7..0x0BAA (the field scripts' bank 1, 3..6; md1stin starts them
+    // at 50, 30, 10, 0): Aerith, Tifa, Yuffie, Barret (#71). The highest one
     // decides who asks Cloud out at the Gold Saucer. Names as the player chose them.
     static const int love_char[4] = { 3, 2, 5, 1 };
     j += "\"love\":[";
     for (int i = 0; i < 4; i++) {
         snprintf(b, sizeof b, "%s[\"%s\",%u]", i ? "," : "",
-                 ff7_name(sm->chars[love_char[i]].name, sizeof sm->chars[0].name).c_str(), (unsigned)s[0x0BA8 + i]);
+                 ff7_name(sm->chars[love_char[i]].name, sizeof sm->chars[0].name).c_str(), (unsigned)s[0x0BA7 + i]);
         j += b;
     }
     j += "],";
