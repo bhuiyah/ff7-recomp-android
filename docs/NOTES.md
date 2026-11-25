@@ -866,3 +866,13 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
 - The reporter's abort (1.1.34, "free of a corrupt or foreign guest block", drawing after a save state load) was not the missing
   ABDE2.P logged above it: it fits ffnx_guest_scratch freeing a buffer of the replaced game heap, fixed in 1.1.43 (#77). Not replayed
   with the reporter's mods.
+
+## 2026-11-25: panels over the game, follow-ups (1.1.54; issue #87)
+- No X any more: the header's arrow or a tap (not a drag, not on an on-screen button) on the game beside the panels closes them
+  (PanelButton.Layer.dispatchTouchEvent; TouchControls.takes). The button is away while they are open.
+- Controller > Open the panels with: Off, Start, L3, R3 ("panel_key", GameActivity.panelKey, after the button swaps). Acts on release; the
+  game does not get that button then. With Select or the other stick's button held it passes (Select + Start leaves the game), and where no
+  panels can open (a second screen has them). Also hides/shows Side by side's panels. Works without the on-screen button.
+- The panels keep clear of system bars that stay visible (Layer.clearOfBars). The reporter's missing bottom row was not reproduced: at
+  2560x1600 it shows. "Second screen buttons" off hides it; its text now says it also counts on the only screen.
+- Thor (`wm size 1600x2560`): all of the above except a bar that stays visible. Java only: no kit change.

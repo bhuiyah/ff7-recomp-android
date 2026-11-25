@@ -485,6 +485,9 @@ final class TouchControls extends View {
     }
 
     /** What a finger at (px, py) presses. */
+    /** A button or the stick is there. */
+    boolean takes(float px, float py) { return hit(px, py) != 0 || onStick(px, py); }
+
     private int hit(float px, float py) {
         if (onStick(px, py)) return 0;
         float dx = px - padX, dy = py - padY;

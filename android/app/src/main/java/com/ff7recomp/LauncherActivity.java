@@ -1687,7 +1687,8 @@ public class LauncherActivity extends Activity {
         second.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("bottom_screen", on).apply());
         col.addView(second);
         CheckBox deckBox = new CheckBox(this);
-        deckBox.setText("Second screen buttons\nMenu, Save, Load, Speed, Slow, Battles and Battle+ along the bottom. "
+        deckBox.setText("Second screen buttons\nMenu, Save, Load, Speed, Slow, Battles and Battle+ along the bottom of the panels, "
+                + "also where they are on the only screen. "
                 + "Off: the panels fill the screen and the controller does everything");
         deckBox.setTextColor(TEXT);
         deckBox.setTextSize(16);
@@ -1745,7 +1746,8 @@ public class LauncherActivity extends Activity {
         col.addView(sideLeftBox);
         CheckBox panelBox = new CheckBox(this);   // #87
         panelBox.setText("Button for the panels (one screen)\nA small button over the game, in the Landscape layout, opens the second screen's "
-                + "panels (party, map, items, save/load state, speed) and closes them again. Drag it to move it");
+                + "panels (party, map, items, save/load state, speed) and closes them again (or tap the game beside them). Drag it to move it. "
+                + "A controller button can do it too: Controller > Open the panels with");
         panelBox.setTextColor(TEXT);
         panelBox.setTextSize(16);
         panelBox.setChecked(prefs.getBoolean("panel_button", false));
@@ -1825,6 +1827,28 @@ public class LauncherActivity extends Activity {
         fire.setChecked(prefs.getBoolean("autofire", false));
         fire.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("autofire", on).apply());
         col.addView(fire);
+        TextView keyLabel = new TextView(this);   // #87
+        keyLabel.setText("Open the panels with\nOn one screen this button opens and closes the panels over the game (Landscape layout), or hides and "
+                + "shows Side by side's. The game then does not get it; Start pauses battles and minigames");
+        keyLabel.setTextColor(TEXT);
+        keyLabel.setTextSize(16);
+        keyLabel.setPadding(0, Math.round(8 * getResources().getDisplayMetrics().density), 0, 0);
+        col.addView(keyLabel);
+        RadioGroup keyGroup = new RadioGroup(this);
+        keyGroup.setOrientation(RadioGroup.HORIZONTAL);
+        String[] panelKeys = { "Off", "Start", "L3", "R3" };
+        for (int i = 0; i < panelKeys.length; i++) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(View.generateViewId());
+            rb.setText(panelKeys[i]);
+            rb.setTextColor(TEXT);
+            rb.setTextSize(16);
+            final int v = i;
+            rb.setOnClickListener(x -> prefs.edit().putInt("panel_key", v).apply());
+            keyGroup.addView(rb);
+            if (v == prefs.getInt("panel_key", 0)) rb.setChecked(true);
+        }
+        col.addView(keyGroup);
         col.addView(text("What each button of a controller or keyboard does. Choosing one that is in use swaps the two.", 14, DIM));
         final LinearLayout maps = new LinearLayout(this);
         maps.setOrientation(LinearLayout.VERTICAL);
@@ -2783,6 +2807,7 @@ public class LauncherActivity extends Activity {
                     .putExtra("side", prefs.getBoolean("side", false))
                     .putExtra("side_left", prefs.getBoolean("side_left", false))
                     .putExtra("panel_button", prefs.getBoolean("panel_button", false))
+                    .putExtra("panel_key", prefs.getInt("panel_key", 0))   // #87
                     .putExtra("rotation_lock", prefs.getInt("rotation_lock", 0))
                     .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
                     .putExtra("bottom_buttons", prefs.getBoolean("bottom_buttons", true))
