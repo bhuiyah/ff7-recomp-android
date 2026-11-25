@@ -371,6 +371,27 @@ EDITS = [
      '        shaderSuffix = ".gles";\n'
      '        break;\n'
      '#endif\n'),
+    # GitHub #89: mods replace FFNx's shaders with PC ones (*.vk, *.gl, *.d3d11, *.d3d12); none is
+    # OpenGL ES. The mod's Vulkan shader is converted (src/ffnx_port/shader_gles.cpp).
+    ('renderer.cpp',
+     'bgfx::ShaderHandle Renderer::getShader(const char* filePath)\n{\n'
+     '    bgfx::ShaderHandle handle = BGFX_INVALID_HANDLE;\n',
+     '#ifdef FFNX_ANDROID\n'
+     'bool ff7r_mod_gles_shader(const char* basedir, const char* path, std::vector<unsigned char>& out);   // FF7Recomp (#89)\n'
+     '#endif\n'
+     'bgfx::ShaderHandle Renderer::getShader(const char* filePath)\n{\n'
+     '    bgfx::ShaderHandle handle = BGFX_INVALID_HANDLE;\n'
+     '#ifdef FFNX_ANDROID\n'
+     '    {\n'
+     '        std::vector<unsigned char> converted;   // FF7Recomp (#89): a mod\'s Vulkan shader on OpenGL ES\n'
+     '        if (getCaps()->rendererType == bgfx::RendererType::OpenGLES && ff7r_mod_gles_shader(basedir, filePath, converted))\n'
+     '        {\n'
+     '            handle = bgfx::createShader(bgfx::copy(converted.data(), (uint32_t)converted.size()));\n'
+     '            if (bgfx::isValid(handle)) bgfx::setName(handle, filePath);\n'
+     '            return handle;\n'
+     '        }\n'
+     '    }\n'
+     '#endif\n'),
     ('renderer.cpp', 'void Renderer::init()\n{\n',
      '#ifdef FFNX_ANDROID\n'
      'extern "C" const char* ff7_bgfx_vk_trace();   // FF7Recomp: patches/bgfx/0004\n'

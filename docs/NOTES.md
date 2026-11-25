@@ -849,3 +849,12 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
   its shown buttons only (null when all are hidden). One list for both screen shapes. Buttons shown in Settings and in the layout screen.
 - Thor: list, Show all, layout screen without the D-pad; hidden Y opens no menu, shown Y does; Split (`wm size 1500x1500`, bottom_screen off)
   with some and with all hidden. The narrow Split branch (panels above the pad) was not reached. Java only: no kit change.
+
+## 2026-11-25: mods' shaders on OpenGL ES (1.1.52; issue #89)
+- Shader mods (PSX Battle Shadows and Vertex Snapping) ship FFNx's PC variants (*.vk, *.gl, *.d3d11, *.d3d12). The OpenGL ES renderer loads
+  *.gles, so they did nothing there. shader_gles_mods.cpp: where a mod replaces X.vk.* and not X.gles.*, getShader takes the mod's SPIR-V
+  through SPIRV-Cross (bgfx's copy, ffnx_spirv) to ESSL 3.10; shader_gles.cpp lists what differs. A shader it cannot convert: our own is used, with a log line.
+- PC test: all 43 of our *.vk.* convert, compile (NDK glslc, GL) and have the interface of the shipped *.gles.*; clean under ASan.
+- Thor (GLES): a stand-in mod (recoloured, vertices snapped; FFNx.flat/smooth .vk) in field, swirl and battle; FF7_TEST_GLES_FROM_VK=1 (every shader
+  converted) in field, FMV, swirl and battle. The PSX mod itself was not tried. One of four such swirls (after 8 minutes on a text box, a screencap
+  running) ended with a fault in Android's own UI thread (libhwui -> libGLESv2_adreno); three repeats did not.

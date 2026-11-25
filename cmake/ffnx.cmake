@@ -76,6 +76,7 @@ add_library(ffnx STATIC ${FFNX_SOURCES}
   "${FF7_ROOT}/src/ffnx_port/framegen_game.cpp"
   # FFNx's patch API with recomp semantics (replaces FFNx's patch.cpp)
   "${FF7_ROOT}/src/ffnx_port/patch_recomp.cpp"
+  "${FF7_ROOT}/src/ffnx_port/shader_gles_mods.cpp"
   "${FF7_ROOT}/src/ffnx_port/quickboot.cpp"
   "${FF7_ROOT}/src/ffnx_port/savestate_ffnx.cpp"
   "${FF7_ROOT}/src/ffnx_port/companion.cpp"
@@ -132,8 +133,17 @@ set_target_properties(ffnx PROPERTIES POSITION_INDEPENDENT_CODE ON)
 include("${FF7_ROOT}/cmake/ffnx_deps.cmake")
 include("${FF7_ROOT}/cmake/ffnx_audio.cmake")
 target_include_directories(ffnx PRIVATE "${FFNX_DEPS}/cgltf" "${FF7_ROOT}/src/interp" "${FF7_ROOT}/src/host")
+# Mods' Vulkan shaders on OpenGL ES (GitHub #89): bgfx's copy of SPIRV-Cross, without FFNx's prelude
+set(FFNX_SPIRV "${BGFX_DIR}/3rdparty/spirv-cross")
+add_library(ffnx_spirv STATIC "${FF7_ROOT}/src/ffnx_port/shader_gles.cpp" "${FFNX_SPIRV}/spirv_cross.cpp"
+  "${FFNX_SPIRV}/spirv_glsl.cpp" "${FFNX_SPIRV}/spirv_parser.cpp" "${FFNX_SPIRV}/spirv_cfg.cpp"
+  "${FFNX_SPIRV}/spirv_cross_parsed_ir.cpp")
+target_include_directories(ffnx_spirv PRIVATE "${FFNX_SPIRV}")
+target_compile_features(ffnx_spirv PUBLIC cxx_std_17)
+target_compile_options(ffnx_spirv PRIVATE -w -fexceptions -O2)
+set_target_properties(ffnx_spirv PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(ffnx PUBLIC ff7_core bgfx ff7_rcheevos ffnx::rc ffnx_png ffnx_imgui ffnx_pugixml ffnx_xxhash
-  ffnx_soloud ffnx_vgmstream ffnx_openpsf ffnx_lz4 ffnx_lsfg)
+  ffnx_soloud ffnx_vgmstream ffnx_openpsf ffnx_lz4 ffnx_lsfg ffnx_spirv)
 if(FF7_HAVE_FFMPEG)
   target_compile_definitions(ffnx PRIVATE FF7_HAVE_FFMPEG=1)
   foreach(lib avformat avcodec swscale swresample avutil)
