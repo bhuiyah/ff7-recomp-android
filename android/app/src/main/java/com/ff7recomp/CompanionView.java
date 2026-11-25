@@ -356,6 +356,11 @@ public class CompanionView extends View {
         if (state.optInt("ready") != 1) {
             fill.setColor(Color.BLACK);
             c.drawRect(0, 0, W, H, fill);      // blank until a game is under way (companion.cpp)
+            if (onHide != null) {              // the way to close them is there all the same
+                float hs = (narrow() ? 56 : 72) * u, hx = hideAtLeft ? pad + 12 * u : W - pad - 12 * u - hs;
+                hideBox.set(hx, pad + 12 * u, hx + hs, pad + 12 * u + hs);
+                drawHideButton(c, hideBox, u);
+            }
             return;
         }
         final String mode = state.optString("mode");
@@ -1129,7 +1134,21 @@ public class CompanionView extends View {
     @Override
     public boolean onTouchEvent(MotionEvent e) {
         float x = e.getX(), y = e.getY(), u = u();
-        if (state.optInt("ready") != 1) { pressed = null; return true; }   // blank: no buttons
+        if (state.optInt("ready") != 1) {                   // blank: no buttons but the hide arrow
+            pressed = null;
+            boolean on = onHide != null && hideBox.contains(x, y);
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) hidePressed = on;
+            else if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                boolean act = hidePressed && on && e.getActionMasked() == MotionEvent.ACTION_UP;
+                hidePressed = false;
+                if (act) {
+                    performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+                    onHide.run();
+                }
+            }
+            invalidate();
+            return true;
+        }
         switch (e.getActionMasked()) {
         case MotionEvent.ACTION_DOWN:
             pressed = null;
