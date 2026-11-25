@@ -837,3 +837,9 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
 - read_dirs_ahead: 8 threads list the active folders of all unpacked mods into g_dirs; add_folder then reads memory as before.
 - Thor, real SD card (empty files named as Enhanced Stock UI's and Finishing Touch's folders): whole load 1287-1977 -> 312-361 ms;
   internal storage 411-424 -> 442-450 ms (20 mods, all enabled). Same overrides in the same order (both).
+
+## 2026-11-25: a button over the game opens the panels (1.1.50; issue #87)
+- PanelButton.Layer wraps the game's frame in the landscape layout when panel_button is on and no second screen shows the panels.
+  The panels (CompanionView) are in the window only while open. arrange() takes the layer apart and resets the panels' LayoutParams.
+- Thor (bottom_screen off, on-screen pad on): open, close by X and by the header, drag, place kept after a restart, Menu from the panels;
+  `wm size` change with the panels open in Split (tall, then landscape again). Not shown with the second screen on. Java only: no kit change.

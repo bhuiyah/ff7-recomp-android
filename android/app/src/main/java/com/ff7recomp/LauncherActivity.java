@@ -1743,6 +1743,14 @@ public class LauncherActivity extends Activity {
         sideLeftBox.setChecked(prefs.getBoolean("side_left", false));
         sideLeftBox.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("side_left", on).apply());
         col.addView(sideLeftBox);
+        CheckBox panelBox = new CheckBox(this);   // #87
+        panelBox.setText("Button for the panels (one screen)\nA small button over the game, in the Landscape layout, opens the second screen's "
+                + "panels (party, map, items, save/load state, speed) and closes them again. Drag it to move it");
+        panelBox.setTextColor(TEXT);
+        panelBox.setTextSize(16);
+        panelBox.setChecked(prefs.getBoolean("panel_button", false));
+        panelBox.setOnCheckedChangeListener((b, on) -> prefs.edit().putBoolean("panel_button", on).apply());
+        col.addView(panelBox);
         // Lock rotation (#73): a phone held flat can turn the game by itself
         TextView lockLabel = new TextView(this);
         lockLabel.setText("Lock rotation\nKeeps the game the way it is set here when the phone is turned or held flat. "
@@ -2771,6 +2779,7 @@ public class LauncherActivity extends Activity {
                     .putExtra("split", prefs.getBoolean("split", false))
                     .putExtra("side", prefs.getBoolean("side", false))
                     .putExtra("side_left", prefs.getBoolean("side_left", false))
+                    .putExtra("panel_button", prefs.getBoolean("panel_button", false))
                     .putExtra("rotation_lock", prefs.getInt("rotation_lock", 0))
                     .putExtra("bottom_screen", prefs.getBoolean("bottom_screen", true))
                     .putExtra("bottom_buttons", prefs.getBoolean("bottom_buttons", true))

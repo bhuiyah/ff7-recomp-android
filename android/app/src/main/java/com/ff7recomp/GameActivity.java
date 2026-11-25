@@ -325,6 +325,9 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
      *  tab at the screen's edge brings them back. Kept between games ("companion" prefs). */
     private boolean panelsHidden;
     private android.view.View showTab;
+    /** Settings > Screen (#87): a button over the game opens the panels, in the landscape layout. */
+    private boolean panelsButton;
+    private PanelButton.Layer panelLayer;
     private android.widget.FrameLayout bottom;      // split: the panels, the on-screen pad over them
 
     private android.widget.FrameLayout gameFrame;   // the game's SurfaceView and the booster icons
@@ -398,6 +401,13 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
      */
     private void arrange(boolean tall) {
         arrangedTall = tall;
+        if (panelLayer != null) {          // its game view and panels go to the new layout
+            panelLayer.setOpen(false);
+            panelLayer.removeAllViews();
+            panelLayer = null;
+            panel.setLayoutParams(new android.widget.FrameLayout.LayoutParams(   // not the overlay's size
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        }
         for (android.view.View v : new android.view.View[] { gameFrame, panel, touch })
             if (v != null && v.getParent() != null) ((android.view.ViewGroup) v.getParent()).removeView(v);
         if (bottom != null && bottom.getParent() != null) ((android.view.ViewGroup) bottom.getParent()).removeView(bottom);
@@ -414,7 +424,11 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             if (touch != null)
                 gameFrame.addView(touch, new android.widget.FrameLayout.LayoutParams(
                         android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-            setContentView(gameFrame);
+            if (panelsButton) {
+                panelLayer = new PanelButton.Layer(this, gameFrame, panel);
+                updatePanelButton();
+                setContentView(panelLayer);
+            } else setContentView(gameFrame);
             return;
         }
         android.widget.LinearLayout col = new android.widget.LinearLayout(this);
@@ -586,6 +600,11 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
     private void setTouchVisible(boolean show) {
         touch.setVisibility(show ? android.view.View.VISIBLE : android.view.View.GONE);
         fitPanels();
+    }
+
+    /** The panels' button only while no second screen shows them. */
+    private void updatePanelButton() {
+        if (panelLayer != null) panelLayer.setUsable(companion == null && companionHost == null);
     }
 
     private String touchLayoutKey = "touch_layout";
@@ -809,6 +828,7 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
 
     /** Shows or hides the on-screen pad: always, never, or (auto) on one screen with no controller. */
     private void updateTouch() {
+        updatePanelButton();
         if (touch == null) return;
         boolean show = touchMode == 1 || (touchMode == 0 && companion == null && companionHost == null && !gamepadConnected());
         setTouchVisible(show);
@@ -924,9 +944,10 @@ public class GameActivity extends Activity implements SurfaceHolder.Callback {
             touchLayoutKey = TouchControls.layoutKey(this);
             touch.setLayout(touchLayout());   // size, opacity, positions (#28), this screen's (#66)
         }
-        if (portrait || split) panel = new CompanionView(this);
+        panelsButton = getIntent().getBooleanExtra("panel_button", false);
+        if (portrait || split || panelsButton) panel = new CompanionView(this);
         if (panel != null) panel.setGameArt(getIntent().getBooleanExtra("game_art", false));
-        if (split) panel.setDeck(getIntent().getBooleanExtra("bottom_buttons", true));
+        if (split || (panelsButton && !portrait)) panel.setDeck(getIntent().getBooleanExtra("bottom_buttons", true));
         arrange(wantStacked());
         preferHighestRefreshRate(getWindow(), Compat.display(this));
         startDisplayWatch();

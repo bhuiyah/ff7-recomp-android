@@ -64,6 +64,8 @@ and I would rather you know before you install it.
   has trouble with the game.
 - Portrait on phones (**Settings** → **Screen**): the game at the top; below it the party, location,
   enemy HP and a touch deck (menu, save/load state, speed), then the on-screen controls.
+- One screen held sideways: a button over the game (**Settings** → **Screen** → **Button for the panels**)
+  opens the panels described next and closes them again; drag it to move it.
 - On the AYN Thor's bottom screen: party status, location, enemy HP in battle, a touch deck
   (menu, save/load state, speed, random battles, battle enhancement); it dims during cutscenes.
   On the world map it shows the map with where the party is, drawn from your own game files.
