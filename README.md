@@ -264,7 +264,7 @@ FF7Recomp is GPL-3.0 (it links FFNx). It builds on:
 [pcrecomp](https://github.com/sp00nznet/pcrecomp) (MIT),
 [nfsu2-recompiled](https://github.com/codepdbh/nfsu2-recompiled) (MIT; Android host),
 [FFNx](https://github.com/julianxhokaxhiu/FFNx) (GPL-3.0),
-[bgfx/bx/bimg](https://github.com/bkaradzic/bgfx) (BSD-2),
+[bgfx/bx/bimg](https://github.com/bkaradzic/bgfx) (BSD-2), [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) (Apache-2.0),
 [7th Heaven](https://github.com/tsunamods-codes/7th-Heaven) (MS-PL; mod formats),
 [rcheevos](https://github.com/RetroAchievements/rcheevos) (MIT),
 [lsfg-vk-android](https://github.com/FrankBarretta/lsfg-vk-android) and [volk](https://github.com/zeux/volk) (MIT; frame generation),
