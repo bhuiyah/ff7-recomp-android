@@ -1133,6 +1133,12 @@ EDITS = [
      '#else\n'
      '\t\tfacial.vertices = vertices.data();\n'
      '#endif'),
+    # A model whose head piece a mod leaves out: the game skips missing pieces, the blink code must too (GitHub #67).
+    ('ff7/field/kawai_eyetx.cpp', '                polygon_set = bones->rsd_array->rsd_data->polygon_set;\n',
+     '                // FF7Recomp: the head piece can be missing (a mod without its file)\n'
+     '                if ( !bones->rsd_array || !bones->num_rsd || !bones->rsd_array->rsd_data ) return 0;\n'
+     '                polygon_set = bones->rsd_array->rsd_data->polygon_set;   // checked above\n'
+     '                if ( !polygon_set || !polygon_set->hundred_data ) return 0;\n'),
     # Button prompts (universal_buttons.cpp) clone a game texture_set and its handle array
     # and hand them to the game's renderer: allocate both in guest memory.
     ('ff7.h', 'struct ff7_texture_set\n{\n',

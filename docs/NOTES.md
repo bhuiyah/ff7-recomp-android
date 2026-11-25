@@ -858,3 +858,11 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
 - Thor (GLES): a stand-in mod (recoloured, vertices snapped; FFNx.flat/smooth .vk) in field, swirl and battle; FF7_TEST_GLES_FROM_VK=1 (every shader
   converted) in field, FMV, swirl and battle. The PSX mod itself was not tried. One of four such swirls (after 8 minutes on a text box, a screencap
   running) ended with a fault in Android's own UI thread (libhwui -> libGLESv2_adreno); three repeats did not.
+
+## 2026-11-25: a model without its head piece no longer closes the game (1.1.53; issue #67)
+- The game's loader skips a model piece it cannot load, and drawing skips it too. Thor, Cloud's RSD pointing at a missing .P
+  (game/direct/char): body piece or an extra chest piece, no crash; head, SIGSEGV at 0x4 in FFNx's ff7_internal_blink_eye, which
+  read the head's piece unchecked. Checked now: Cloud is drawn without a head.
+- The reporter's abort (1.1.34, "free of a corrupt or foreign guest block", drawing after a save state load) was not the missing
+  ABDE2.P logged above it: it fits ffnx_guest_scratch freeing a buffer of the replaced game heap, fixed in 1.1.43 (#77). Not replayed
+  with the reporter's mods.
