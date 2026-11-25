@@ -876,3 +876,7 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
 - The panels keep clear of system bars that stay visible (Layer.clearOfBars). The reporter's missing bottom row was not reproduced: at
   2560x1600 it shows. "Second screen buttons" off hides it; its text now says it also counts on the only screen.
 - Thor (`wm size 1600x2560`): all of the above except a bar that stays visible. Java only: no kit change.
+
+## 2026-11-25: panels over the game before a game is loaded (1.1.55; from FF8Recomp)
+- The panels are blank until a game is under way and had no close arrow then. It is drawn there and takes its touch.
+- Thor (1600x2560): opened and closed by the arrow during the opening credits, and again in the field.
