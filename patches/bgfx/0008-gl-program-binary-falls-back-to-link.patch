@@ -1,0 +1,21 @@
+diff --git a/src/renderer_gl.cpp b/src/renderer_gl.cpp
+index 0e9038381..323f15c2d 100644
+--- a/src/renderer_gl.cpp
++++ b/src/renderer_gl.cpp
+@@ -4725,6 +4725,16 @@ namespace bgfx { namespace gl
+ 						bx::read(&reader, format, &err);
+ 
+ 						GL_CHECK(glProgramBinary(programId, format, reader.getDataPtr(), (GLsizei)reader.remaining() ) );
++
++						// FF7Recomp: a binary the driver turns down (another driver build, a bad file)
++						// leaves the program unlinked; build it from its shaders instead.
++						GLint linked = 0;
++						GL_CHECK(glGetProgramiv(programId, GL_LINK_STATUS, &linked) );
++						cached = 0 != linked;
++					}
++					else
++					{
++						cached = false;
+ 					}
+ 
+ 					bx::free(g_allocator, data);

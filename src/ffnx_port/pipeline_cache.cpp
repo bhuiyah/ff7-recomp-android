@@ -10,6 +10,8 @@
  * Files: <files>/pipelinecache/<key>/<id>.bin, <files> being the game folder's parent; <key>
  * changes with the system build (a driver update) so an old driver's blobs are never offered.
  * The driver checks each blob's header (vendor, device, cache UUID) as well.
+ * OpenGL ES (1.1.58): bgfx hands each linked program's binary to the same callbacks (<id>.glb);
+ * a binary the driver turns down is linked from its shaders again (patches/bgfx/0008).
  * Test: FF7_TEST_NO_PCACHE=1 in files/env.txt turns it off. */
 #include <cerrno>
 #include <cstdint>
@@ -98,9 +100,10 @@ void setup(const char *basedir) {
     fprintf(stderr, "[ffnx-android] pipeline cache: %s (%d kept)\n", dir.c_str(), count_files(dir));
 }
 
-std::string path_of(uint64_t id) {
+/* .bin: a Vulkan pipeline cache blob; .glb: an OpenGL ES program binary (1.1.58). */
+std::string path_of(uint64_t id, bool gl) {
     char name[40];
-    snprintf(name, sizeof name, "/%016llx.bin", (unsigned long long)id);
+    snprintf(name, sizeof name, gl ? "/%016llx.glb" : "/%016llx.bin", (unsigned long long)id);
     return g_dir + name;
 }
 
@@ -112,18 +115,18 @@ long file_size(const std::string &p) {
 }  // namespace
 
 /* bgfx's cacheReadSize: the blob's size, 0 = none. */
-uint32_t ff7r_pcache_size(const char *basedir, uint64_t id) {
+uint32_t ff7r_pcache_size(const char *basedir, uint64_t id, bool gl) {
     if (!g_ready) setup(basedir);
     if (g_dir.empty()) return 0;
-    const long n = file_size(path_of(id));
+    const long n = file_size(path_of(id, gl));
     return n > 0 && n <= (long)kMaxBlob ? (uint32_t)n : 0;
 }
 
 /* bgfx's cacheRead: the blob, exactly `size` bytes. */
-bool ff7r_pcache_read(const char *basedir, uint64_t id, void *data, uint32_t size) {
+bool ff7r_pcache_read(const char *basedir, uint64_t id, void *data, uint32_t size, bool gl) {
     if (!g_ready) setup(basedir);
     if (g_dir.empty() || !data || !size) return false;
-    FILE *f = fopen(path_of(id).c_str(), "rb");
+    FILE *f = fopen(path_of(id, gl).c_str(), "rb");
     if (!f) return false;
     const bool ok = fread(data, 1, size, f) == size;
     fclose(f);
@@ -133,10 +136,10 @@ bool ff7r_pcache_read(const char *basedir, uint64_t id, void *data, uint32_t siz
 
 /* bgfx's cacheWrite, after every pipeline it builds (also after one it loaded): the blob is
  * written to a temporary name and renamed, so a crash never leaves half a file. */
-void ff7r_pcache_write(const char *basedir, uint64_t id, const void *data, uint32_t size) {
+void ff7r_pcache_write(const char *basedir, uint64_t id, const void *data, uint32_t size, bool gl) {
     if (!g_ready) setup(basedir);
     if (g_dir.empty() || !data || !size || size > kMaxBlob) return;
-    const std::string p = path_of(id);
+    const std::string p = path_of(id, gl);
     if (file_size(p) == (long)size) return;   // already kept (loaded from it)
     const std::string tmp = p + ".tmp";
     FILE *f = fopen(tmp.c_str(), "wb");

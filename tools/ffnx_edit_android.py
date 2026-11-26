@@ -394,8 +394,8 @@ EDITS = [
      '#endif\n'),
     # GitHub #90: bgfx offers each Vulkan pipeline's VkPipelineCache blob to these callbacks;
     # FFNx kept none, so every launch compiled every pipeline again, and Mali's compiler aborted
-    # in its own worker thread while a battle built its pipelines. Kept on disk (Vulkan only;
-    # OpenGL ES's program binaries stay off): src/ffnx_port/pipeline_cache.cpp.
+    # in its own worker thread while a battle built its pipelines. Kept on disk:
+    # src/ffnx_port/pipeline_cache.cpp (OpenGL ES program binaries too since 1.1.58, below).
     ('renderer.cpp',
      'uint32_t RendererCallbacks::cacheReadSize(uint64_t _id)\n'
      '{\n'
@@ -441,6 +441,28 @@ EDITS = [
      '    if (bgfx::getRendererType() == bgfx::RendererType::Vulkan) ff7r_pcache_write(basedir, _id, _data, _size);   // FF7Recomp (#90)\n'
      '#endif\n'
      '}\n'),
+    # GitHub #90 (1.1.58): OpenGL ES program binaries are kept too (bgfx hands them to the same
+    # callbacks; patches/bgfx/0008 builds a program from its shaders when the driver turns a
+    # binary down). The last argument says which renderer, so the two kinds never mix.
+    ('renderer.cpp',
+     'uint32_t ff7r_pcache_size(const char* basedir, uint64_t id);   // FF7Recomp (#90)\n'
+     'bool ff7r_pcache_read(const char* basedir, uint64_t id, void* data, uint32_t size);\n'
+     'void ff7r_pcache_write(const char* basedir, uint64_t id, const void* data, uint32_t size);\n',
+     'uint32_t ff7r_pcache_size(const char* basedir, uint64_t id, bool gl);   // FF7Recomp (#90)\n'
+     'bool ff7r_pcache_read(const char* basedir, uint64_t id, void* data, uint32_t size, bool gl);\n'
+     'void ff7r_pcache_write(const char* basedir, uint64_t id, const void* data, uint32_t size, bool gl);\n'
+     '// Vulkan pipelines (1.1.57) and OpenGL ES program binaries (1.1.58)\n'
+     'static bool ff7r_pcache_on() { const bgfx::RendererType::Enum t = bgfx::getRendererType(); return t == bgfx::RendererType::Vulkan || t == bgfx::RendererType::OpenGLES; }\n'
+     'static bool ff7r_pcache_gl() { return bgfx::getRendererType() == bgfx::RendererType::OpenGLES; }\n'),
+    ('renderer.cpp',
+     '    if (bgfx::getRendererType() == bgfx::RendererType::Vulkan) return ff7r_pcache_size(basedir, _id);   // FF7Recomp (#90)\n',
+     '    if (ff7r_pcache_on()) return ff7r_pcache_size(basedir, _id, ff7r_pcache_gl());   // FF7Recomp (#90)\n'),
+    ('renderer.cpp',
+     '    if (bgfx::getRendererType() == bgfx::RendererType::Vulkan) return ff7r_pcache_read(basedir, _id, _data, _size);   // FF7Recomp (#90)\n',
+     '    if (ff7r_pcache_on()) return ff7r_pcache_read(basedir, _id, _data, _size, ff7r_pcache_gl());   // FF7Recomp (#90)\n'),
+    ('renderer.cpp',
+     '    if (bgfx::getRendererType() == bgfx::RendererType::Vulkan) ff7r_pcache_write(basedir, _id, _data, _size);   // FF7Recomp (#90)\n',
+     '    if (ff7r_pcache_on()) ff7r_pcache_write(basedir, _id, _data, _size, ff7r_pcache_gl());   // FF7Recomp (#90)\n'),
     ('renderer.cpp', 'void Renderer::init()\n{\n',
      '#ifdef FFNX_ANDROID\n'
      'extern "C" const char* ff7_bgfx_vk_trace();   // FF7Recomp: patches/bgfx/0004\n'

@@ -899,3 +899,10 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
   <files>/pipelinecache/<fnv1a(ro.build.fingerprint|ro.vendor.build.fingerprint)>/<id>.bin (src/ffnx_port/pipeline_cache.cpp), Vulkan
   only; other build folders removed, folder restarted above 4000 files. FF7_TEST_NO_PCACHE=1 turns it off. Mode 0700: adb shell can't list it.
 - Thor: 1st launch "(0 kept)", 2nd launch "(8 kept)" + "1 loaded"; game renders normally.
+## 2026-11-26: OpenGL ES program binaries kept on disk too (1.1.58; issue #90)
+- #90's reporter plays on OpenGL ES (Vulkan is slow on their Mali) and asked for 1.1.57's cache there. bgfx's GL renderer hands
+  each linked program's binary (glGetProgramBinary) to the same callbacks; FFNx now keeps them too (<id>.glb next to Vulkan's <id>.bin;
+  ff7r_pcache_* take a gl flag). Mali's GLES and Vulkan share the shader compiler, so a program built once is no longer linked again.
+- patches/bgfx/0008: upstream bgfx trusted glProgramBinary blindly; now it checks GL_LINK_STATUS and links from the shaders when the
+  driver turns a binary down (another driver build, a bad file).
+- Thor (Adreno), OpenGL ES: 1st launch 8 -> 31 kept (23 programs stored), 2nd launch "1 loaded", renders normally; Vulkan still loads.
