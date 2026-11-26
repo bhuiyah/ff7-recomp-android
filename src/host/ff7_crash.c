@@ -73,6 +73,7 @@ static void guest_stack_dump(void) {
 }
 
 __attribute__((weak)) void ff7_interp_dump(void);    /* src/interp/x86_interp.c */
+static struct sigaction g_old_action[NSIG];   /* the handlers ours replaced, chained to after the dump */
 static void on_fault(int sig, siginfo_t *si, void *uc) {
 #if defined(__aarch64__)
     ucontext_t *u = (ucontext_t *)uc;
@@ -102,7 +103,41 @@ static void on_fault(int sig, siginfo_t *si, void *uc) {
     ff7_trace_dump(64);
     fflush(stderr);
     usleep(400000);   /* the app pumps stderr to its log from another thread: let it drain */
-    _exit(128 + sig);
+    /* Hand the signal on to the handler that was there before ours (Android's debuggerd), so the system still
+     * writes its crash report (tombstone): it holds what our dump cannot, such as the message a graphics driver
+     * leaves when it calls abort() on one of its own threads (#90). The launcher's problem report attaches it. */
+    struct sigaction *old = &g_old_action[sig];
+    sigaction(sig, old, NULL);
+    if ((old->sa_flags & SA_SIGINFO) && old->sa_sigaction) {
+        old->sa_sigaction(sig, si, uc);
+    } else if (old->sa_handler != SIG_DFL && old->sa_handler != SIG_IGN) {
+        old->sa_handler(sig);
+    } else {
+        signal(sig, SIG_DFL);
+        raise(sig);
+    }
+    /* The system's handler re-sends the signal, still blocked while we are in this handler: return with the
+     * default action in place so it ends the process, which Android then files as a native crash with its
+     * report (an _exit here would be filed as "closed itself", without it). A fault re-runs its instruction. */
+    signal(sig, SIG_DFL);
+}
+
+/* FF7_TEST_ABORT=<seconds>: a test of the crash path above. A thread of its own ends the process the way a
+ * graphics driver does (an abort with a message, not on the game's thread); the system's crash report should
+ * then carry the message, and the game's ff7.log the usual dump. */
+#include <pthread.h>
+#include <stdlib.h>
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
+static void *test_abort(void *arg) {
+    sleep((unsigned)(uintptr_t)arg);
+    fprintf(stderr, "[ff7] FF7_TEST_ABORT: aborting from a side thread\n");
+    fflush(stderr);
+#if defined(__ANDROID__)
+    __android_log_assert(NULL, "FF7Recomp", "FF7_TEST_ABORT: test abort from a side thread");
+#endif
+    abort();
 }
 
 void ff7_install_crash_handler(void) {
@@ -113,11 +148,16 @@ void ff7_install_crash_handler(void) {
     memset(&sa, 0, sizeof sa);
     sa.sa_sigaction = on_fault;
     sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
-    sigaction(SIGSEGV, &sa, NULL);
-    sigaction(SIGBUS, &sa, NULL);
-    sigaction(SIGILL, &sa, NULL);
-    sigaction(SIGFPE, &sa, NULL);
-    sigaction(SIGABRT, &sa, NULL);   /* abort(): guest_abi fatal()s, failed asserts */
+    sigaction(SIGSEGV, &sa, &g_old_action[SIGSEGV]);
+    sigaction(SIGBUS, &sa, &g_old_action[SIGBUS]);
+    sigaction(SIGILL, &sa, &g_old_action[SIGILL]);
+    sigaction(SIGFPE, &sa, &g_old_action[SIGFPE]);
+    sigaction(SIGABRT, &sa, &g_old_action[SIGABRT]);   /* abort(): guest_abi fatal()s, failed asserts */
+    const char *ta = getenv("FF7_TEST_ABORT");
+    if (ta && atoi(ta) > 0) {
+        pthread_t t;
+        if (pthread_create(&t, NULL, test_abort, (void *)(uintptr_t)atoi(ta)) == 0) pthread_detach(t);
+    }
 }
 
 /* ---- watchdog (FF7_WATCHDOG=<seconds>): a sampling profile of the lifted program.

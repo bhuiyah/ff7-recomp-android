@@ -880,3 +880,14 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
 ## 2026-11-25: panels over the game before a game is loaded (1.1.55; from FF8Recomp)
 - The panels are blank until a game is under way and had no close arrow then. It is drawn there and takes its touch.
 - Thor (1600x2560): opened and closed by the arrow during the opening credits, and again in the field.
+
+## 2026-11-26: crash reports keep Android's own record (1.1.56; issue #90)
+- ff7_crash.c caught SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGABRT, wrote its dump and _exit(128+sig): debuggerd never ran, so no tombstone,
+  and ApplicationExitInfo filed it as EXIT_SELF (status 134) with no trace. Reports.java's tombstone.pb was never filled for these.
+- #90's second log (1.1.55, Mali-G57 / MT6789, Vulkan, 28 mods, entering battle scene 68) is an abort() on one of libGLES_mali's own
+  threads; the driver's abort message is only in the tombstone, which was lost.
+- Now: the handlers ours replaced are kept; after the dump the old one (debuggerd) runs, then the default action, so the process dies by the
+  signal: tombstone with the abort message, ApplicationExitInfo REASON_CRASH_NATIVE, "crashed (native)" in Report a problem, tombstone.pb in the zip.
+- FF7_TEST_ABORT=<s> (env.txt): a side thread aborts with a message after s seconds (__android_log_assert), like a driver does.
+- Thor: with FF7_TEST_ABORT=15, ff7.log has the usual dump, logcat "Abort message: 'FF7_TEST_ABORT: ...'", exit-info APP CRASH(NATIVE)
+  status 6, and the report zip's tombstone.pb holds the message. A normal start after it ran.
