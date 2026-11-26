@@ -396,11 +396,31 @@ public class LauncherActivity extends Activity {
                 runOnUiThread(() -> { refresh(); if (m != null) toastDialog(m); });
             }, "cloud-saves").start();
         }
+        crashTip();
         Intent ti = getIntent();
         if (ti != null && ti.getBooleanExtra(TestControl.EXTRA_STEAM_QR, false)) {
             ti.removeExtra(TestControl.EXTRA_STEAM_QR);
             steamSignIn();   // layout check; Cancel leaves the current sign-in untouched
         }
+    }
+
+    /** Once after each crash (or close for memory) of the game in the last day: what helps, and Report a
+     *  problem (GitHub #90: Mali's shader compiler failing on a phone low on free memory). */
+    private void crashTip() {
+        long t = Reports.lastGameCrash(this);
+        if (t <= prefs.getLong("crash_tip_seen", 0) || System.currentTimeMillis() - t > 24 * 3600_000L
+                || TestControl.gamePid(this) > 0) return;
+        prefs.edit().putLong("crash_tip_seen", t).apply();
+        String exit = Reports.lastGameExit(this);
+        sound(Sfx.ERROR);
+        ff(new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("The game closed unexpectedly")
+                .setMessage((exit != null ? "It " + exit + ".\n\n" : "") + "Crashes like this are most often a device "
+                        + "running low on memory, for example while a scene's graphics are prepared for the first time.\n\n"
+                        + Reports.RECOMMENDED + "\n\nIf it keeps happening, Report a problem (before you play again) makes a "
+                        + "zip with the crash record to attach to a GitHub issue.")
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Report a problem", (d, w) -> show("report")).show());
     }
 
     @Override
@@ -1652,7 +1672,7 @@ public class LauncherActivity extends Activity {
         RadioGroup rg = new RadioGroup(this);
         String[][] renderers = {
             { "0", "Vulkan (recommended)", "Fastest on most devices" },
-            { "1", "OpenGL ES", "Try it if the game is slow, shows graphics errors or does not start with Vulkan (some Mali GPUs)" },
+            { "1", "OpenGL ES", "Recommended on Mali GPUs (most MediaTek and Exynos phones). Try it if the game is slow, crashes, shows graphics errors or does not start with Vulkan" },
         };
         int curR = prefs.getInt("renderer", 0);
         for (String[] a : renderers) {
@@ -2068,6 +2088,8 @@ public class LauncherActivity extends Activity {
             col.addView(button("Find my FF7 folder…", v -> pick(PICK_GAME)));
             col.addView(space(8));
             col.addView(text(GAMENATIVE_HINT, 13, DIM));
+            col.addView(space(8));
+            col.addView(text(Reports.RECOMMENDED, 13, DIM));
         } else if (GameBuild.running) {
             col.addView(text("Building the game for this device. This happens once: about 8 minutes on an AYN "
                     + "Thor, longer on slower phones (the bar can stay at 4% for several minutes while the "
@@ -2610,6 +2632,8 @@ public class LauncherActivity extends Activity {
                 + "anywhere until you share it.", 14, DIM));
         String exit = Reports.lastGameExit(this);
         if (exit != null) { col.addView(space(4)); col.addView(text("The game last closed: " + exit, 14, TEXT)); }
+        col.addView(space(4));
+        col.addView(text(Reports.RECOMMENDED, 13, DIM));
         col.addView(space(4));
         java.util.List<File> saves = Reports.saves(this);
         CheckBox s = new CheckBox(this);

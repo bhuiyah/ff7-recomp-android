@@ -96,6 +96,13 @@ On the AYN Thor, with mods from the 7th Heaven catalogs (Tsunamods' Finishing To
 
 ## Playing
 
+**Recommended device:** 8 GB of RAM or more, with other apps (browser tabs too) closed while you
+play. Heavy mod sets need the most memory, above all on Vulkan. On Mali GPUs (most MediaTek and
+Exynos phones), **OpenGL ES** (**Settings** → **Renderer**) is usually the steadier choice. Rare
+crashes when a battle or scene starts for the first time are most often the phone running low on
+memory while the graphics driver prepares that scene's shaders; once a scene has been seen, they
+are kept on the device and loaded from there.
+
 1. Download the APK from [Releases](../../releases/latest) and install it (allow installing
    from your browser or file manager when Android asks).
 2. Open FF7Recomp → **Game files** → **Download from Steam…**. Sign in once by scanning a QR code

@@ -69,6 +69,23 @@ final class Reports {
         return best;
     }
 
+    /** What runs the game best (GitHub #90): shown on Game files, Report a problem and after a crash. */
+    static final String RECOMMENDED = "Recommended: 8 GB of RAM or more, with other apps (browser tabs too) closed "
+            + "while you play. Heavy mod sets need the most memory, above all on Vulkan. On Mali GPUs (most MediaTek "
+            + "and Exynos phones), OpenGL ES (Settings > Renderer) is usually the steadier choice.";
+
+    /** When the game's process last crashed or was closed for memory (ms), or 0 when it last ended any other way. */
+    static long lastGameCrash(Context c) {
+        if (Build.VERSION.SDK_INT < 30) return 0;
+        for (ApplicationExitInfo e : exits(c))
+            if (e.getProcessName().endsWith(":game")) {
+                int r = e.getReason();
+                return r == ApplicationExitInfo.REASON_CRASH_NATIVE || r == ApplicationExitInfo.REASON_CRASH
+                        || r == ApplicationExitInfo.REASON_LOW_MEMORY ? e.getTimestamp() : 0;
+            }
+        return 0;
+    }
+
     /** How the game's process last ended, in a line: "crashed (native) 13 Nov 22:42", or null. */
     static String lastGameExit(Context c) {
         if (Build.VERSION.SDK_INT < 30) return null;
