@@ -891,3 +891,11 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
 - FF7_TEST_ABORT=<s> (env.txt): a side thread aborts with a message after s seconds (__android_log_assert), like a driver does.
 - Thor: with FF7_TEST_ABORT=15, ff7.log has the usual dump, logcat "Abort message: 'FF7_TEST_ABORT: ...'", exit-info APP CRASH(NATIVE)
   status 6, and the report zip's tombstone.pb holds the message. A normal start after it ran.
+## 2026-11-26: Vulkan pipelines kept on disk (1.1.57; issue #90)
+- #90's third report (1.1.56) had the tombstone: SIGABRT, "Pointer tag for 0x2b00000000 was truncated" (bionic free() of an untagged
+  pointer) on an unnamed libGLES_mali worker thread (frames just past cmpbe_v2_compile_multiple_shaders) while the render thread
+  waited in vkCreateGraphicsPipelines -> cmpbe_v2_compile_multiple_shaders. A Mali compiler bug; reporter: Vulkan + all mods only, low free RAM.
+- FFNx's bgfx callback (cacheReadSize/cacheRead/cacheWrite) kept nothing, so every launch recompiled every pipeline. Now kept in
+  <files>/pipelinecache/<fnv1a(ro.build.fingerprint|ro.vendor.build.fingerprint)>/<id>.bin (src/ffnx_port/pipeline_cache.cpp), Vulkan
+  only; other build folders removed, folder restarted above 4000 files. FF7_TEST_NO_PCACHE=1 turns it off. Mode 0700: adb shell can't list it.
+- Thor: 1st launch "(0 kept)", 2nd launch "(8 kept)" + "1 loaded"; game renders normally.
