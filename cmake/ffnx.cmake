@@ -77,6 +77,7 @@ add_library(ffnx STATIC ${FFNX_SOURCES}
   # FFNx's patch API with recomp semantics (replaces FFNx's patch.cpp)
   "${FF7_ROOT}/src/ffnx_port/patch_recomp.cpp"
   "${FF7_ROOT}/src/ffnx_port/shader_gles_mods.cpp"
+  "${FF7_ROOT}/src/ffnx_port/pipeline_cache.cpp"
   "${FF7_ROOT}/src/ffnx_port/quickboot.cpp"
   "${FF7_ROOT}/src/ffnx_port/savestate_ffnx.cpp"
   "${FF7_ROOT}/src/ffnx_port/companion.cpp"
