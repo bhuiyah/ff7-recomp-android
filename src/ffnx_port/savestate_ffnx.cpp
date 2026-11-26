@@ -12,6 +12,7 @@
 #include <cstring>
 #include <new>
 #include <set>
+#include <string>
 #include <vector>
 #include "common.h"
 #include "globals.h"
@@ -27,6 +28,9 @@
 
 void stop_music_for_channel(int channel);   // music.cpp
 void ff7r_lgp_files_forget();               // ff7/file.cpp (FF7Recomp)
+void ff7r_disk_files_each(void (*fn)(uint32_t block, const char *path, const char *mode, long pos, void *ctx), void *ctx);
+void ff7r_disk_files_close_all();
+bool ff7r_disk_file_reopen(uint32_t block, const char *path, const char *mode, long pos);
 // gl/deferred.cpp: queues allocated once from the game heap, kept across frames
 extern struct deferred_draw *deferred_draws;
 extern uint32_t num_deferred;
@@ -281,9 +285,67 @@ void kernel2_restore(void *, const void *data, size_t n) {
 }
 const ff7_savestate_hook g_kernel2_hook = { "ffnx-kernel2", nullptr, kernel2_save, nullptr, kernel2_restore, nullptr };
 
+// ---- files open on disk (ff7/file.cpp, GitHub #91) ----
+// A file the game opens outside the LGPs (audio.dat, for the sounds it loads itself) keeps a
+// host FILE* in a game-heap block. A state from another launch brings back that launch's
+// pointer, and the next read crashed in fseek. The state names each open file (block, mode,
+// position, path); a load closes the running game's files and opens the state's again.
+struct DiskFile { uint32_t block; std::string path, mode; long pos; };
+std::vector<DiskFile> g_files_restored;
+bool g_files_record = false;
+
+int files_save(void *, ff7_ss_writer put, void *buf) {
+    std::vector<uint8_t> out(4, 0);   // a version word, then the files
+    out[0] = 1;
+    ff7r_disk_files_each([](uint32_t block, const char *path, const char *mode, long pos, void *ctx) {
+        auto &o = *(std::vector<uint8_t> *)ctx;
+        uint32_t v[4] = { block, (uint32_t)pos, (uint32_t)std::strlen(mode), (uint32_t)std::strlen(path) };
+        o.insert(o.end(), (const uint8_t *)v, (const uint8_t *)(v + 4));
+        o.insert(o.end(), mode, mode + v[2]);
+        o.insert(o.end(), path, path + v[3]);
+    }, &out);
+    return put(buf, out.data(), out.size());
+}
+void files_before_load(void *) {
+    ff7r_disk_files_close_all();        // still the running game's heap
+    g_files_restored.clear();
+    g_files_record = false;
+}
+void files_restore(void *, const void *data, size_t n) {
+    if (n < 4 || ((const uint8_t *)data)[0] != 1) return;
+    g_files_record = true;
+    const uint8_t *p = (const uint8_t *)data + 4, *end = (const uint8_t *)data + n;
+    while (end - p >= 16) {
+        uint32_t v[4];
+        std::memcpy(v, p, 16); p += 16;
+        if (v[2] > 8 || v[3] > 1024 || (size_t)(end - p) < (size_t)v[2] + v[3]) break;
+        DiskFile f{ v[0], std::string((const char *)p + v[2], v[3]), std::string((const char *)p, v[2]), (long)v[1] };
+        p += v[2] + v[3];
+        g_files_restored.push_back(std::move(f));
+    }
+}
+void files_after_load(void *) {
+    if (!g_files_record) {
+        // A state made before 1.1.60 has no list. The one file FF7 1.02 keeps open all game is
+        // audio.dat: sub_00746DC3 seeks the handle at 0xDE644C before loading a sound.
+        struct ff7_file *f = *(gptr<struct ff7_file> *)(uintptr_t)0xDE644Cu;
+        if (f && f->name && f->fd && !f->context.use_lgp)
+            g_files_restored.push_back({ (uint32_t)(uintptr_t)(struct lgp_file *)f->fd, std::string(f->name), "rb", 0 });
+    }
+    int ok = 0, failed = 0;
+    for (const DiskFile &f : g_files_restored) {
+        if (ff7r_disk_file_reopen(f.block, f.path.c_str(), f.mode.c_str(), f.pos)) ok++;
+        else { failed++; ffnx_error("savestate: could not open %s again\n", f.path.c_str()); }
+    }
+    if (ok || failed) ffnx_info("savestate: %d open file(s) opened again%s\n", ok, g_files_record ? "" : " (older state)");
+    g_files_restored.clear();
+    g_files_record = false;
+}
+const ff7_savestate_hook g_files_hook = { "ffnx-files", nullptr, files_save, files_before_load, files_restore, files_after_load };
+
 struct Register {
     Register() { ff7_savestate_register(&g_hook); ff7_savestate_register(&g_facial_hook); ff7_savestate_register(&g_scene_hook); ff7_savestate_register(&g_prompts_hook);
-                 ff7_savestate_register(&g_deferred_hook); ff7_savestate_register(&g_kernel2_hook); }
+                 ff7_savestate_register(&g_deferred_hook); ff7_savestate_register(&g_kernel2_hook); ff7_savestate_register(&g_files_hook); }
 } g_register;
 
 }  // namespace

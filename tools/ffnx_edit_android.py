@@ -872,6 +872,48 @@ EDITS = [
      '\tlast = &none;\n'
      '}\n\n'
      'int lgp_lookup_value(unsigned char c)\n{\n'),
+    # A file opened on disk (not in an LGP) keeps its host FILE* in a game-heap block, so a
+    # save state from another launch brought back a dead pointer, and the next read of
+    # audio.dat (a sound the game loads itself) crashed in fseek (GitHub #91). FFNx now knows
+    # its open disk files; a state names them and a load opens them again
+    # (src/ffnx_port/savestate_ffnx.cpp).
+    ('ff7/file.cpp', 'void close_file(struct ff7_file *file)\n{\n\tif(!file) return;\n\n\tif(file->fd)\n\t{\n\t\tif(!file->fd->is_lgp_offset && file->fd->fd) fclose(file->fd->fd);\n',
+     '// FF7Recomp: files open on disk, by the game-heap block holding their FILE* (GitHub #91)\n'
+     '#include <map>\n#include <string>\n'
+     'static std::map<uint32_t, std::pair<std::string, std::string>> ff7r_disk_files;   // block -> path, mode\n\n'
+     'void ff7r_disk_files_each(void (*fn)(uint32_t block, const char *path, const char *mode, long pos, void *ctx), void *ctx)\n{\n'
+     '\tfor (auto &kv : ff7r_disk_files)\n\t{\n'
+     '\t\tstruct lgp_file *b = (struct lgp_file *)(uintptr_t)kv.first;\n'
+     '\t\tfn(kv.first, kv.second.first.c_str(), kv.second.second.c_str(), b->fd ? ftell(b->fd) : 0, ctx);\n'
+     '\t}\n}\n\n'
+     '// a load is about to replace the game heap: close the running game\'s files\n'
+     'void ff7r_disk_files_close_all()\n{\n'
+     '\tfor (auto &kv : ff7r_disk_files)\n\t{\n'
+     '\t\tstruct lgp_file *b = (struct lgp_file *)(uintptr_t)kv.first;\n'
+     '\t\tif (b->fd) fclose(b->fd);\n'
+     '\t\tb->fd = nullptr;\n'
+     '\t}\n'
+     '\tff7r_disk_files.clear();\n}\n\n'
+     '// after a load: open a file of the state again into its (restored) block\n'
+     'bool ff7r_disk_file_reopen(uint32_t block, const char *path, const char *mode, long pos)\n{\n'
+     '\tstruct lgp_file *b = (struct lgp_file *)(uintptr_t)block;\n'
+     '\tconst char *m = mode[0] == \'w\' ? "r+b" : mode;   // never empty a file the state wrote\n'
+     '\tb->fd = fopen(path, m);\n'
+     '\tif (!b->fd) return false;\n'
+     '\tfseek(b->fd, pos, SEEK_SET);\n'
+     '\tff7r_disk_files[block] = { path, m };\n'
+     '\treturn true;\n}\n\n'
+     'void close_file(struct ff7_file *file)\n{\n\tif(!file) return;\n\n\tif(file->fd)\n\t{\n'
+     '\t\tff7r_disk_files.erase((uint32_t)(uintptr_t)(struct lgp_file *)file->fd);   // FF7Recomp (#91)\n'
+     '\t\tif(!file->fd->is_lgp_offset && file->fd->fd) fclose(file->fd->fd);\n'),
+    ('ff7/file.cpp', '\t\tif(!ret->fd->fd) goto error;\n\t}\n\n\treturn ret;\n',
+     '\t\tif(!ret->fd->fd) goto error;\n'
+     '\t\t{   // FF7Recomp: a save state opens it again (GitHub #91)\n'
+     '\t\t\tconst char *m = ret->context.mode == FF7_FMODE_READ ? "rb" : ret->context.mode == FF7_FMODE_READ_TEXT ? "r"\n'
+     '\t\t\t\t: ret->context.mode == FF7_FMODE_WRITE ? "wb" : ret->context.mode == FF7_FMODE_CREATE ? "w+b" : "r+b";\n'
+     '\t\t\tff7r_disk_files[(uint32_t)(uintptr_t)(struct lgp_file *)ret->fd] = { _filename, m };\n'
+     '\t\t}\n'
+     '\t}\n\n\treturn ret;\n'),
     # A load replaces the whole game heap, so nothing FFNx keeps a host pointer to across frames
     # may live there: the scratch picture every texture is decoded into did, and a load's own
     # uploads then wrote pixels over the restored field (GitHub #77). Host memory.
