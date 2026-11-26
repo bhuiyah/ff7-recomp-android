@@ -8,10 +8,11 @@ android {
         applicationId 'com.ff7recomp'
         minSdk 29
         targetSdk 35
-        versionCode 129
-        versionName '1.1.60'
+        versionCode 130
+        versionName '1.1.61'
         ndk { abiFilters 'arm64-v8a' }
-        externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static', "-DFF7_BUNDLE_GAME=${project.findProperty('bundleGame') ?: 'OFF'}" } }
+        externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static', "-DFF7_BUNDLE_GAME=${project.findProperty('bundleGame') ?: 'OFF'}",
+                                         "-DFF7_ASAN=${project.findProperty('asan') ?: 'OFF'}" } }
     }
     // Release signing: the key stays off the repository, in ~/.ff7recomp/keystore.properties
     // (storeFile, storePassword, keyAlias, keyPassword) or the file named by FF7_KEYSTORE_PROPERTIES.
@@ -35,6 +36,8 @@ android {
         release {
             minifyEnabled false
             if (ks['storeFile']) signingConfig signingConfigs.release
+            // -Pasan=ON (development, with -PbundleGame=ON): wrap.sh needs a debuggable app
+            if (project.findProperty('asan') == 'ON') debuggable true
         }
     }
     externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt'); version '3.30.5' } }
@@ -45,6 +48,10 @@ android {
     sourceSets { main {
         assets.srcDirs += ["${rootDir}/../build/apk-assets", "${rootDir}/../build/device-kit/assets"]
         jniLibs.srcDirs += ["${rootDir}/../build/device-kit/jni"]
+        if (project.findProperty('asan') == 'ON') {   // the NDK's ASan runtime and wrap.sh (tools/asan/setup.sh, android/app/asan)
+            jniLibs.srcDirs += ['asan/jni']
+            resources.srcDirs += ['asan/res']
+        }
     } }
     packaging { jniLibs { useLegacyPackaging true } }
     // kit.zip is already compressed

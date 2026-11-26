@@ -20,3 +20,4 @@ __pycache__/
 # The device clang's PGO profile (tools/train_device_clang.sh): local only, it records the
 # build machine's source paths.
 /config/clang-device.profdata.gz
+/android/app/asan/

@@ -133,3 +133,16 @@ foreach(t ff7_core ffnx bgfx bx bimg bimg_decode astcenc ffnx_png ffnx_imgui ffn
     target_compile_options(${t} PRIVATE -O2)
   endif()
 endforeach()
+
+# AddressSanitizer for the runtime (FF7_ASAN, gradle -Pasan=ON with -PbundleGame=ON): FFNx, bgfx,
+# the port and the HLE, not the lift (its writes stay in the guest's own memory). The APK then
+# carries the NDK's wrap.sh and ASan runtime (tools/asan/setup.sh, build.gradle).
+option(FF7_ASAN "Build the native runtime with AddressSanitizer (development)" OFF)
+if(FF7_ASAN)
+  foreach(t ff7_core ffnx bgfx bx bimg bimg_decode astcenc ffnx_png ffnx_imgui ffnx_pugixml ffnx_xxhash
+            ffnx_ogg ffnx_vorbis ffnx_vgmstream ffnx_soloud ffnx_openpsf ffnx_lz4 ffnx_spirv ffnx_lsfg ff7_rcheevos)
+    if(TARGET ${t})
+      target_compile_options(${t} PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+    endif()
+  endforeach()
+endif()

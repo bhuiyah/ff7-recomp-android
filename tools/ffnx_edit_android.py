@@ -2152,6 +2152,29 @@ EDITS = [
      '    }\n'
      '\n'
      '    bool ff7_field_is_facial_primitive(const polygon_data *polygon, const indexed_primitive *primitive)\n'),
+    # External sfx (sfx mods): sfx_state had 5 entries, one per game channel 1..5, but FFNx
+    # writes it for channel 6 too: ff7_sfx_stop (every battle swirl) stops 1..6 and clears
+    # sfx_state[5].sound_id, and ff7_sfx_load_and_play_with_speed plays on 6 through
+    # ff7_sfx_play_on_channel. The volume, panning and frequency setters also indexed it with
+    # the channel itself, so the menu's channel 5 (sfx_menu_force_channel_5_volume) wrote
+    # sfx_state[5] as well. Each was a 4-byte store (often 0) just past the 420-byte array, into
+    # whatever the heap put next: it wiped the low half of other code's pointers, the rare
+    # crashes at scene changes (GitHub #90, found with an ASan build). Channel 6 now has an
+    # entry of its own (7: one spare), and the setters use channel - 1.
+    ('sfx.cpp', '\t\t\tsfx_state = new ff7_field_sfx_state[5]{0};\n\t\t\tfor (short i = 0; i < 5; i++) sfx_state[i].volume1 = 127;\n',
+     '\t\t\tsfx_state = new ff7_field_sfx_state[7]{0};   // FF7Recomp (#90): channels 1..6 (FFNx uses 6 too)\n'
+     '\t\t\tfor (short i = 0; i < 7; i++) sfx_state[i].volume1 = 127;\n'),
+    ('sfx.cpp', '\tsfx_state[channel].volume1 = volume;\n',
+     '\tif (channel >= 1 && channel <= 6) sfx_state[channel-1].volume1 = volume;   // FF7Recomp (#90)\n'),
+    ('sfx.cpp', '\tsfx_state[channel].pan1 = panning;\n',
+     '\tif (channel >= 1 && channel <= 6) sfx_state[channel-1].pan1 = panning;   // FF7Recomp (#90)\n'),
+    ('sfx.cpp', '\tsfx_state[channel].frequency = speed;\n',
+     '\tif (channel >= 1 && channel <= 6) sfx_state[channel-1].frequency = speed;   // FF7Recomp (#90)\n'),
+    ('sfx.cpp', '\tnxAudioEngine.stopSFX(channel, time);\n\n\tsfx_state[channel-1].pan1 = 64;\n',
+     '\tnxAudioEngine.stopSFX(channel, time);\n\n\tif (channel < 1 || channel > 6) return;   // FF7Recomp (#90)\n\tsfx_state[channel-1].pan1 = 64;\n'),
+    ('sfx.cpp', '\tff7_field_sfx_state *currentState = &sfx_state[channel-1];\n',
+     '\tif (channel < 1 || channel > 6) return;   // FF7Recomp (#90): sfx_state has channels 1..6\n'
+     '\tff7_field_sfx_state *currentState = &sfx_state[channel-1];\n'),
 ]
 
 

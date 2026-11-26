@@ -906,3 +906,21 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
 - patches/bgfx/0008: upstream bgfx trusted glProgramBinary blindly; now it checks GL_LINK_STATUS and links from the shaders when the
   driver turns a binary down (another driver build, a bad file).
 - Thor (Adreno), OpenGL ES: 1st launch 8 -> 31 kept (23 programs stored), 2nd launch "1 loaded", renders normally; Vulkan still loads.
+## 2026-11-26: the stray write behind #90's crashes (1.1.61; issue #90)
+- #90's last reports (Mali, Vulkan and GLES) died in libhwui's RenderThread on a heap pointer with its low 32 bits zeroed; an
+  earlier one in bionic free() ("Pointer tag for 0x2b00000000 was truncated"); the Thor once in libhwui too. Something in the
+  process stored 4 bytes past its own heap block.
+- ASan APK (tools/asan/setup.sh, gradle -PbundleGame=ON -Pasan=ON; FFNx, bgfx and the runtime instrumented, the lift not):
+  wrap.sh with the NDK's ASan runtime, debuggable, release-signed. On the Thor (Android 13, FPAC) ART died with SIGILL at
+  autiasp in ASan's prctl interceptor: ART resets the PAC keys (PR_PAC_RESET_KEYS) inside it. tools/asan/prctl_shim.c, preloaded
+  first, does prctl as a plain unsigned syscall.
+- Caught at once with the Tsunamods set (external sfx on), twice:
+  - heap-buffer-overflow WRITE 4, 4 bytes after FFNx's 420-byte sfx_state (5 x ff7_field_sfx_state, sfx_init):
+    ff7_sfx_set_volume_on_channel <- sfx_menu_force_channel_5_volume <- ff7_engine_exit_game_mode. The volume, panning and
+    frequency setters indexed sfx_state[channel] with the game's 1-based channel, so channel 5 landed past the end.
+  - WRITE 4, 24 bytes after it: ff7_sfx_stop_channel(6) (sound_id = 0) <- ff7_sfx_stop <- sfx_operation_battle_swirl_stop_sound,
+    every battle swirl. ff7_sfx_load_and_play_with_speed also plays on channel 6 through ff7_sfx_play_on_channel.
+- Fix (tools/ffnx_edit_android.py): sfx_state has 7 entries (channels 1..6 and a spare), setters use channel - 1, stop/play
+  check the channel. Upstream FFNx has the same code; on Windows the stray store just lands in other heap data.
+- Thor, ASan build after the fix: start-up, menus, field running, battle swirls, battles and escapes in Mako Reactor 1 with
+  encounters on: no ASan report.

@@ -16,6 +16,9 @@ if(FF7_BUNDLE_GAME)
   include("${FF7_ROOT}/cmake/ff7core.cmake")
   add_library(ff7 SHARED "${FF7_ROOT}/src/android/ff7_android_main.cpp")
   target_link_libraries(ff7 PRIVATE ff7_core android log)
+  if(FF7_ASAN)
+    target_link_options(ff7 PRIVATE -fsanitize=address)
+  endif()
 endif()
 
 # libff7launcher.so for the launcher activity: mod archives and mod.xml read with the same
