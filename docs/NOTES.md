@@ -924,3 +924,20 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
   check the channel. Upstream FFNx has the same code; on Windows the stray store just lands in other heap data.
 - Thor, ASan build after the fix: start-up, menus, field running, battle swirls, battles and escapes in Mako Reactor 1 with
   encounters on: no ASan report.
+
+## 2026-11-26: two mods' halves of one field (1.1.62; issue #91)
+- #91's next reports (1.1.61, Samsung S24 Ultra, Echo-S voices on with ChaOS) crashed in sub_0060CE26 (the field's model
+  animation update, called from the field loop through 0x60BB58): `mov edx, [ecx+8]` with ecx = model[10].anim_frame_object
+  (+0x178 of the 0x190-byte field_animation_data at [0xCFF738]), 0 or junk. Both reports: edx = 0xFA0 = model 10.
+- Cause: ChaOS's "BETA: Resized Models" option (RSP, off by default; its description says it crashes with gameplay mods)
+  ships ResizedProject/flevel.lgp/<field>.chunk.3 for 693 fields: model lists (flevel section 3) made from the original
+  scripts. FFNx's ff7_read_field_file applies a chunk on top of whichever field file wins, here Echo-S's voiced ones. In 39
+  fields the scripts' model count (script header byte 3) and the chunk's (section 3, u16 at +2) differ, e.g. fship_12 (the
+  Highwind from the world map) 14 against 10, yufy2 and blin671b 11 against 10. The model table is allocated for the list's
+  count, so the scripts' extra models are past its end. Same on Windows (ChaOS's own warning).
+- Reproduced on the Thor (1.1.61, the reporter's mods, a save moved into fship_12: savemap +0xB96 = 67 in every used slot,
+  since Enhanced Stock UI's load menu starts on the latest one): FAULT at guest 0x8 in 0x0060CE26 on the first frame.
+- Fix (tools/ffnx_edit_android.py, file.cpp): a chunk.3 whose model count differs from the scripts' is left out for that
+  field, which keeps the model list of the file it came with; logged as "[mods] <field>.chunk.3 lists N model(s), but the
+  field's scripts use M: left out".
+- Tools: scratch iro_batch.py (many IRO entries in one adb exec-out) and fmodels.py (script vs model loader counts).

@@ -2175,6 +2175,38 @@ EDITS = [
     ('sfx.cpp', '\tff7_field_sfx_state *currentState = &sfx_state[channel-1];\n',
      '\tif (channel < 1 || channel > 6) return;   // FF7Recomp (#90): sfx_state has channels 1..6\n'
      '\tff7_field_sfx_state *currentState = &sfx_state[channel-1];\n'),
+    # Field chunk files (GitHub #91): a field's model list (section 3) from a chunk file has to
+    # list the models the field's scripts use (script header byte 3). ChaOS's "Resized Models"
+    # option ships chunk.3 files for 693 fields, made from the original scripts; Echo-S's voiced
+    # field files use more models in 39 of them (fship_12, the Highwind: 14 against ChaOS's 10).
+    # The scripts then animated a model that was never loaded (the model table ends before it):
+    # a crash in the field's model update. ChaOS warns its option crashes with gameplay mods; such
+    # a chunk is now left out for that field, which keeps the model list of the file it came with.
+    ('ff7/file.cpp', '\tFILE* fd;\n\n\tfor (int n = 0; n < FF7_FIELD_NUM_SECTIONS; n++)\n',
+     '\tFILE* fd;\n\tbool ff7r_from_chunk[FF7_FIELD_NUM_SECTIONS] = {};   // FF7Recomp (#91)\n\n'
+     '\tfor (int n = 0; n < FF7_FIELD_NUM_SECTIONS; n++)\n'),
+    ('ff7/file.cpp', '\t\t\tfclose(fd);\n\t\t}\n\t\telse\n',
+     '\t\t\tfclose(fd);\n\t\t\tff7r_from_chunk[n] = true;   // FF7Recomp (#91)\n\t\t}\n\t\telse\n'),
+    ('ff7/file.cpp', '\t// Allocate the new field file\n',
+     '\t// FF7Recomp (#91): a model list chunk that does not match the scripts\' model count is left out\n'
+     '\tif (ff7r_from_chunk[2] && ff7_field_file_chunked[0].size > 3 && ff7_field_file_chunked[2].size > 3)\n'
+     '\t{\n'
+     '\t\tconst uint32_t scripted = ff7_field_file_chunked[0].data[3];\n'
+     '\t\tconst uint32_t listed = *(uint16_t*)(ff7_field_file_chunked[2].data + 2);\n'
+     '\t\tif (scripted != listed)\n'
+     '\t\t{\n'
+     '\t\t\tfprintf(stderr, "[mods] %s.chunk.3 lists %u model(s), but the field\'s scripts use %u: left out (two mods change this field)\\n", filepath, listed, scripted);\n'
+     '\t\t\tffnx_warning("%s.chunk.3 lists %u model(s), but the field\'s scripts use %u: left out\\n", filepath, listed, scripted);\n'
+     '\t\t\tdelete ff7_field_file_chunked[2].data;\n'
+     '\t\t\tdata_ptr = *(uint32_t*)(original_field_data + 0x6 + 0x4 * 2);\n'
+     '\t\t\tnext_data_ptr = *(uint32_t*)(original_field_data + 0x6 + 0x4 * 3);\n'
+     '\t\t\tff7_field_file_chunked[2].size = next_data_ptr - data_ptr - 0x4;\n'
+     '\t\t\tff7_field_file_chunked[2].data = new byte[ff7_field_file_chunked[2].size];\n'
+     '\t\t\tmemcpy(ff7_field_file_chunked[2].data, original_field_data + data_ptr + 0x4, ff7_field_file_chunked[2].size);\n'
+     '\t\t}\n'
+     '\t}\n'
+     '\n'
+     '\t// Allocate the new field file\n'),
 ]
 
 
