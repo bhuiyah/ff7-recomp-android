@@ -941,3 +941,20 @@ Measured with `dumpsys SurfaceFlinger --latency` on the GameActivity SurfaceView
   field, which keeps the model list of the file it came with; logged as "[mods] <field>.chunk.3 lists N model(s), but the
   field's scripts use M: left out".
 - Tools: scratch iro_batch.py (many IRO entries in one adb exec-out) and fmodels.py (script vs model loader counts).
+
+## 2026-11-27: Battle+ and Enhanced Stock UI's battle names; the help text after the reels (1.1.63; issue #93)
+- Battle+ hid the party's names and Enhanced Stock UI's mini avatars in battle. ESUI's BattleView\BAv1 (mini avatars) saves
+  each party member's savemap bytes +0x0F..+0x12 at battle start (hook 0x5BCFD0 -> 0x9144B3), writes an avatar glyph into
+  +0x0F (the Limit gauge byte, just before the name) and points the name draws at +0x0F (6DD43F/6DD48D/6E1393 = 9B); the
+  battle end (0x6CF6C6 -> 0x914592) puts the bytes back. Battle+ wrote 0xFF (the end of a string) to +0x0F every frame,
+  in battle too. Fix (boosters.cpp): the savemap Limit byte is only written outside battle (not MODE_BATTLE/MODE_SWIRL);
+  the battle's own gauge (0x9A8DC0) is what Battle+ fills in battle.
+- With ESUI's "No Help/Action Boxes" (its default, nbb/hbb), the battle help text was gone after Tifa's or Cait Sith's
+  reels until the game restarted. ESUI's reels code (BattleViewOptimised 913FC0, called from 0x6E3162 and 0x6E2447)
+  sets the high byte of three Y positions to 2 (off screen): 0x91C343, 0x6E1864 (code: the status text row) and 0x91D0EB
+  (the help box). With stock help boxes 0x914B3D = 1 puts them back at once; the no-box folders leave it 0 and their
+  per-frame hook (HelpBoxesNoneOptimisedStatus 914B3F, from 0x6DD048) only puts back 0x6E1864. Nothing writes 0x91D0EB
+  again (a scan of the patched code), so it is ESUI's own; it should do the same on Windows. Fix (boosters.cpp): in
+  battle, with that code loaded (bytes at 0x913FC0) and 0x914B3D = 0, 0x91D0EB is put back to 1 each frame.
+- Reproduced both on the Thor with 1.1.62 and the reporter's ESUI options (save 2 slot 12, a world map battle, Battle+
+  on); checked with 1.1.63.

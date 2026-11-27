@@ -196,6 +196,32 @@ extern "C" int ff7_booster_slow() { const double s = gamehacks.getCurrentSpeedha
 extern "C" int ff7_booster_speed() { return (int)(gamehacks.getCurrentSpeedhack() + 0.5); }
 extern "C" int ff7_booster_no_encounters() { return gamehacks.companionBattlesWanted() ? 0 : 1; }
 
+// Enhanced Stock UI (2.967+) with "No Help/Action Boxes" (its default) loses the battle help
+// text after Tifa's or Cait Sith's reels, for the rest of the session (#93). Its reels code
+// (0x913FC0, called from the reel windows) sets the high byte of three Y positions to 2, i.e. off
+// screen: the main boxes (0x91C343), the party status text (0x6E1864, code) and the help box
+// (0x91D0EB). With stock help boxes (flag byte 0x914B3D = 1) a per-frame hook decides the help
+// box; the "no box" folders leave the flag at 0 and their per-frame hook (0x914B3F) only puts
+// back the status text. Nothing puts the help box back. With those folders
+// the reels code is the only writer of 2 there, so: in battle, with that code loaded and the flag
+// clear, the help box is put back each frame (while the reels show, their code hides it again
+// every frame, as the per-frame hook does with the status text).
+static void esui_help_box_frame() {
+    static const uint8_t k_reels_hide[] = {   // ESUI BattleView\BattleViewOptimised: 913FC0
+        0xC6, 0x05, 0x43, 0xC3, 0x91, 0x00, 0x02, 0xC6, 0x05, 0x64, 0x18, 0x6E, 0x00, 0x02,
+        0xC6, 0x05, 0xEB, 0xD0, 0x91, 0x00, 0x02, 0x83, 0x3D, 0x3D, 0x4B, 0x91, 0x00, 0x01 };
+    static int present = -1;
+    if (present < 0) {
+        present = !std::memcmp((const void *)(uintptr_t)0x913FC0, k_reels_hide, sizeof k_reels_hide);
+        if (present) std::fprintf(stderr, "[mods] Enhanced Stock UI reels code found: help box put back after the reels\n");
+    }
+    // the flag is a byte: ESUI's per-frame code starts right after it, at 0x914B3F (as a dword,
+    // which is how the reels code compares it with 1, it is never 1)
+    if (!present || *(const uint8_t *)(uintptr_t)0x914B3D != 0) return;
+    volatile uint8_t *help_box = (volatile uint8_t *)(uintptr_t)0x91D0EB;
+    if (*help_box == 2) *help_box = 1;
+}
+
 // Once per frame on the game thread (companion.cpp).
 extern "C" void ff7_boosters_frame() {
     if (!g_inited) { g_inited = true; read_defaults(); }
@@ -222,14 +248,22 @@ extern "C" void ff7_boosters_frame() {
         if (g_autofire) std::fprintf(stderr, "[boosters] hold-confirm repeat %s\n", fire ? "on (battle)" : "off");
         fire_state = fire;
     }
+    if (battle) esui_help_box_frame();
 
     // battle enhancement: the party's HP and MP full in battle, the Limit gauge full
     if (!ff7_booster_battle || !ff7_externals.savemap) return;
     savemap *sm = ff7_externals.savemap;
-    for (int slot = 0; slot < 3; slot++) {
-        const unsigned id = (unsigned char)sm->party_members[slot];
-        if (id >= 9) continue;
-        sm->chars[id].current_limit_bar = 0xFF;   // battles start with it full
+    // Battles start with it full. Only outside battle: in battle the gauge is the battle's own
+    // (below), and the savemap byte is free for mods. Enhanced Stock UI's mini avatars put the
+    // avatar glyph there for the battle (the byte before the name, drawn as the name's first
+    // letter) and put the byte back at the end; 0xFF there ends the name before it starts, so
+    // writing it in battle hid the party's names and avatars (#93).
+    if (mode != MODE_BATTLE && mode != MODE_SWIRL) {
+        for (int slot = 0; slot < 3; slot++) {
+            const unsigned id = (unsigned char)sm->party_members[slot];
+            if (id >= 9) continue;
+            sm->chars[id].current_limit_bar = 0xFF;
+        }
     }
     if (!battle) return;
     for (int slot = 0; slot < 3; slot++) {
